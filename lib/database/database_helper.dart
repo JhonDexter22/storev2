@@ -19,8 +19,9 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _createDB,
+      onUpgrade: _upgradeDB,
     );
   }
 
@@ -32,8 +33,39 @@ class DatabaseHelper {
         stock INTEGER NOT NULL,
         min_stock INTEGER NOT NULL,
         category TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        price REAL NOT NULL DEFAULT 0.0,
+        sku TEXT,
+        image_path TEXT
       )
     ''');
   }
+
+  /// Migrates existing DB (v1 → v2) by adding the three new columns.
+  /// Uses IF NOT EXISTS-style guards via try/catch so re-runs are safe.
+  Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      for (final sql in [
+        'ALTER TABLE products ADD COLUMN price REAL NOT NULL DEFAULT 0.0',
+        'ALTER TABLE products ADD COLUMN sku TEXT',
+        'ALTER TABLE products ADD COLUMN image_path TEXT',
+      ]) {
+        try {
+          await db.execute(sql);
+        } catch (_) {
+          // Column may already exist on repeated upgrades — safe to ignore.
+        }
+      }
+    }
+  }
+// Idagdag ito sa loob ng DatabaseHelper class
+  Future<int> insertProduct(Map<String, dynamic> product) async {
+    final db = await instance.database;
+    // I-insert sa table mo. Kapag successful, ibabalik nito ang bagong id ng product.
+    return await db.insert('products', product);
+  }
+
+  
+
+
 }
