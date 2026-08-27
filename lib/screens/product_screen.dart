@@ -25,16 +25,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   // ── Design Tokens ──────────────────────────────────────────────────────
   static const Color _white       = Color(0xFFFFFFFF);
-  static const Color _bg          = Color(0xFFF4F6FB);
+  static const Color _bg          = Color(0xFFF5F6FA);
   static const Color _cardBg      = Color(0xFFFFFFFF);
   static const Color _ink         = Color(0xFF0D0F1A);
   static const Color _inkMid      = Color(0xFF5A5F7A);
-  static const Color _inkLight    = Color(0xFFB0B5CC);
-  static const Color _border      = Color(0xFFE8EBF5);
-  static const Color _accent      = Color(0xFF2563EB);
-  static const Color _accentLight = Color(0xFFEEF3FF);
+  static const Color _inkLight    = Color(0xFFA2A7BF);
+  static const Color _border      = Color(0xFFE7EAF4);
+  static const Color _accent      = Color(0xFF2554E8);
+  static const Color _accentLight = Color(0xFFEEF2FE);
   static const Color _success     = Color(0xFF16A34A);
-  static const Color _successBg   = Color(0xFFECFDF5);
+  static const Color _successBg   = Color(0xFFECFDF3);
   static const Color _warning     = Color(0xFFD97706);
   static const Color _warningBg   = Color(0xFFFFFBEB);
   static const Color _danger      = Color(0xFFDC2626);
@@ -685,7 +685,7 @@ _sheetField(
             const Icon(Icons.check_circle_outline, color: _white, size: 16),
             const SizedBox(width: 10),
             Expanded(
-              child: Text('\"₱${deleted.name}\" removed',
+              child: Text('"${deleted.name}" removed',
                   style: const TextStyle(color: _white, fontSize: 14)),
             ),
           ]),

@@ -19,7 +19,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -37,6 +37,35 @@ class DatabaseHelper {
         price REAL NOT NULL DEFAULT 0.0,
         sku TEXT,
         image_path TEXT
+      )
+    ''');
+    await _createSalesTables(db);
+  }
+
+  Future _createSalesTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE sales(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        subtotal REAL NOT NULL,
+        total REAL NOT NULL,
+        payment_method TEXT NOT NULL,
+        cash_received REAL NOT NULL DEFAULT 0,
+        change_amount REAL NOT NULL DEFAULT 0,
+        item_count INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE sale_items(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        unit_price REAL NOT NULL,
+        qty INTEGER NOT NULL,
+        line_total REAL NOT NULL,
+        FOREIGN KEY(sale_id) REFERENCES sales(id)
       )
     ''');
   }
@@ -57,6 +86,9 @@ class DatabaseHelper {
         }
       }
     }
+    if (oldVersion < 3) {
+      await _createSalesTables(db);
+    }
   }
 // Idagdag ito sa loob ng DatabaseHelper class
   Future<int> insertProduct(Map<String, dynamic> product) async {
@@ -65,7 +97,13 @@ class DatabaseHelper {
     return await db.insert('products', product);
   }
 
-  
+  /// Wipes all store data (products and sales history). Irreversible.
+  Future<void> clearAllData() async {
+    final db = await instance.database;
+    await db.delete('sale_items');
+    await db.delete('sales');
+    await db.delete('products');
+  }
 
 
 }

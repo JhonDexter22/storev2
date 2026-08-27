@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'core/design_tokens.dart';
+import 'screens/dashboard_screen.dart';
+import 'screens/pos_screen.dart';
 import 'screens/product_screen.dart';
 import 'screens/restock_screen.dart';
 import 'screens/settings_screen.dart';
@@ -19,10 +23,11 @@ class RestockApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF2563EB),
+          seedColor: AppColors.primary,
           brightness: Brightness.light,
         ),
-        scaffoldBackgroundColor: const Color(0xFFF7F8FC),
+        scaffoldBackgroundColor: AppColors.canvas,
+        textTheme: GoogleFonts.plusJakartaSansTextTheme(),
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -41,20 +46,30 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  int _currentIndex = 0;
+  int _currentIndex = 2;
 
   // One AnimationController per tab for the press/tap scale effect
   late final List<AnimationController> _scaleControllers;
   late final List<Animation<double>> _scaleAnims;
 
-  static const _accent     = Color(0xFF2563EB);
-  static const _accentBg   = Color(0xFFEEF3FF);
-  static const _ink        = Color(0xFF0D0F1A);
-  static const _inkLight   = Color(0xFFB0B5CC);
-  static const _navBg      = Color(0xFFFFFFFF);
-  static const _navBorder  = Color(0xFFEAECF5);
+  static const _accent     = AppColors.primary;
+  static const _accentBg   = AppColors.primaryTint;
+  static const _ink        = AppColors.ink;
+  static const _inkLight   = AppColors.faint;
+  static const _navBg      = AppColors.surface;
+  static const _navBorder  = AppColors.dividerStrong;
 
   static const _tabs = [
+    _TabItem(
+      label: 'Home',
+      icon: Icons.home_outlined,
+      activeIcon: Icons.home_rounded,
+    ),
+    _TabItem(
+      label: 'POS',
+      icon: Icons.storefront_outlined,
+      activeIcon: Icons.storefront_rounded,
+    ),
     _TabItem(
       label: 'Products',
       icon: Icons.inventory_2_outlined,
@@ -66,9 +81,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       activeIcon: Icons.autorenew_rounded,
     ),
     _TabItem(
-      label: 'Settings',
-      icon: Icons.tune_outlined,
-      activeIcon: Icons.tune_rounded,
+      label: 'More',
+      icon: Icons.menu_outlined,
+      activeIcon: Icons.menu_rounded,
     ),
   ];
 
@@ -115,10 +130,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget _getScreen() {
     switch (_currentIndex) {
       case 0:
-        return const ProductsScreen();
+        return DashboardScreen(onStartSale: () => setState(() => _currentIndex = 1));
       case 1:
-        return const RestockScreen();
+        return const PosScreen();
       case 2:
+        return const ProductsScreen();
+      case 3:
+        return const RestockScreen();
+      case 4:
         return const SettingsScreen();
       default:
         return const ProductsScreen();
