@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../services/settings_service.dart';
+import 'cash_count_screen.dart';
+import 'cashier_switch_screen.dart';
 import 'product_screen.dart';
+import 'reports_screen.dart';
+import 'returns_screen.dart';
+import 'shift_history_screen.dart';
 import 'store_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -55,15 +61,10 @@ class SettingsScreen extends StatelessWidget {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: _ink,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  content: const Text('Signed out',
-                      style: TextStyle(color: Colors.white)),
-                ),
+              // Signing out means someone has to sign back in to the till.
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CashierSwitchScreen()),
               );
             },
             child: const Text('Sign out',
@@ -81,40 +82,31 @@ class SettingsScreen extends StatelessWidget {
         code: 'RT',
         title: 'Returns & voids',
         subtitle: 'Reverse a line or a whole sale',
-        onTap: (ctx) => _open(
-          ctx,
-          const _PlaceholderScreen(
-            title: 'Returns & Voids',
-            description: 'Reverse a line item or void an entire sale.',
-            icon: Icons.replay_rounded,
-          ),
-        ),
+        onTap: (ctx) => _open(ctx, const ReturnsScreen()),
       ),
       _MoreItem(
         code: 'RP',
         title: 'Reports',
         subtitle: 'Revenue, top products, payment mix',
-        onTap: (ctx) => _open(
-          ctx,
-          const _PlaceholderScreen(
-            title: 'Reports',
-            description: 'Revenue, top products, and payment mix at a glance.',
-            icon: Icons.bar_chart_rounded,
-          ),
-        ),
+        onTap: (ctx) => _open(ctx, const ReportsScreen()),
       ),
       _MoreItem(
         code: 'CC',
         title: 'Cash count',
         subtitle: 'End of day reconciliation',
-        onTap: (ctx) => _open(
-          ctx,
-          const _PlaceholderScreen(
-            title: 'Cash Count',
-            description: 'Reconcile the drawer at the end of the day.',
-            icon: Icons.point_of_sale_rounded,
-          ),
-        ),
+        onTap: (ctx) => _open(ctx, const CashCountScreen()),
+      ),
+      _MoreItem(
+        code: 'SH',
+        title: 'Shift history',
+        subtitle: 'Past closes and drawer variance',
+        onTap: (ctx) => _open(ctx, const ShiftHistoryScreen()),
+      ),
+      _MoreItem(
+        code: 'CS',
+        title: 'Switch cashier',
+        subtitle: 'Change who is on the till',
+        onTap: (ctx) => _open(ctx, const CashierSwitchScreen()),
       ),
       _MoreItem(
         code: 'ST',
@@ -130,6 +122,13 @@ class SettingsScreen extends StatelessWidget {
       ),
     ];
 
+    return ListenableBuilder(
+      listenable: SettingsService.instance,
+      builder: (context, _) => _buildScaffold(context, items),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context, List<_MoreItem> items) {
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
@@ -149,7 +148,8 @@ class SettingsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'May · Terminal 1 · ${_todayLabel()}',
+              '${SettingsService.instance.cashier} · '
+              '${SettingsService.instance.terminal} · ${_todayLabel()}',
               style: const TextStyle(
                 color: _inkMid,
                 fontSize: 13,
@@ -300,80 +300,6 @@ class _MenuRow extends StatelessWidget {
               const SizedBox(width: 8),
               const Icon(Icons.chevron_right_rounded,
                   color: _inkLight, size: 22),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Shared placeholder for not-yet-built sections ───────────────────────────
-class _PlaceholderScreen extends StatelessWidget {
-  const _PlaceholderScreen({
-    required this.title,
-    required this.description,
-    required this.icon,
-  });
-
-  final String title;
-  final String description;
-  final IconData icon;
-
-  static const Color _bg          = Color(0xFFF5F6FB);
-  static const Color _ink         = Color(0xFF0D0F1A);
-  static const Color _inkMid      = Color(0xFF5A5F7A);
-  static const Color _accent      = Color(0xFF2563EB);
-  static const Color _accentLight = Color(0xFFEEF3FF);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      appBar: AppBar(
-        backgroundColor: _bg,
-        surfaceTintColor: _bg,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: _ink),
-        title: Text(
-          title,
-          style: const TextStyle(
-              color: _ink, fontWeight: FontWeight.w800, fontSize: 17),
-        ),
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 72, height: 72,
-                decoration: BoxDecoration(
-                  color: _accentLight,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Icon(icon, color: _accent, size: 32),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                title,
-                style: const TextStyle(
-                    color: _ink, fontSize: 18, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                description,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: _inkMid, fontSize: 13.5, height: 1.4),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Coming soon',
-                style: TextStyle(
-                    color: _inkMid, fontSize: 12, fontWeight: FontWeight.w600),
-              ),
             ],
           ),
         ),
