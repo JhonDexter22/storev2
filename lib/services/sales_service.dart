@@ -1,6 +1,27 @@
 import '../database/database_helper.dart';
 import '../models/cart_line.dart';
+import '../models/refund_model.dart';
 import '../models/sale_model.dart';
+
+/// One row of a proportional-bar breakdown (top products, payment mix,
+/// category mix). [value] is money unless stated otherwise.
+class BreakdownRow {
+  BreakdownRow({required this.label, required this.value, this.units = 0});
+
+  final String label;
+  final double value;
+  final int units;
+}
+
+/// A line of a sale that can still be returned, with how much of it is left.
+class ReturnableLine {
+  ReturnableLine({required this.item, required this.alreadyReturned});
+
+  final SaleItem item;
+  final int alreadyReturned;
+
+  int get returnable => item.qty - alreadyReturned;
+}
 
 class PeriodStats {
   PeriodStats({
@@ -134,5 +155,197 @@ class SalesService {
       itemsSold: items,
       dailyRevenue: daily,
     );
+  }
+
+  /// Start of the window for a `days`-long period ending today (inclusive).
+  static DateTime windowStart(int days) {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
+  }
+
+  // ── Reports ────────────────────────────────────────────────────────────
+
+  /// Products by revenue over the period, highest first, so bar length and
+  /// figures always agree.
+  Future<List<BreakdownRow>> topProducts(int days, {int limit = 5}) async {
+    final db = await dbHelper.database;
+    final rows = await db.rawQuery('''
+      SELECT si.name AS label,
+             SUM(si.line_total) AS value,
+             SUM(si.qty) AS units
+      FROM sale_items si
+      JOIN sales s ON s.id = si.sale_id
+      WHERE s.created_at >= ?
+      GROUP BY si.name
+      ORDER BY value DESC
+      LIMIT ?
+    ''', [windowStart(days).toIso8601String(), limit]);
+    return rows
+        .map((m) => BreakdownRow(
+              label: m['label'] as String,
+              value: (m['value'] as num).toDouble(),
+              units: (m['units'] as num).toInt(),
+            ))
+        .toList();
+  }
+
+  Future<List<BreakdownRow>> paymentMix(int days) async {
+    final db = await dbHelper.database;
+    final rows = await db.rawQuery('''
+      SELECT payment_method AS label, SUM(total) AS value, COUNT(*) AS units
+      FROM sales
+      WHERE created_at >= ?
+      GROUP BY payment_method
+      ORDER BY value DESC
+    ''', [windowStart(days).toIso8601String()]);
+    return rows
+        .map((m) => BreakdownRow(
+              label: m['label'] as String,
+              value: (m['value'] as num).toDouble(),
+              units: (m['units'] as num).toInt(),
+            ))
+        .toList();
+  }
+
+  /// Category comes from the product record; a line whose product was since
+  /// deleted falls back to "Other" rather than vanishing from the total.
+  Future<List<BreakdownRow>> categoryMix(int days) async {
+    final db = await dbHelper.database;
+    final rows = await db.rawQuery('''
+      SELECT COALESCE(NULLIF(p.category, ''), 'Other') AS label,
+             SUM(si.line_total) AS value,
+             SUM(si.qty) AS units
+      FROM sale_items si
+      JOIN sales s ON s.id = si.sale_id
+      LEFT JOIN products p ON p.id = si.product_id
+      WHERE s.created_at >= ?
+      GROUP BY label
+      ORDER BY value DESC
+    ''', [windowStart(days).toIso8601String()]);
+    return rows
+        .map((m) => BreakdownRow(
+              label: m['label'] as String,
+              value: (m['value'] as num).toDouble(),
+              units: (m['units'] as num).toInt(),
+            ))
+        .toList();
+  }
+
+  // ── Returns ────────────────────────────────────────────────────────────
+
+  /// Every refund inside the period, newest first. Not capped — the rows must
+  /// sum to the header total.
+  Future<List<Refund>> getRefunds(int days) async {
+    final db = await dbHelper.database;
+    final rows = await db.query(
+      'refunds',
+      where: 'created_at >= ?',
+      whereArgs: [windowStart(days).toIso8601String()],
+      orderBy: 'id DESC',
+    );
+    return rows.map((m) => Refund.fromMap(m)).toList();
+  }
+
+  /// Sale lines with the quantity already refunded subtracted, so a line can
+  /// never be returned twice.
+  Future<List<ReturnableLine>> getReturnableLines(int saleId) async {
+    final db = await dbHelper.database;
+    final items = await getSaleItems(saleId);
+    final returned = await db.rawQuery('''
+      SELECT ri.product_id AS pid, SUM(ri.qty) AS qty
+      FROM refund_items ri
+      JOIN refunds r ON r.id = ri.refund_id
+      WHERE r.sale_id = ?
+      GROUP BY ri.product_id
+    ''', [saleId]);
+
+    final byProduct = <int, int>{
+      for (final r in returned) r['pid'] as int: (r['qty'] as num).toInt(),
+    };
+
+    return items
+        .map((i) => ReturnableLine(item: i, alreadyReturned: byProduct[i.productId] ?? 0))
+        .toList();
+  }
+
+  /// Records a refund. [lines] is productId -> quantity being returned.
+  /// When [restock] is true the returned units go back into stock, which can
+  /// clear a product off the restock list.
+  Future<Refund> recordRefund({
+    required Sale sale,
+    required Map<int, int> lines,
+    required String reason,
+    required String method,
+    required bool restock,
+    required bool isVoid,
+  }) async {
+    final db = await dbHelper.database;
+    final items = await getSaleItems(sale.id!);
+    final now = DateTime.now();
+
+    double amount = 0;
+    final refundItems = <Map<String, dynamic>>[];
+    for (final item in items) {
+      final qty = lines[item.productId] ?? 0;
+      if (qty <= 0) continue;
+      final lineTotal = item.unitPrice * qty;
+      amount += lineTotal;
+      refundItems.add({
+        'product_id': item.productId,
+        'name': item.name,
+        'qty': qty,
+        'unit_price': item.unitPrice,
+        'line_total': lineTotal,
+      });
+    }
+
+    late int refundId;
+    await db.transaction((txn) async {
+      refundId = await txn.insert('refunds', {
+        'sale_id': sale.id,
+        'sale_reference': sale.reference,
+        'created_at': now.toIso8601String(),
+        'amount': amount,
+        'reason': reason,
+        'method': method,
+        'is_void': isVoid ? 1 : 0,
+        'restocked': restock ? 1 : 0,
+      });
+
+      for (final ri in refundItems) {
+        await txn.insert('refund_items', {...ri, 'refund_id': refundId});
+        if (restock) {
+          await txn.rawUpdate(
+            'UPDATE products SET stock = stock + ? WHERE id = ?',
+            [ri['qty'], ri['product_id']],
+          );
+        }
+      }
+    });
+
+    final row = await db.query('refunds', where: 'id = ?', whereArgs: [refundId]);
+    return Refund.fromMap(row.first);
+  }
+
+  // ── Cash count ─────────────────────────────────────────────────────────
+
+  /// Cash taken today. Only cash counts toward the drawer — GCash and card
+  /// never land in it.
+  Future<double> cashSalesToday() async {
+    final db = await dbHelper.database;
+    final start = windowStart(1).toIso8601String();
+
+    final sold = await db.rawQuery(
+      "SELECT SUM(total) AS v FROM sales WHERE payment_method = 'Cash' AND created_at >= ?",
+      [start],
+    );
+    final refunded = await db.rawQuery(
+      "SELECT SUM(amount) AS v FROM refunds WHERE method = 'Cash' AND created_at >= ?",
+      [start],
+    );
+
+    final in_ = (sold.first['v'] as num?)?.toDouble() ?? 0;
+    final out = (refunded.first['v'] as num?)?.toDouble() ?? 0;
+    return in_ - out;
   }
 }
