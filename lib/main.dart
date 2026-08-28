@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'core/design_tokens.dart';
+import 'services/settings_service.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/pos_screen.dart';
 import 'screens/product_screen.dart';
 import 'screens/restock_screen.dart';
 import 'screens/settings_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Settings drive the headers and the cash count, so they must be readable
+  // synchronously by the time the first screen builds.
+  await SettingsService.instance.load();
   runApp(const RestockApp());
 }
 
@@ -52,12 +57,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late final List<AnimationController> _scaleControllers;
   late final List<Animation<double>> _scaleAnims;
 
-  static const _accent     = AppColors.primary;
-  static const _accentBg   = AppColors.primaryTint;
-  static const _ink        = AppColors.ink;
-  static const _inkLight   = AppColors.faint;
-  static const _navBg      = AppColors.surface;
-  static const _navBorder  = AppColors.dividerStrong;
+  static const _navBg = AppColors.surface;
 
   static const _tabs = [
     _TabItem(
@@ -184,17 +184,14 @@ class _BottomNav extends StatelessWidget {
   final List<Animation<double>> scaleAnims;
   final ValueChanged<int> onTap;
 
-  static const _accent    = Color(0xFF2563EB);
-  static const _accentBg  = Color(0xFFEEF3FF);
-  static const _ink       = Color(0xFF0D0F1A);
-  static const _inkLight  = Color(0xFFB0B5CC);
-  static const _navBg     = Color(0xFFFFFFFF);
-  static const _navBorder = Color(0xFFEAECF5);
+  static const _accent    = AppColors.primary;
+  static const _accentBg  = AppColors.primaryTint;
+  static const _inkLight  = AppColors.faint;
+  static const _navBg     = AppColors.surface;
+  static const _navBorder = AppColors.dividerStrong;
 
   @override
   Widget build(BuildContext context) {
-    final bottomPad = MediaQuery.of(context).padding.bottom;
-
     return Container(
       decoration: const BoxDecoration(
         color: _navBg,
