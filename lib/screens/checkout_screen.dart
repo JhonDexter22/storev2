@@ -6,6 +6,10 @@ import '../services/sales_service.dart';
 
 enum _PayMethod { cash, gcash, card }
 
+/// How the cashier left checkout. Both outcomes clear the cart; only
+/// [completed] means stock moved and needs re-reading.
+enum CheckoutOutcome { completed, voided }
+
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key, required this.lines});
 
@@ -141,9 +145,52 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ],
             ),
           ),
+          GestureDetector(
+            onTap: _confirmVoid,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: AppColors.dangerFill,
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: AppColors.dangerBorder),
+              ),
+              child: Text('Void sale', style: AppText.chip(color: AppColors.dangerText)),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  /// Clears the in-progress cart and returns to POS. Confirmed first because
+  /// there is no undo for a discarded cart.
+  Future<void> _confirmVoid() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Void this sale?', style: AppText.sectionTitle().copyWith(fontSize: 17)),
+        content: Text(
+          'The items in this sale will be cleared and you will go back to the register. Nothing is charged.',
+          style: AppText.body(),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Keep the sale', style: AppText.chip(color: AppColors.body)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Void sale', style: AppText.chip(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      Navigator.pop(context, CheckoutOutcome.voided);
+    }
   }
 
   Widget _orderSummaryCard() {
@@ -426,7 +473,7 @@ class _SuccessView extends StatelessWidget {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context, true),
+                  onPressed: () => Navigator.pop(context, CheckoutOutcome.completed),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
