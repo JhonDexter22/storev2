@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
 import '../database/database_helper.dart';
+import '../services/settings_service.dart';
 
 class StoreSettingsScreen extends StatefulWidget {
   const StoreSettingsScreen({super.key});
@@ -11,11 +12,23 @@ class StoreSettingsScreen extends StatefulWidget {
 }
 
 class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
-  bool _printReceipt = true;
-  bool _scanSound = true;
-  bool _lowStockAlerts = true;
-  bool _autoBackup = false;
-  int _defaultMinStock = 5;
+  final _settings = SettingsService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _settings.addListener(_onSettingsChanged);
+  }
+
+  @override
+  void dispose() {
+    _settings.removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() {
+    if (mounted) setState(() {});
+  }
 
   Future<void> _confirmClearData() async {
     final confirmed = await showDialog<bool>(
@@ -54,7 +67,7 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
   }
 
   Future<void> _editMinStock() async {
-    final ctrl = TextEditingController(text: '$_defaultMinStock');
+    final ctrl = TextEditingController(text: '${_settings.defaultMinStock}');
     final result = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -79,13 +92,14 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
             child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text) ?? _defaultMinStock),
+            onPressed: () =>
+                Navigator.pop(ctx, int.tryParse(ctrl.text) ?? _settings.defaultMinStock),
             child: Text('Save', style: AppText.chip(color: AppColors.primary)),
           ),
         ],
       ),
     );
-    if (result != null) setState(() => _defaultMinStock = result);
+    if (result != null) await _settings.setDefaultMinStock(result);
   }
 
   @override
@@ -122,19 +136,19 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
             _overline('Sales'),
             const SizedBox(height: 8),
             _group([
-              _toggleRow('Print receipt', 'Automatically print after checkout', _printReceipt,
-                  (v) => setState(() => _printReceipt = v)),
-              _toggleRow('Scan sound', 'Beep when the scanner reads a code', _scanSound,
-                  (v) => setState(() => _scanSound = v)),
+              _toggleRow('Print receipt', 'Automatically print after checkout',
+                  _settings.printReceipt, _settings.setPrintReceipt),
+              _toggleRow('Scan sound', 'Beep when the scanner reads a code',
+                  _settings.scanSound, _settings.setScanSound),
               _navRow('Payment methods', 'Cash, GCash, Card', () {}),
             ]),
             const SizedBox(height: AppSpace.gapSection),
             _overline('Inventory'),
             const SizedBox(height: 8),
             _group([
-              _toggleRow('Low stock alerts', 'Flag products at or below minimum', _lowStockAlerts,
-                  (v) => setState(() => _lowStockAlerts = v)),
-              _navRow('Default minimum stock', '$_defaultMinStock units', _editMinStock),
+              _toggleRow('Low stock alerts', 'Flag products at or below minimum',
+                  _settings.lowStockAlerts, _settings.setLowStockAlerts),
+              _navRow('Default minimum stock', '${_settings.defaultMinStock} units', _editMinStock),
             ]),
             const SizedBox(height: AppSpace.gapSection),
             _overline('Data'),
@@ -142,11 +156,11 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
             _group([
               _toggleRow(
                 'Automatic backup',
-                _autoBackup ? 'Backing up every night' : 'Turned off — back up manually',
-                _autoBackup,
-                (v) => setState(() => _autoBackup = v),
+                _settings.autoBackup ? 'Backing up every night' : 'Turned off — back up manually',
+                _settings.autoBackup,
+                _settings.setAutoBackup,
               ),
-              _navRow('Export CSV', 'Last backup: never', () {}),
+              _navRow('Export CSV', 'Last backup: ${_lastBackupLabel()}', () {}),
               _navRow('Clear all data', 'Delete every product and sale', _confirmClearData, danger: true),
             ]),
             const SizedBox(height: AppSpace.gapBlock),
@@ -155,6 +169,14 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
         ),
       ),
     );
+  }
+
+  String _lastBackupLabel() {
+    final raw = _settings.lastBackup;
+    if (raw == null) return 'never';
+    final d = DateTime.tryParse(raw);
+    if (d == null) return 'never';
+    return '${d.day}/${d.month}/${d.year}';
   }
 
   Widget _identityCard() {
@@ -180,9 +202,10 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Sari-Sari Store', style: AppText.cardTitle().copyWith(fontSize: 15)),
+                Text(_settings.storeName, style: AppText.cardTitle().copyWith(fontSize: 15)),
                 const SizedBox(height: 2),
-                Text('Terminal 1 · Cashier May', style: AppText.caption()),
+                Text('${_settings.terminal} · Cashier ${_settings.cashier}',
+                    style: AppText.caption()),
               ],
             ),
           ),
