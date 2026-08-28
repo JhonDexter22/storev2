@@ -4,8 +4,10 @@ import '../core/design_tokens.dart';
 import '../models/cart_line.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
+import '../services/settings_service.dart';
 import 'barcode_scanner_screen.dart';
 import 'checkout_screen.dart';
+import 'product_screen.dart';
 
 class PosScreen extends StatefulWidget {
   const PosScreen({super.key});
@@ -73,37 +75,194 @@ class _PosScreenState extends State<PosScreen> {
     setState(() => _cart[product.id!] = inCart + 1);
   }
 
-  Future<void> _scan() async {
-    final code = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => const SimpleBarcodeScannerScreen()),
-    );
-    if (code == null || !mounted) return;
-    final match = await _productService.findBySku(code);
-    if (match == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        backgroundColor: AppColors.ink,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        content: Text('No product matches code "$code"', style: const TextStyle(color: Colors.white)),
-      ));
-      return;
+  /// Decrement a line; at zero the line leaves the cart entirely.
+  void _decrementLine(int productId) {
+    final qty = _cart[productId] ?? 0;
+    if (qty <= 1) {
+      setState(() => _cart.remove(productId));
+    } else {
+      setState(() => _cart[productId] = qty - 1);
     }
-    _addToCart(match);
+  }
+
+  void _incrementLine(int productId) {
+    final product = _products.firstWhere((p) => p.id == productId);
+    final qty = _cart[productId] ?? 0;
+    if (qty >= product.stock) return;
+    setState(() => _cart[productId] = qty + 1);
+  }
+
+  Future<void> _scan() async {
+    final result = await Navigator.push<ScannerResult>(
+      context,
+      MaterialPageRoute(builder: (_) => const SimpleBarcodeScannerScreen.forSale()),
+    );
+    if (result is! ScanSale || !mounted) return;
+
+    if (result.added.isNotEmpty) {
+      setState(() {
+        result.added.forEach((id, qty) {
+          _cart.update(id, (v) => v + qty, ifAbsent: () => qty);
+        });
+      });
+    }
+
+    // "Add as new product" on an unknown code hands us the SKU to pre-fill.
+    final sku = result.newProductSku;
+    if (sku != null) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ProductsScreen(newProductSku: sku)),
+      );
+      if (mounted) _load();
+    }
   }
 
   Future<void> _openCheckout() async {
     final lines = _cartLines;
     if (lines.isEmpty) return;
-    final completed = await Navigator.push<bool>(
+    final outcome = await Navigator.push<CheckoutOutcome>(
       context,
       MaterialPageRoute(builder: (_) => CheckoutScreen(lines: lines)),
     );
-    if (completed == true) {
-      setState(_cart.clear);
-      _load();
-    }
+    if (outcome == null || !mounted) return;
+    setState(_cart.clear);
+    if (outcome == CheckoutOutcome.completed) _load();
+  }
+
+  /// The cart bar's body opens the line editor; its Checkout button goes
+  /// straight to payment.
+  void _openCartSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final lines = _cartLines;
+          if (lines.isEmpty) {
+            // Last line was just removed — close rather than show an empty sheet.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (ctx.mounted) Navigator.pop(ctx);
+            });
+          }
+          return Container(
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+            padding: const EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad, 20),
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.hairline,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Current sale', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                    GestureDetector(
+                      onTap: () {
+                        setState(_cart.clear);
+                        Navigator.pop(ctx);
+                      },
+                      child: Text('Clear all', style: AppText.chip(color: AppColors.danger)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: lines.length,
+                    separatorBuilder: (_, __) => const Divider(color: AppColors.divider, height: 18),
+                    itemBuilder: (_, i) {
+                      final line = lines[i];
+                      final id = line.product.id!;
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(line.product.name,
+                                    style: AppText.cardTitle(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${formatPeso(line.product.price)} · ${formatPeso(line.lineTotal)}',
+                                  style: AppText.caption(),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          QtyStepper(
+                            value: line.qty,
+                            figureSize: 17,
+                            canIncrement: line.qty < line.product.stock,
+                            decrementIcon:
+                                line.qty <= 1 ? Icons.delete_outline_rounded : Icons.remove_rounded,
+                            onDecrement: () {
+                              _decrementLine(id);
+                              setSheet(() {});
+                            },
+                            onIncrement: () {
+                              _incrementLine(id);
+                              setSheet(() {});
+                            },
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Divider(color: AppColors.divider, height: 1),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Total', style: AppText.sectionTitle()),
+                    Text(formatPeso(_cartTotal), style: AppText.largeFigure().copyWith(fontSize: 22)),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _openCheckout();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
+                    ),
+                    child: Text('Checkout', style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -149,9 +308,9 @@ class _PosScreenState extends State<PosScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Sari-Sari Store', style: AppText.cardTitle()),
+                Text(SettingsService.instance.storeName, style: AppText.cardTitle()),
                 const SizedBox(height: 1),
-                Text('Cashier · May', style: AppText.caption()),
+                Text('Cashier · ${SettingsService.instance.cashier}', style: AppText.caption()),
               ],
             ),
           ),
@@ -262,7 +421,7 @@ class _PosScreenState extends State<PosScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpace.screenH),
       child: GestureDetector(
-        onTap: _openCheckout,
+        onTap: _openCartSheet,
         child: Container(
           padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
           decoration: BoxDecoration(
@@ -300,10 +459,13 @@ class _PosScreenState extends State<PosScreen> {
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(14)),
-                child: Text('Checkout', style: AppText.chip(color: Colors.white).copyWith(fontSize: 13)),
+              GestureDetector(
+                onTap: _openCheckout,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(14)),
+                  child: Text('Checkout', style: AppText.chip(color: Colors.white).copyWith(fontSize: 13)),
+                ),
               ),
             ],
           ),
