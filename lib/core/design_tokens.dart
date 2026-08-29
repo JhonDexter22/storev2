@@ -260,6 +260,69 @@ class StockStatus {
   }
 }
 
+/// Quantity stepper. Controls are 44x44 per the handoff's hit-target rule
+/// (30x30 only inside compact inline rows, via [compact]).
+class QtyStepper extends StatelessWidget {
+  const QtyStepper({
+    super.key,
+    required this.value,
+    required this.onDecrement,
+    required this.onIncrement,
+    this.compact = false,
+    this.figureSize = 20,
+    this.canIncrement = true,
+    this.decrementIcon = Icons.remove_rounded,
+  });
+
+  final int value;
+  final VoidCallback onDecrement;
+  final VoidCallback onIncrement;
+  final bool compact;
+  final double figureSize;
+  final bool canIncrement;
+  final IconData decrementIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final side = compact ? 30.0 : 44.0;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _btn(decrementIcon, onDecrement, side, true),
+        SizedBox(
+          width: compact ? 34 : 48,
+          child: Text(
+            '$value',
+            textAlign: TextAlign.center,
+            style: AppText.statFigure(size: figureSize),
+          ),
+        ),
+        _btn(Icons.add_rounded, canIncrement ? onIncrement : null, side, canIncrement),
+      ],
+    );
+  }
+
+  Widget _btn(IconData icon, VoidCallback? onTap, double side, bool enabled) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: side,
+        height: side,
+        decoration: BoxDecoration(
+          color: AppColors.canvas,
+          borderRadius: BorderRadius.circular(compact ? 9 : 12),
+          border: Border.all(color: AppColors.hairline),
+        ),
+        child: Icon(
+          icon,
+          color: enabled ? AppColors.ink : AppColors.faint,
+          size: compact ? 15 : 20,
+        ),
+      ),
+    );
+  }
+}
+
 /// 42x26 track switch matching the handoff spec.
 class AppSwitch extends StatelessWidget {
   const AppSwitch({super.key, required this.value, required this.onChanged});
