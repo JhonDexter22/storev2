@@ -42,12 +42,16 @@ dependencies:
   cached_network_image: ^3.4.1
   google_fonts: ^6.2.1
   intl: ^0.19.0
+  shared_preferences: ^2.3.3
  
 
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Gives sqflite a real database factory inside the Dart test VM, so widget
+  # tests can boot screens that read from the DB on init.
+  sqflite_common_ffi: ^2.3.3
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
