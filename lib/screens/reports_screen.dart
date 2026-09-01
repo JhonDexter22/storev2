@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../models/customer.dart';
 import '../models/refund_model.dart';
 import '../services/sales_service.dart';
+import '../services/utang_service.dart';
 
 /// Reports — what sells, what pays, which category carries the period.
 /// Every figure on this screen is scoped to the selected range.
@@ -15,6 +17,7 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   final SalesService _sales = SalesService();
+  final UtangService _utangService = UtangService();
 
   int _days = 1;
   bool _loading = true;
@@ -28,6 +31,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<BreakdownRow> _payment = [];
   List<BreakdownRow> _categories = [];
   List<Refund> _refunds = [];
+  UtangFlows? _utang;
+  List<Customer> _topBalances = [];
 
   /// A blue ramp, deliberately not the semantic palette — green/amber/red stay
   /// reserved for stock and variance meaning.
@@ -52,11 +57,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final payment = await _sales.paymentMix(_days);
     final categories = await _sales.categoryMix(_days);
     final refunds = await _sales.getRefunds(_days);
+    final utang = await _utangService.getFlows(_days);
+    final topBalances = await _utangService.topBalances();
     if (!mounted) return;
     setState(() {
       _stats = stats;
       _week = week.dailyRevenue;
       _top = top;
+      _utang = utang;
+      _topBalances = topBalances;
       _payment = payment;
       _categories = categories;
       _refunds = refunds;
@@ -101,6 +110,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     const SizedBox(height: AppSpace.gapBlock),
                     _section('Returns'),
                     _returns(),
+                    const SizedBox(height: AppSpace.gapBlock),
+                    _section('Utang'),
+                    _utangBlock(),
                     const SizedBox(height: AppSpace.gapBlock),
                     _section('By category'),
                     _byCategory(),
@@ -305,6 +317,144 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _utangBlock() {
+    final u = _utang;
+    if (u == null) return const SizedBox.shrink();
+    if (u.outstanding <= 0 && u.charged <= 0 && u.collected <= 0) {
+      return _emptyCard(
+        'Nothing on credit.\nCharge a sale to a customer from checkout to start the book.',
+      );
+    }
+
+    // Both bars share one scale so their lengths are comparable.
+    final scale = [u.charged, u.collected].reduce((a, b) => a > b ? a : b);
+    final grew = u.net > 0;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            // The Outstanding column carries an extra caption line, so without
+            // this the two headings sit at different heights.
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Outstanding', style: AppText.caption()),
+                    const SizedBox(height: 2),
+                    Text(formatPeso(u.outstanding),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.statFigure(size: 20)),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${u.customerCount} customer${u.customerCount == 1 ? '' : 's'}',
+                      style: AppText.caption(),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Overdue', style: AppText.caption()),
+                    const SizedBox(height: 2),
+                    Text(formatPeso(u.overdue),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.statFigure(
+                            color: u.overdue > 0 ? AppColors.dangerText : AppColors.ink,
+                            size: 20)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Divider(color: AppColors.divider, height: 1),
+          const SizedBox(height: 12),
+          _flowBar('Charged', u.charged, scale, AppColors.warning),
+          const SizedBox(height: 10),
+          _flowBar('Collected', u.collected, scale, AppColors.success),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  grew
+                      ? 'Book grew by ${formatPeso(u.net.abs())}'
+                      : (u.net == 0
+                          ? 'Book unchanged'
+                          : 'Book shrank by ${formatPeso(u.net.abs())}'),
+                  style: AppText.caption(
+                      color: grew ? AppColors.warningText : AppColors.successText),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(creditShareLine(u),
+                    textAlign: TextAlign.right, style: AppText.caption()),
+              ),
+            ],
+          ),
+          if (_topBalances.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Divider(color: AppColors.divider, height: 1),
+            const SizedBox(height: 10),
+            for (int i = 0; i < _topBalances.length; i++) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(_topBalances[i].name,
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
+                  ),
+                  Text(_statusWord(_topBalances[i].status), style: AppText.caption()),
+                  const SizedBox(width: 10),
+                  Text(formatPeso(_topBalances[i].balance), style: AppText.cardTitle()),
+                ],
+              ),
+              if (i != _topBalances.length - 1) const SizedBox(height: 8),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _statusWord(UtangStatus s) => switch (s) {
+        UtangStatus.overdue => 'Overdue',
+        UtangStatus.dueSoon => 'Due soon',
+        UtangStatus.current => 'Current',
+      };
+
+  Widget _flowBar(String label, double value, double scale, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text(label, style: AppText.body())),
+            Text(formatPeso(value), style: AppText.cardTitle()),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: scale <= 0 ? 0 : (value / scale).clamp(0.0, 1.0),
+            minHeight: 6,
+            backgroundColor: AppColors.divider,
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+          ),
+        ),
+      ],
     );
   }
 
@@ -529,6 +679,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ],
       ),
     );
+  }
+}
+
+extension _UtangBlock on _ReportsScreenState {
+  /// Share of revenue put on credit for this range. This is **charged ÷
+  /// revenue** — outstanding is a running balance and does not belong in a
+  /// period ratio.
+  String creditShareLine(UtangFlows u) {
+    final revenue = _stats?.revenue ?? 0;
+    if (revenue <= 0 || u.charged <= 0) return 'Nothing put on credit';
+    final pct = u.charged / revenue * 100;
+    if (pct < 0.1) return 'Under 0.1% of revenue on credit';
+    return '${pct.toStringAsFixed(1)}% of revenue on credit';
   }
 }
 
