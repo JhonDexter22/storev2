@@ -8,9 +8,14 @@ import 'reports_screen.dart';
 import 'returns_screen.dart';
 import 'shift_history_screen.dart';
 import 'store_settings_screen.dart';
+import 'utang_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.onStartSale});
+
+  /// Jumps to the POS tab — used by the Utang ledger's "Charge" CTA, which
+  /// starts a sale to put on someone's tab.
+  final VoidCallback? onStartSale;
 
   // ── Design Tokens (matches ProductsScreen) ──────────────────────────────
   static const Color _bg           = Color(0xFFF5F6FA);
@@ -95,6 +100,12 @@ class SettingsScreen extends StatelessWidget {
         title: 'Cash count',
         subtitle: 'End of day reconciliation',
         onTap: (ctx) => _open(ctx, const CashCountScreen()),
+      ),
+      _MoreItem(
+        code: 'UT',
+        title: 'Utang',
+        subtitle: 'Who owes what, aged oldest first',
+        onTap: (ctx) => _open(ctx, UtangScreen(onCharge: onStartSale)),
       ),
       _MoreItem(
         code: 'SH',
