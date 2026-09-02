@@ -5,11 +5,21 @@ import '../models/product_model.dart';
 import '../models/sale_model.dart';
 import '../services/product_service.dart';
 import '../services/sales_service.dart';
+import '../widgets/skeleton.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key, this.onStartSale});
+  const DashboardScreen({
+    super.key,
+    this.onStartSale,
+    this.productService,
+    this.salesService,
+  });
 
   final VoidCallback? onStartSale;
+
+  /// Injectable so tests can drive the failure path; production passes neither.
+  final ProductService? productService;
+  final SalesService? salesService;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -18,11 +28,15 @@ class DashboardScreen extends StatefulWidget {
 enum _Period { today, week, month }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final ProductService _productService = ProductService();
-  final SalesService _salesService = SalesService();
+  late final ProductService _productService = widget.productService ?? ProductService();
+  late final SalesService _salesService = widget.salesService ?? SalesService();
 
   _Period _period = _Period.today;
   bool _loading = true;
+
+  /// Set when a load fails. Holds a short code and the time it happened, so a
+  /// shopkeeper can quote something specific when asking for help.
+  ({String code, DateTime at})? _error;
 
   List<Product> _products = [];
   List<Sale> _recentSales = [];
@@ -42,26 +56,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
       };
 
   Future<void> _load() async {
-    setState(() => _loading = true);
-    final products = await _productService.getAllProducts();
-    final recent = await _salesService.getRecentSales(limit: 5);
-    final stats = await _salesService.getPeriodStats(_periodDays);
-    final chart = await _salesService.getPeriodStats(7);
-    if (!mounted) return;
     setState(() {
-      _products = products;
-      _recentSales = recent;
-      _stats = stats;
-      _chartDays = chart.dailyRevenue;
-      _loading = false;
+      _loading = true;
+      _error = null;
     });
+    try {
+      final products = await _productService.getAllProducts();
+      final recent = await _salesService.getRecentSales(limit: 5);
+      final stats = await _salesService.getPeriodStats(_periodDays);
+      final chart = await _salesService.getPeriodStats(7);
+      if (!mounted) return;
+      setState(() {
+        _products = products;
+        _recentSales = recent;
+        _stats = stats;
+        _chartDays = chart.dailyRevenue;
+        _loading = false;
+      });
+    } catch (e) {
+      // Without this the spinner would run forever on a read failure.
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = (code: _errorCode(e), at: DateTime.now());
+      });
+    }
+  }
+
+  /// A short, stable-ish code derived from the failure, for the error tile.
+  static String _errorCode(Object e) {
+    final hash = e.runtimeType.toString().hashCode & 0xFFFF;
+    return 'DASH-${hash.toRadixString(16).toUpperCase().padLeft(4, '0')}';
   }
 
   Future<void> _setPeriod(_Period p) async {
     setState(() => _period = p);
-    final stats = await _salesService.getPeriodStats(_periodDays);
-    if (!mounted) return;
-    setState(() => _stats = stats);
+    try {
+      final stats = await _salesService.getPeriodStats(_periodDays);
+      if (!mounted) return;
+      setState(() => _stats = stats);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = (code: _errorCode(e), at: DateTime.now()));
+    }
   }
 
   List<Product> get _needsAttention {
@@ -81,8 +118,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: SafeArea(
         bottom: false,
         child: _loading
-            ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-            : RefreshIndicator(
+            ? _loadingSkeleton()
+            : _error != null
+                ? _errorState(_error!)
+                : RefreshIndicator(
                 color: AppColors.primary,
                 onRefresh: _load,
                 child: ListView(
@@ -110,6 +149,237 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
               ),
+      ),
+    );
+  }
+
+  /// Mirrors the real layout block for block — hero card, 2x2 stats, list
+  /// rows — so nothing jumps when the data lands.
+  Widget _loadingSkeleton() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 16, AppSpace.screenH, 32),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  SkeletonBox(width: 96, height: 11),
+                  SizedBox(height: 8),
+                  SkeletonBox(width: 178, height: 22, emphasis: true),
+                ],
+              ),
+            ),
+            const SkeletonBox(width: 40, height: 40, radius: 12),
+            const SizedBox(width: 10),
+            const SkeletonBox(width: 40, height: 40, radius: 999),
+          ],
+        ),
+        const SizedBox(height: AppSpace.gapBlock),
+        Row(
+          children: const [
+            SkeletonBox(width: 78, height: 34, radius: 999),
+            SizedBox(width: AppSpace.gapChip),
+            SkeletonBox(width: 84, height: 34, radius: 999),
+            SizedBox(width: AppSpace.gapChip),
+            SkeletonBox(width: 92, height: 34, radius: 999),
+          ],
+        ),
+        const SizedBox(height: AppSpace.gapSection),
+
+        // Hero card: overline, figure, the seven bars, footer stats.
+        SkeletonCard(
+          radius: AppRadius.hero,
+          padding: const EdgeInsets.all(AppSpace.sheetPad),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SkeletonBox(width: 74, height: 10),
+              const SizedBox(height: 10),
+              const SkeletonBox(width: 190, height: 30, emphasis: true),
+              const SizedBox(height: 20),
+              SizedBox(
+                height: 96,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: List.generate(7, (i) {
+                    const heights = [26.0, 40.0, 18.0, 52.0, 33.0, 46.0, 60.0];
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            SkeletonBox(height: heights[i], radius: 4),
+                            const SizedBox(height: 6),
+                            const SkeletonBox(width: 10, height: 9),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(color: AppColors.divider, height: 1),
+              const SizedBox(height: 12),
+              Row(
+                children: List.generate(
+                  3,
+                  (_) => Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        SkeletonBox(width: 54, height: 13),
+                        SizedBox(height: 5),
+                        SkeletonBox(width: 68, height: 10),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpace.gapBlock),
+
+        // 2x2 stat cards.
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: AppSpace.gapGrid,
+          crossAxisSpacing: AppSpace.gapGrid,
+          childAspectRatio: 1.7,
+          children: List.generate(
+            4,
+            (_) => SkeletonCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: const [
+                  SkeletonBox(width: 18, height: 18, radius: 5),
+                  SkeletonBox(width: 62, height: 20, emphasis: true),
+                  SkeletonBox(width: 78, height: 10),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpace.gapBlock),
+
+        const SkeletonBox(width: 128, height: 14),
+        const SizedBox(height: 12),
+        SkeletonCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: List.generate(3, (i) {
+              return Column(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        SkeletonBox(width: 40, height: 40, radius: 10),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SkeletonBox(width: 130, height: 12),
+                              SizedBox(height: 6),
+                              SkeletonBox(width: 88, height: 10),
+                            ],
+                          ),
+                        ),
+                        SkeletonBox(width: 62, height: 12),
+                      ],
+                    ),
+                  ),
+                  if (i != 2) const Divider(color: AppColors.divider, height: 1),
+                ],
+              );
+            }),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _errorState(({String code, DateTime at}) error) {
+    final t = TimeOfDay.fromDateTime(error.at).format(context);
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: AppColors.dangerFill,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(Icons.error_outline_rounded,
+                  color: AppColors.danger, size: 30),
+            ),
+            const SizedBox(height: 16),
+            Text("Could not load today's sales",
+                textAlign: TextAlign.center,
+                style: AppText.sectionTitle().copyWith(fontSize: 17)),
+            const SizedBox(height: 6),
+            Text(
+              'Nothing was lost — your products and sales are still saved on this device.',
+              textAlign: TextAlign.center,
+              style: AppText.body(),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.canvas,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.hairline),
+              ),
+              child: Text('${error.code} · $t', style: AppText.mono()),
+            ),
+            const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _load,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.cta)),
+                ),
+                child: Text('Try again',
+                    style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: OutlinedButton(
+                onPressed: widget.onStartSale,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.body,
+                  side: const BorderSide(color: AppColors.hairline),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.cta)),
+                ),
+                child: Text('Continue to POS',
+                    style: AppText.chip(color: AppColors.body).copyWith(fontSize: 15)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -195,6 +465,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _salesCard() {
     final stats = _stats!;
+    // With no sales in the period, a ₱0.00 hero and a flat chart say nothing.
+    // The rest of the dashboard (inventory, alerts) stays useful, so only this
+    // card becomes an empty state.
+    if (stats.transactions == 0) return _noSalesCard();
     final up = stats.deltaPct >= 0;
     return Container(
       width: double.infinity,
@@ -238,6 +512,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _footerStat('Avg sale', formatPeso(stats.avgSale)),
               _footerStat('Items', '${stats.itemsSold}'),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _noSalesCard() {
+    final label = switch (_period) {
+      _Period.today => 'No sales yet today',
+      _Period.week => 'No sales in the last 7 days',
+      _Period.month => 'No sales in the last 30 days',
+    };
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpace.sheetPad),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.hero),
+        border: Border.all(color: AppColors.hairline),
+        boxShadow: AppShadows.card,
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: AppColors.canvas,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(Icons.receipt_long_outlined, color: AppColors.muted, size: 26),
+          ),
+          const SizedBox(height: 14),
+          Text(label, style: AppText.sectionTitle().copyWith(fontSize: 16)),
+          const SizedBox(height: 4),
+          Text(
+            'Sales you ring up will show here, with the total and a breakdown of the week.',
+            textAlign: TextAlign.center,
+            style: AppText.caption(),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: widget.onStartSale,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.cta)),
+              ),
+              child: Text('Start a sale',
+                  style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+            ),
           ),
         ],
       ),
