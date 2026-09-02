@@ -10,7 +10,8 @@ class Customer {
     this.balance = 0,
     this.oldestChargeAt,
     this.lastActivityAt,
-    this.lastActivityLabel = '',
+    this.lastActivityAmount,
+    this.lastActivityIsCharge = false,
   });
 
   final int? id;
@@ -25,7 +26,11 @@ class Customer {
   final DateTime? oldestChargeAt;
 
   final DateTime? lastActivityAt;
-  final String lastActivityLabel;
+
+  /// Amount of the most recent ledger entry, unsigned. The label is built in
+  /// the UI so money formatting stays in one place.
+  final double? lastActivityAmount;
+  final bool lastActivityIsCharge;
 
   static const dueSoonAfterDays = 15;
   static const overdueAfterDays = 30;
@@ -67,7 +72,8 @@ class Customer {
     double? balance,
     DateTime? oldestChargeAt,
     DateTime? lastActivityAt,
-    String? lastActivityLabel,
+    double? lastActivityAmount,
+    bool? lastActivityIsCharge,
   }) =>
       Customer(
         id: id,
@@ -76,7 +82,8 @@ class Customer {
         balance: balance ?? this.balance,
         oldestChargeAt: oldestChargeAt ?? this.oldestChargeAt,
         lastActivityAt: lastActivityAt ?? this.lastActivityAt,
-        lastActivityLabel: lastActivityLabel ?? this.lastActivityLabel,
+        lastActivityAmount: lastActivityAmount ?? this.lastActivityAmount,
+        lastActivityIsCharge: lastActivityIsCharge ?? this.lastActivityIsCharge,
       );
 
   factory Customer.fromMap(Map<String, dynamic> m) => Customer(
