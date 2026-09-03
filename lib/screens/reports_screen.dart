@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/customer.dart';
 import '../models/refund_model.dart';
 import '../services/sales_service.dart';
@@ -93,32 +94,153 @@ class _ReportsScreenState extends State<ReportsScreen> {
             : RefreshIndicator(
                 color: AppColors.primary,
                 onRefresh: _load,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 12, AppSpace.screenH, 32),
+                child: Breakpoints.isTablet(context) ? _tabletBody() : _phoneBody(),
+              ),
+      ),
+    );
+  }
+
+  Widget _phoneBody() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 12, AppSpace.screenH, 32),
+      children: [
+        _header(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _rangeChips(),
+        const SizedBox(height: AppSpace.gapSection),
+        _revenueCard(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _section('Top products'),
+        _topProducts(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _section('Payment mix'),
+        _paymentMix(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _section('Returns'),
+        _returns(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _section('Utang'),
+        _utangBlock(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _section('By category'),
+        _byCategory(),
+      ],
+    );
+  }
+
+  /// Tablet: revenue card at 1.5fr beside the stat tiles and payment mix, then
+  /// the two leaderboards side by side, so the week, what sells and how people
+  /// pay are all readable at once.
+  Widget _tabletBody() {
+    final s = _stats!;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+      children: [
+        _header(),
+        const SizedBox(height: AppSpace.gapSection),
+        _rangeChips(),
+        const SizedBox(height: AppSpace.gapSection),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 3, child: _revenueCard()),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _header(),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    _rangeChips(),
-                    const SizedBox(height: AppSpace.gapSection),
-                    _revenueCard(),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    _section('Top products'),
-                    _topProducts(),
-                    const SizedBox(height: AppSpace.gapBlock),
+                    Row(
+                      children: [
+                        Expanded(child: _statTile('Transactions', '${s.transactions}')),
+                        const SizedBox(width: 10),
+                        Expanded(child: _statTile('Avg sale', formatPeso(s.avgSale))),
+                        const SizedBox(width: 10),
+                        Expanded(child: _statTile('Items', '${s.itemsSold}')),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     _section('Payment mix'),
                     _paymentMix(),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    _section('Returns'),
-                    _returns(),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    _section('Utang'),
-                    _utangBlock(),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    _section('By category'),
-                    _byCategory(),
                   ],
                 ),
               ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpace.gapBlock),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _section('Top products'),
+                  _topProducts(),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _section('By category'),
+                  _byCategory(),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpace.gapBlock),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _section('Returns'),
+                  _returns(),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _section('Utang'),
+                  _utangBlock(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _statTile(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpace.cardPad),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: AppText.caption()),
+          const SizedBox(height: 4),
+          Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.statFigure(size: 19)),
+        ],
       ),
     );
   }
