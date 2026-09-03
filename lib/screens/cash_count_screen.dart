@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/shift_model.dart';
 import '../services/sales_service.dart';
 import '../services/settings_service.dart';
@@ -128,6 +129,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
       );
     }
     if (_closed != null) return _closedView(_closed!);
+    if (Breakpoints.isTablet(context)) return _tabletLayout();
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -148,6 +150,155 @@ class _CashCountScreenState extends State<CashCountScreen> {
               ),
             ),
             _footer(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Tablet: denominations in two columns so the whole drawer fits without
+  /// scrolling, with reconciliation pinned right where the numbers settle.
+  Widget _tabletLayout() {
+    final half = (_denominations.length / 2).ceil();
+    final left = _denominations.take(half).toList();
+    final right = _denominations.skip(half).toList();
+
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _header(),
+            Expanded(
+              child: Row(
+                // Stretch so the pinned column's surface runs the full height
+                // rather than stopping under its content.
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(24, 6, 16, 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Count the drawer', style: AppText.sectionTitle()),
+                          const SizedBox(height: 10),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: _denominationCard(left)),
+                              const SizedBox(width: 12),
+                              Expanded(child: _denominationCard(right)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 344, child: _reconciliationColumn()),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _denominationCard(List<int> values) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (int i = 0; i < values.length; i++) ...[
+            _denominationRow(values[i]),
+            if (i != values.length - 1) const Divider(color: AppColors.divider, height: 1),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _reconciliationColumn() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(left: BorderSide(color: AppColors.dividerStrong)),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _expectedBlock(),
+            const SizedBox(height: AppSpace.gapSection),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Counted', style: AppText.body()),
+                Flexible(
+                  child: Text(formatPeso(_counted),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.largeFigure().copyWith(fontSize: 22)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (!_countingStarted)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.canvas,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.hairline),
+                ),
+                child: Text('Count the drawer to see the variance.',
+                    textAlign: TextAlign.center, style: AppText.caption()),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _varianceFill,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _varianceColor.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(_varianceLabel, style: AppText.body(color: _varianceColor)),
+                    Text('${_variance > 0 ? '+' : ''}${formatPeso(_variance)}',
+                        style: AppText.cardTitle(color: _varianceColor).copyWith(fontSize: 15)),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _countingStarted ? _closeShift : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  disabledBackgroundColor: AppColors.disabledFill,
+                  foregroundColor: Colors.white,
+                  disabledForegroundColor: AppColors.faint,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.cta)),
+                ),
+                child: Text('Close shift',
+                    style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text('Requires a manager PIN',
+                textAlign: TextAlign.center, style: AppText.caption()),
           ],
         ),
       ),
