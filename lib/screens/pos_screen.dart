@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/cart_line.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
@@ -93,22 +94,46 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   Future<void> _scan() async {
-    final result = await Navigator.push<ScannerResult>(
-      context,
-      MaterialPageRoute(builder: (_) => const SimpleBarcodeScannerScreen.forSale()),
-    );
+    // On a tablet the scanner floats over the POS as a dialog, so the cart
+    // column stays visible beside the running sale instead of being replaced.
+    ScannerResult? result;
+    if (Breakpoints.isTablet(context)) {
+      result = await showDialog<ScannerResult>(
+        context: context,
+        barrierColor: AppColors.ink.withValues(alpha: 0.55),
+        builder: (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(24),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.hero),
+            child: const SizedBox(
+              width: 470,
+              height: 640,
+              child: SimpleBarcodeScannerScreen.forSale(),
+            ),
+          ),
+        ),
+      );
+    } else {
+      result = await Navigator.push<ScannerResult>(
+        context,
+        MaterialPageRoute(builder: (_) => const SimpleBarcodeScannerScreen.forSale()),
+      );
+    }
     if (result is! ScanSale || !mounted) return;
+    // A mutable local is not promoted inside a closure, so bind it here.
+    final scanned = result;
 
-    if (result.added.isNotEmpty) {
+    if (scanned.added.isNotEmpty) {
       setState(() {
-        result.added.forEach((id, qty) {
+        scanned.added.forEach((id, qty) {
           _cart.update(id, (v) => v + qty, ifAbsent: () => qty);
         });
       });
     }
 
     // "Add as new product" on an unknown code hands us the SKU to pre-fill.
-    final sku = result.newProductSku;
+    final sku = scanned.newProductSku;
     if (sku != null) {
       await Navigator.push(
         context,
@@ -267,6 +292,8 @@ class _PosScreenState extends State<PosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (Breakpoints.isTablet(context)) return _tabletLayout();
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
@@ -288,6 +315,40 @@ class _PosScreenState extends State<PosScreen> {
       ),
       floatingActionButton: _cartCount > 0 ? _floatingCart() : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    );
+  }
+
+  /// Tablet: the checkout sheet becomes a persistent right-hand cart column,
+  /// so nav, products and cart are all visible with no screen change.
+  Widget _tabletLayout() {
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      body: SafeArea(
+        bottom: false,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Column(
+                children: [
+                  _header(),
+                  _searchRow(),
+                  const SizedBox(height: 12),
+                  _categoryChips(),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: _loading
+                        ? const Center(
+                            child: CircularProgressIndicator(color: AppColors.primary))
+                        : _grid(columns: 4, bottomPadding: 24),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(width: 360, child: _cartColumn()),
+          ],
+        ),
+      ),
     );
   }
 
@@ -363,6 +424,177 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
+  /// Persistent cart pane. Lines carry their own compact steppers, so quantity
+  /// changes never need a sheet.
+  Widget _cartColumn() {
+    final lines = _cartLines;
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(left: BorderSide(color: AppColors.dividerStrong)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text('Current sale',
+                      style: AppText.sectionTitle().copyWith(fontSize: 17)),
+                ),
+                if (lines.isNotEmpty)
+                  GestureDetector(
+                    onTap: () => setState(_cart.clear),
+                    child: Text('Clear', style: AppText.chip(color: AppColors.danger)),
+                  ),
+              ],
+            ),
+          ),
+          const Divider(color: AppColors.divider, height: 1),
+          Expanded(
+            child: lines.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: AppColors.canvas,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Icon(Icons.shopping_bag_outlined,
+                                color: AppColors.muted, size: 24),
+                          ),
+                          const SizedBox(height: 12),
+                          Text('No items yet', style: AppText.cardTitle()),
+                          const SizedBox(height: 4),
+                          Text('Tap a product to add it to the sale.',
+                              textAlign: TextAlign.center, style: AppText.caption()),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: lines.length,
+                    separatorBuilder: (_, __) =>
+                        const Divider(color: AppColors.divider, height: 1),
+                    itemBuilder: (_, i) => _cartLineRow(lines[i]),
+                  ),
+          ),
+          if (lines.isNotEmpty) _cartFooter(),
+        ],
+      ),
+    );
+  }
+
+  Widget _cartLineRow(CartLine line) {
+    final id = line.product.id!;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(line.product.name,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
+                const SizedBox(height: 2),
+                Text(formatPeso(line.product.price), style: AppText.caption()),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          QtyStepper(
+            value: line.qty,
+            compact: true,
+            figureSize: 15,
+            canIncrement: line.qty < line.product.stock,
+            decrementIcon: line.qty <= 1 ? Icons.delete_outline_rounded : Icons.remove_rounded,
+            onDecrement: () => _decrementLine(id),
+            onIncrement: () => _incrementLine(id),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 74,
+            child: Text(formatPeso(line.lineTotal),
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.cardTitle()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cartFooter() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: AppColors.hairline)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Subtotal', style: AppText.body()),
+              Text(formatPeso(_cartTotal), style: AppText.cardTitle()),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Items', style: AppText.body()),
+              Text('$_cartCount', style: AppText.cardTitle()),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Divider(color: AppColors.divider, height: 1),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Total', style: AppText.sectionTitle()),
+              Flexible(
+                child: Text(formatPeso(_cartTotal),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.largeFigure().copyWith(fontSize: 22)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _openCheckout,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.cta)),
+              ),
+              child: Text('Charge · ${formatPeso(_cartTotal)}',
+                  style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _categoryChips() {
     final cats = _categories;
     return SizedBox(
@@ -393,7 +625,7 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  Widget _grid() {
+  Widget _grid({int columns = 2, double bottomPadding = 140}) {
     final items = _filtered;
     if (items.isEmpty) {
       return Center(
@@ -401,9 +633,9 @@ class _PosScreenState extends State<PosScreen> {
       );
     }
     return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 10, AppSpace.screenH, 140),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      padding: EdgeInsets.fromLTRB(AppSpace.screenH, 10, AppSpace.screenH, bottomPadding),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
         mainAxisSpacing: AppSpace.gapGrid,
         crossAxisSpacing: AppSpace.gapGrid,
         childAspectRatio: 0.72,
