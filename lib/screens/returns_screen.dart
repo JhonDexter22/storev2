@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/refund_model.dart';
 import '../models/sale_model.dart';
 import '../services/sales_service.dart';
@@ -19,6 +20,9 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
   final SalesService _sales = SalesService();
   List<Sale> _recent = [];
   bool _loading = true;
+
+  /// Tablet only: the sale whose return is being built in the right pane.
+  Sale? _selected;
 
   @override
   void initState() {
@@ -46,6 +50,8 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (Breakpoints.isTablet(context)) return _tabletLayout();
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
@@ -70,6 +76,135 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                           ],
                         ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Tablet: a selectable column of the day's sales beside the return being
+  /// built, so the sale never leaves the screen.
+  Widget _tabletLayout() {
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            _header(),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                  : _recent.isEmpty
+                      ? _empty()
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SizedBox(width: 340, child: _salesColumn()),
+                            Expanded(
+                              child: _selected == null
+                                  ? _pickPrompt()
+                                  : _ReturnDetailScreen(
+                                      key: ValueKey(_selected!.id),
+                                      sale: _selected!,
+                                      startAsVoid: false,
+                                      embedded: true,
+                                      onDone: () {
+                                        setState(() => _selected = null);
+                                        _load();
+                                      },
+                                    ),
+                            ),
+                          ],
+                        ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _salesColumn() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(right: BorderSide(color: AppColors.dividerStrong)),
+      ),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
+        children: [
+          _note(),
+          const SizedBox(height: AppSpace.gapSection),
+          for (final sale in _recent) ...[
+            _selectableSaleRow(sale),
+            const SizedBox(height: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _selectableSaleRow(Sale sale) {
+    final selected = _selected?.id == sale.id;
+    final t = TimeOfDay.fromDateTime(sale.createdAtDate);
+    return GestureDetector(
+      onTap: () => setState(() => _selected = sale),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primaryTint : AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          border: Border.all(
+            color: selected ? AppColors.primary : AppColors.hairline,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(sale.reference, style: AppText.cardTitle()),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${t.format(context)} · ${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'} · ${sale.paymentMethod}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.caption(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(formatPeso(sale.total), style: AppText.cardTitle()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _pickPrompt() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                  color: AppColors.primaryTint, borderRadius: BorderRadius.circular(18)),
+              child: const Icon(Icons.receipt_long_outlined,
+                  color: AppColors.primary, size: 30),
+            ),
+            const SizedBox(height: 14),
+            Text('Pick a sale to return',
+                style: AppText.cardTitle().copyWith(fontSize: 15)),
+            const SizedBox(height: 4),
+            Text('Choose one on the left and build the refund here.',
+                textAlign: TextAlign.center, style: AppText.caption()),
           ],
         ),
       ),
@@ -229,10 +364,21 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
 // ── Return detail ──────────────────────────────────────────────────────────
 
 class _ReturnDetailScreen extends StatefulWidget {
-  const _ReturnDetailScreen({required this.sale, required this.startAsVoid});
+  const _ReturnDetailScreen({
+    super.key,
+    required this.sale,
+    required this.startAsVoid,
+    this.embedded = false,
+    this.onDone,
+  });
 
   final Sale sale;
   final bool startAsVoid;
+
+  /// When true this lives inside the tablet pane rather than its own route, so
+  /// it must not pop the navigator or draw a back button.
+  final bool embedded;
+  final VoidCallback? onDone;
 
   @override
   State<_ReturnDetailScreen> createState() => _ReturnDetailScreenState();
@@ -398,20 +544,24 @@ class _ReturnDetailScreenState extends State<_ReturnDetailScreen> {
       padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 12, AppSpace.screenH, 8),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(11),
-                border: Border.all(color: AppColors.hairline),
+          // Embedded in the tablet pane there is nothing to go back to.
+          if (!widget.embedded) ...[
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(color: AppColors.hairline),
+                ),
+                child: const Icon(Icons.arrow_back_ios_new_rounded,
+                    color: AppColors.body, size: 16),
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.body, size: 16),
             ),
-          ),
-          const SizedBox(width: 12),
+            const SizedBox(width: 12),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -721,7 +871,9 @@ class _ReturnDetailScreenState extends State<_ReturnDetailScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context, true),
+                  onPressed: () => widget.embedded
+                      ? widget.onDone?.call()
+                      : Navigator.pop(context, true),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
