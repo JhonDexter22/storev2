@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'core/design_tokens.dart';
+import 'core/responsive.dart';
 import 'services/settings_service.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/pos_screen.dart';
@@ -138,7 +139,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       case 3:
         return const RestockScreen();
       case 4:
-        return const SettingsScreen();
+        return SettingsScreen(onStartSale: () => setState(() => _currentIndex = 1));
       default:
         return const ProductsScreen();
     }
@@ -146,25 +147,120 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
-        switchInCurve: Curves.easeOut,
-        switchOutCurve: Curves.easeIn,
-        transitionBuilder: (child, anim) => FadeTransition(
-          opacity: anim,
-          child: child,
-        ),
-        child: KeyedSubtree(
-          key: ValueKey(_currentIndex),
-          child: _getScreen(),
-        ),
+    final body = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: child,
       ),
+      child: KeyedSubtree(
+        key: ValueKey(_currentIndex),
+        child: _getScreen(),
+      ),
+    );
+
+    // On a tablet the bottom bar becomes a left icon rail, so the horizontal
+    // space goes to the content panes instead.
+    if (Breakpoints.isTablet(context)) {
+      return Scaffold(
+        body: Row(
+          children: [
+            _NavRail(currentIndex: _currentIndex, tabs: _tabs, onTap: _onTabTap),
+            Expanded(child: body),
+          ],
+        ),
+      );
+    }
+
+    return Scaffold(
+      body: body,
       bottomNavigationBar: _BottomNav(
         currentIndex: _currentIndex,
         tabs: _tabs,
         scaleAnims: _scaleAnims,
         onTap: _onTabTap,
+      ),
+    );
+  }
+}
+
+/// 96px icon rail used on tablet.
+///
+/// The handoff shows a 96px icon rail on POS and returns and a 212px labelled
+/// rail on the dashboard; one consistent rail is used here so the chrome does
+/// not resize as you move between tabs.
+class _NavRail extends StatelessWidget {
+  const _NavRail({required this.currentIndex, required this.tabs, required this.onTap});
+
+  final int currentIndex;
+  final List<_TabItem> tabs;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 96,
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(right: BorderSide(color: AppColors.dividerStrong)),
+      ),
+      child: SafeArea(
+        right: false,
+        child: Column(
+          children: [
+            const SizedBox(height: 18),
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.ink,
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: const Icon(Icons.storefront_rounded, color: Colors.white, size: 21),
+            ),
+            const SizedBox(height: 22),
+            for (int i = 0; i < tabs.length; i++) ...[
+              _railItem(i),
+              const SizedBox(height: 6),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _railItem(int i) {
+    final selected = i == currentIndex;
+    return GestureDetector(
+      onTap: () => onTap(i),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 68,
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primaryTint : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.iconBtn),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              selected ? tabs[i].activeIcon : tabs[i].icon,
+              size: 21,
+              color: selected ? AppColors.primary : AppColors.faint,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              tabs[i].label,
+              style: TextStyle(
+                color: selected ? AppColors.primary : AppColors.faint,
+                fontSize: 10,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
