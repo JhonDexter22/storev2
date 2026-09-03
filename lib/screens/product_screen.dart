@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
 import '../services/settings_service.dart';
@@ -333,10 +334,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   Widget _gridBody(List<Product> items) {
+    // A 2-up grid stretches badly on a tablet, so widen the run instead.
+    final columns = Breakpoints.isTablet(context) ? 4 : 2;
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH, 32),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
         mainAxisSpacing: AppSpace.gapGrid,
         crossAxisSpacing: AppSpace.gapGrid,
         childAspectRatio: 0.72,
