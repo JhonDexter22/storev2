@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../models/sale_model.dart';
 import '../services/product_service.dart';
@@ -122,34 +123,146 @@ class _DashboardScreenState extends State<DashboardScreen> {
             : _error != null
                 ? _errorState(_error!)
                 : RefreshIndicator(
-                color: AppColors.primary,
-                onRefresh: _load,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 16, AppSpace.screenH, 32),
-                  children: [
-                    _greetingHeader(),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    _periodChips(),
-                    const SizedBox(height: AppSpace.gapSection),
-                    _salesCard(),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    _statGrid(),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    if (_needsAttention.isNotEmpty) ...[
-                      _sectionTitle('Needs attention'),
-                      const SizedBox(height: 10),
-                      _attentionList(),
-                      const SizedBox(height: AppSpace.gapBlock),
-                    ],
-                    _sectionTitle('Recent sales'),
-                    const SizedBox(height: 10),
-                    _recentSalesList(),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    _startSaleCard(),
-                  ],
-                ),
-              ),
+                    color: AppColors.primary,
+                    onRefresh: _load,
+                    child: Breakpoints.isTablet(context)
+                        ? _tabletBody()
+                        : _phoneBody(),
+                  ),
       ),
+    );
+  }
+
+  Widget _phoneBody() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 16, AppSpace.screenH, 32),
+      children: [
+        _greetingHeader(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _periodChips(),
+        const SizedBox(height: AppSpace.gapSection),
+        _salesCard(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _statGrid(),
+        const SizedBox(height: AppSpace.gapBlock),
+        if (_needsAttention.isNotEmpty) ...[
+          _sectionTitle('Needs attention'),
+          const SizedBox(height: 10),
+          _attentionList(),
+          const SizedBox(height: AppSpace.gapBlock),
+        ],
+        _sectionTitle('Recent sales'),
+        const SizedBox(height: 10),
+        _recentSalesList(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _startSaleCard(),
+      ],
+    );
+  }
+
+  /// Tablet: the hero sales card keeps the left column, and the four figures
+  /// that were a 2x2 grid on the phone stack beside it under the CTA. Below,
+  /// the two lists sit side by side, so what needs restocking and what just
+  /// sold are both visible without scrolling.
+  Widget _tabletBody() {
+    final stats = _stats!;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      children: [
+        _greetingHeader(),
+        const SizedBox(height: AppSpace.gapSection),
+        _periodChips(),
+        const SizedBox(height: AppSpace.gapSection),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 3, child: _salesCard()),
+            const SizedBox(width: 16),
+            Expanded(
+              flex: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _startSaleCard(),
+                  const SizedBox(height: AppSpace.gapGrid),
+                  _statRow([
+                    _statCard('Transactions', '${stats.transactions}',
+                        Icons.receipt_long_outlined, AppColors.primary),
+                    _statCard('Items sold', '${stats.itemsSold}',
+                        Icons.shopping_bag_outlined, AppColors.primary),
+                  ]),
+                  const SizedBox(height: AppSpace.gapGrid),
+                  _statRow([
+                    _statCard('Inventory', '$_totalUnits units',
+                        Icons.inventory_2_outlined, AppColors.body),
+                    _stockAlertsCard(),
+                  ]),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpace.gapBlock),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _sectionTitle('Needs attention'),
+                  const SizedBox(height: 10),
+                  if (_needsAttention.isEmpty) _nothingToRestockCard() else _attentionList(),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _sectionTitle('Recent sales'),
+                  const SizedBox(height: 10),
+                  _recentSalesList(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// The stat cards space their icon, figure and label apart, which needs a
+  /// bounded height — the phone grid supplies one through its aspect ratio.
+  /// [IntrinsicHeight] gives the pair the height of the taller card instead of
+  /// a hardcoded one, so a longer figure cannot clip.
+  Widget _statRow(List<Widget> cards) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: cards[0]),
+          const SizedBox(width: AppSpace.gapGrid),
+          Expanded(child: cards[1]),
+        ],
+      ),
+    );
+  }
+
+  /// The phone drops the whole "Needs attention" block when nothing is low.
+  /// The tablet keeps the column so the two lists stay aligned, so it needs
+  /// something to say instead.
+  Widget _nothingToRestockCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Text('Everything is stocked', style: AppText.body()),
     );
   }
 
@@ -650,13 +763,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.circular(AppRadius.card),
         border: Border.all(color: AppColors.hairline),
       ),
+      // The tile's height is fixed by the grid, so the figure and label are
+      // loose-flexible: at ordinary text sizes nothing changes, and when the
+      // reader has scaled text up they shrink rather than clip.
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Icon(icon, size: 18, color: color),
-          Text(value, style: AppText.statFigure()),
-          Text(label, style: AppText.caption()),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(value, style: AppText.statFigure()),
+            ),
+          ),
+          Flexible(
+            child: Text(label,
+                style: AppText.caption(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ),
         ],
       ),
     );
@@ -675,16 +802,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           const Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.warning),
-          Row(
-            children: [
-              Text('$_lowCount', style: AppText.statFigure(color: AppColors.warningText, size: 20)),
-              Text(' low', style: AppText.caption(color: AppColors.warningText)),
-              const SizedBox(width: 8),
-              Text('$_outCount', style: AppText.statFigure(color: AppColors.dangerText, size: 20)),
-              Text(' out', style: AppText.caption(color: AppColors.dangerText)),
-            ],
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                children: [
+                  Text('$_lowCount',
+                      style: AppText.statFigure(color: AppColors.warningText, size: 20)),
+                  Text(' low', style: AppText.caption(color: AppColors.warningText)),
+                  const SizedBox(width: 8),
+                  Text('$_outCount',
+                      style: AppText.statFigure(color: AppColors.dangerText, size: 20)),
+                  Text(' out', style: AppText.caption(color: AppColors.dangerText)),
+                ],
+              ),
+            ),
           ),
-          Text('Stock alerts', style: AppText.caption()),
+          Flexible(
+            child: Text('Stock alerts',
+                style: AppText.caption(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ),
         ],
       ),
     );

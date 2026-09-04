@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/customer.dart';
 import '../services/utang_service.dart';
 
@@ -226,36 +227,68 @@ class _UtangScreenState extends State<UtangScreen> {
                   ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
                   : _customers.isEmpty
                       ? _empty()
-                      : ListView(
-                          padding:
-                              const EdgeInsets.fromLTRB(AppSpace.screenH, 6, AppSpace.screenH, 32),
-                          children: [
-                            _statTiles(),
-                            const SizedBox(height: AppSpace.gapSection),
-                            _filterChips(),
-                            const SizedBox(height: AppSpace.gapSection),
-                            if (_visible.isEmpty)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 32),
-                                child: Center(
-                                  child: Text('Nobody in this group right now',
-                                      style: AppText.body()),
-                                ),
-                              )
-                            else
-                              for (final c in _visible) ...[
-                                _customerCard(c),
-                                const SizedBox(height: 10),
-                              ],
-                            const SizedBox(height: 6),
-                            _addButton(),
-                          ],
-                        ),
+                      : _body(context),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _body(BuildContext context) {
+    final tablet = Breakpoints.isTablet(context);
+    return ListView(
+      padding: tablet
+          ? const EdgeInsets.fromLTRB(24, 6, 24, 32)
+          : const EdgeInsets.fromLTRB(AppSpace.screenH, 6, AppSpace.screenH, 32),
+      children: [
+        _statTiles(),
+        const SizedBox(height: AppSpace.gapSection),
+        _filterChips(),
+        const SizedBox(height: AppSpace.gapSection),
+        if (_visible.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Center(
+              child: Text('Nobody in this group right now', style: AppText.body()),
+            ),
+          )
+        else if (tablet)
+          ..._cardPairs()
+        else
+          for (final c in _visible) ...[
+            _customerCard(c),
+            const SizedBox(height: 10),
+          ],
+        const SizedBox(height: 6),
+        _addButton(),
+      ],
+    );
+  }
+
+  /// Tablet: two customers per row. The cards are a fixed set of rows, so
+  /// pairing them keeps each one readable instead of stretching a name and a
+  /// balance across the full width. An odd last card keeps its half.
+  List<Widget> _cardPairs() {
+    final rows = <Widget>[];
+    for (var i = 0; i < _visible.length; i += 2) {
+      final left = _visible[i];
+      final right = i + 1 < _visible.length ? _visible[i + 1] : null;
+      rows.add(IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: _customerCard(left)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: right == null ? const SizedBox.shrink() : _customerCard(right),
+            ),
+          ],
+        ),
+      ));
+      rows.add(const SizedBox(height: 10));
+    }
+    return rows;
   }
 
   Widget _header() {

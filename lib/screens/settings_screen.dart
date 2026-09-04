@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/responsive.dart';
 import '../services/settings_service.dart';
 import 'cash_count_screen.dart';
 import 'cashier_switch_screen.dart';
@@ -144,8 +145,10 @@ class SettingsScreen extends StatelessWidget {
       backgroundColor: _bg,
       body: SafeArea(
         bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+        child: LayoutBuilder(
+          builder: (context, constraints) => ListView(
+          padding: Breakpoints.pagePadding(context, constraints.maxWidth,
+              top: 24, phoneSide: 24),
           children: [
             const Text(
               'More',
@@ -223,6 +226,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

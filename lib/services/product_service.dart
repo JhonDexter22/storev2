@@ -24,6 +24,19 @@ class ProductService {
     return result.map((json) => Product.fromMap(json)).toList();
   }
 
+  /// Adds [delta] to the stored stock, clamped at zero.
+  ///
+  /// Prefer this over [updateStock] for restocks and any other adjustment: it
+  /// is relative, so it cannot clobber a sale that landed in between. Use
+  /// [updateStock] only when the user is stating what the stock actually is.
+  Future<int> addStock(int id, int delta) async {
+    final db = await dbHelper.database;
+    return db.rawUpdate(
+      'UPDATE products SET stock = MAX(0, stock + ?) WHERE id = ?',
+      [delta, id],
+    );
+  }
+
   Future<int> updateStock(int id, int newStock) async {
     final db = await dbHelper.database;
     return await db.update(

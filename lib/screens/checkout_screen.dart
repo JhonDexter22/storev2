@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/cart_line.dart';
 import '../models/customer.dart';
 import '../services/sales_service.dart';
@@ -127,52 +128,93 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           children: [
             _appBar(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpace.screenH,
-                  6,
-                  AppSpace.screenH,
-                  24,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _orderSummaryCard(),
-                    const SizedBox(height: AppSpace.gapSection),
-                    Text('Payment method', style: AppText.sectionTitle()),
-                    const SizedBox(height: 10),
-                    _paymentMethodRow(),
-                    if (_method == _PayMethod.utang) ...[
-                      const SizedBox(height: AppSpace.gapSection),
-                      Text('Charge to', style: AppText.sectionTitle()),
-                      const SizedBox(height: 10),
-                      _customerPicker(),
-                    ],
-                    if (_method == _PayMethod.cash) ...[
-                      const SizedBox(height: AppSpace.gapSection),
-                      _cashReceivedCard(),
-                      if (_received > 0 && _received < _due) ...[
-                        const SizedBox(height: 10),
-                        _notice(
-                          'Cash received is less than the amount due.',
-                          AppColors.warning,
-                          AppColors.warningFill,
-                          AppColors.warningBorder,
-                        ),
-                      ],
-                      if (_received >= _due && _received > 0) ...[
-                        const SizedBox(height: 10),
-                        _changeBlock(),
-                      ],
-                    ],
-                  ],
-                ),
-              ),
+              child: Breakpoints.isTablet(context) ? _tabletBody() : _phoneBody(),
             ),
             _ctaBar(),
           ],
         ),
       ),
+    );
+  }
+
+  /// The payment half: how they are paying, and everything that depends on
+  /// it. Shared by both layouts so the two never drift apart.
+  List<Widget> _paymentSection() {
+    return [
+      Text('Payment method', style: AppText.sectionTitle()),
+      const SizedBox(height: 10),
+      _paymentMethodRow(),
+      if (_method == _PayMethod.utang) ...[
+        const SizedBox(height: AppSpace.gapSection),
+        Text('Charge to', style: AppText.sectionTitle()),
+        const SizedBox(height: 10),
+        _customerPicker(),
+      ],
+      if (_method == _PayMethod.cash) ...[
+        const SizedBox(height: AppSpace.gapSection),
+        _cashReceivedCard(),
+        if (_received > 0 && _received < _due) ...[
+          const SizedBox(height: 10),
+          _notice(
+            'Cash received is less than the amount due.',
+            AppColors.warning,
+            AppColors.warningFill,
+            AppColors.warningBorder,
+          ),
+        ],
+        if (_received >= _due && _received > 0) ...[
+          const SizedBox(height: 10),
+          _changeBlock(),
+        ],
+      ],
+    ];
+  }
+
+  Widget _phoneBody() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.screenH,
+        6,
+        AppSpace.screenH,
+        24,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _orderSummaryCard(),
+          const SizedBox(height: AppSpace.gapSection),
+          ..._paymentSection(),
+        ],
+      ),
+    );
+  }
+
+  /// Tablet: what they are buying stays put on the left while the cashier
+  /// works the payment on the right. On the phone the summary scrolls away as
+  /// soon as the number pad opens, which is exactly when the customer asks
+  /// what they are paying for.
+  Widget _tabletBody() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 2,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 6, 12, 24),
+            child: _orderSummaryCard(),
+          ),
+        ),
+        Expanded(
+          flex: 3,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(12, 6, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _paymentSection(),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

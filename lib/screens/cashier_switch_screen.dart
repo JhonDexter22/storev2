@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/staff.dart';
 import '../services/settings_service.dart';
 import '../widgets/pin_sheet.dart';
@@ -49,8 +50,9 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
       backgroundColor: AppColors.canvas,
       body: SafeArea(
         bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 12, AppSpace.screenH, 32),
+        child: LayoutBuilder(
+          builder: (context, constraints) => ListView(
+          padding: Breakpoints.pagePadding(context, constraints.maxWidth),
           children: [
             Row(
               children: [
@@ -117,6 +119,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

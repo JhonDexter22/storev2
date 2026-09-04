@@ -86,12 +86,12 @@ class SalesService {
           'qty': line.qty,
           'line_total': line.lineTotal,
         });
-        final newStock = line.product.stock - line.qty;
-        await txn.update(
-          'products',
-          {'stock': newStock < 0 ? 0 : newStock},
-          where: 'id = ?',
-          whereArgs: [line.product.id],
+        // Decrement relative to the stored value, not the copy POS loaded.
+        // Writing an absolute `loadedStock - qty` would clobber any change made
+        // in between — a restock, or a return going back on the shelf.
+        await txn.rawUpdate(
+          'UPDATE products SET stock = MAX(0, stock - ?) WHERE id = ?',
+          [line.qty, line.product.id],
         );
       }
     });

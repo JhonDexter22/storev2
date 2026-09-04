@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../database/database_helper.dart';
 import '../services/settings_service.dart';
 
@@ -108,8 +109,9 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
       backgroundColor: AppColors.canvas,
       body: SafeArea(
         bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 12, AppSpace.screenH, 32),
+        child: LayoutBuilder(
+          builder: (context, constraints) => ListView(
+          padding: Breakpoints.pagePadding(context, constraints.maxWidth),
           children: [
             Row(
               children: [
@@ -166,6 +168,7 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
             const SizedBox(height: AppSpace.gapBlock),
             Center(child: Text('Sari-Sari POS · v1.0.0', style: AppText.caption())),
           ],
+        ),
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/shift_model.dart';
 import '../services/shift_service.dart';
 
@@ -81,8 +82,10 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                   ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
                   : _list.isEmpty
                       ? _empty()
-                      : ListView(
-                          padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 6, AppSpace.screenH, 32),
+                      : LayoutBuilder(
+                          builder: (context, constraints) => ListView(
+                          padding: Breakpoints.pagePadding(
+                              context, constraints.maxWidth, top: 6),
                           children: [
                             _statTiles(),
                             const SizedBox(height: AppSpace.gapBlock),
@@ -91,6 +94,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                               const SizedBox(height: 10),
                             ],
                           ],
+                        ),
                         ),
             ),
           ],

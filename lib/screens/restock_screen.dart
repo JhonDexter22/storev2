@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
 
@@ -111,7 +112,9 @@ class _RestockScreenState extends State<RestockScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
                     ),
                     onPressed: () async {
-                      await _productService.updateStock(product.id!, newStock);
+                      // Relative, so a sale rung while this sheet was open is
+                      // not overwritten by a stale total.
+                      await _productService.addStock(product.id!, addQty);
                       if (ctx.mounted) Navigator.pop(ctx);
                       _load();
                     },
@@ -180,52 +183,142 @@ class _RestockScreenState extends State<RestockScreen> {
             : RefreshIndicator(
                 color: AppColors.primary,
                 onRefresh: _load,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 16, AppSpace.screenH, 32),
-                  children: [
-                    Text('Restock center', style: AppText.screenTitle()),
-                    const SizedBox(height: 4),
-                    Text(
-                      _products.isEmpty
-                          ? 'All products are sufficiently stocked'
-                          : '${_products.length} product${_products.length == 1 ? '' : 's'} need attention',
-                      style: AppText.body(),
-                    ),
-                    const SizedBox(height: AppSpace.gapBlock),
-                    if (_critical.isNotEmpty) ...[
-                      _groupHeading('Critical', AppColors.danger),
-                      const SizedBox(height: 10),
-                      for (final p in _critical) ...[
-                        _criticalCard(p),
-                        const SizedBox(height: 10),
-                      ],
-                      const SizedBox(height: AppSpace.gapSection),
-                    ],
-                    if (_low.isNotEmpty) ...[
-                      _groupHeading('Low stock', AppColors.warning),
-                      const SizedBox(height: 10),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(AppRadius.card),
-                          border: Border.all(color: AppColors.hairline),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(
-                          children: [
-                            for (int i = 0; i < _low.length; i++) ...[
-                              _lowRow(_low[i]),
-                              if (i != _low.length - 1) const Divider(color: AppColors.divider, height: 1),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                    if (_products.isEmpty) _emptyState(),
-                  ],
-                ),
+                child: Breakpoints.isTablet(context) ? _tabletBody() : _phoneBody(),
               ),
       ),
+    );
+  }
+
+  Widget _header() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Restock center', style: AppText.screenTitle()),
+        const SizedBox(height: 4),
+        Text(
+          _products.isEmpty
+              ? 'All products are sufficiently stocked'
+              : '${_products.length} product${_products.length == 1 ? '' : 's'} need attention',
+          style: AppText.body(),
+        ),
+      ],
+    );
+  }
+
+  Widget _lowStockCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (int i = 0; i < _low.length; i++) ...[
+            _lowRow(_low[i]),
+            if (i != _low.length - 1) const Divider(color: AppColors.divider, height: 1),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _phoneBody() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 16, AppSpace.screenH, 32),
+      children: [
+        _header(),
+        const SizedBox(height: AppSpace.gapBlock),
+        if (_critical.isNotEmpty) ...[
+          _groupHeading('Critical', AppColors.danger),
+          const SizedBox(height: 10),
+          for (final p in _critical) ...[
+            _criticalCard(p),
+            const SizedBox(height: 10),
+          ],
+          const SizedBox(height: AppSpace.gapSection),
+        ],
+        if (_low.isNotEmpty) ...[
+          _groupHeading('Low stock', AppColors.warning),
+          const SizedBox(height: 10),
+          _lowStockCard(),
+        ],
+        if (_products.isEmpty) _emptyState(),
+      ],
+    );
+  }
+
+  /// Tablet: the two urgencies sit side by side rather than stacked, so a
+  /// long list of low stock no longer buries the out-of-stock cards that
+  /// actually cost a sale. Critical takes the wider column because its cards
+  /// carry the stat rule and the restock button.
+  Widget _tabletBody() {
+    if (_products.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        children: [_header(), const SizedBox(height: AppSpace.gapBlock), _emptyState()],
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      children: [
+        _header(),
+        const SizedBox(height: AppSpace.gapBlock),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _groupHeading('Critical', AppColors.danger),
+                  const SizedBox(height: 10),
+                  if (_critical.isEmpty)
+                    _columnEmpty('Nothing is out of stock')
+                  else
+                    for (final p in _critical) ...[
+                      _criticalCard(p),
+                      const SizedBox(height: 10),
+                    ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              flex: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _groupHeading('Low stock', AppColors.warning),
+                  const SizedBox(height: 10),
+                  if (_low.isEmpty)
+                    _columnEmpty('Nothing is running low')
+                  else
+                    _lowStockCard(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Either column can be empty while the other has work in it, so each says
+  /// so in place instead of collapsing and pulling the layout sideways.
+  Widget _columnEmpty(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Text(message, style: AppText.body()),
     );
   }
 

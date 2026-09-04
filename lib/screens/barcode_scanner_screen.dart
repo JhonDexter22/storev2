@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../core/design_tokens.dart';
+import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
 
@@ -290,7 +291,10 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
   }
 
   Widget _reticle() {
-    const w = 262.0, h = 180.0;
+    // The frame is a target the cashier aims at, so it scales with the
+    // viewfinder rather than staying a phone-sized box in a tablet's middle.
+    final tablet = Breakpoints.isTablet(context);
+    final w = tablet ? 380.0 : 262.0, h = tablet ? 260.0 : 180.0;
     return SizedBox(
       width: w,
       height: h,
@@ -367,7 +371,19 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
         color: AppColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: children),
+      // The surface stays full width so the sheet still reads as anchored to
+      // the bottom edge, but its contents do not: a product row and a pair of
+      // buttons stretched across a tablet are a lap apart.
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: Breakpoints.maxReadingWidth),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: children,
+          ),
+        ),
+      ),
     );
   }
 
