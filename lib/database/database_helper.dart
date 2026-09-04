@@ -7,6 +7,17 @@ class DatabaseHelper {
 
   DatabaseHelper._init();
 
+  /// Overrides where the database lives. Left null in production; tests set it
+  /// (typically to `inMemoryDatabasePath`) so each suite gets its own store
+  /// instead of sharing one file and interfering with each other.
+  static String? testDatabasePath;
+
+  /// Drops the cached connection so the next access reopens. Tests only.
+  static Future<void> resetForTests() async {
+    await _database?.close();
+    _database = null;
+  }
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDB('restock.db');
@@ -14,8 +25,8 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDB(String filePath) async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
+    final override = testDatabasePath;
+    final path = override ?? join(await getDatabasesPath(), filePath);
 
     return await openDatabase(
       path,
