@@ -30,7 +30,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -53,6 +53,33 @@ class DatabaseHelper {
     await _createSalesTables(db);
     await _createReturnsAndShiftTables(db);
     await _createUtangTables(db);
+    await _createStaffTable(db);
+  }
+
+  /// Staff and their till PINs.
+  ///
+  /// Only the salt and the hash are stored — see `PinHasher` for what that is
+  /// and is not worth. [failed_attempts] and [locked_until] back the lockout
+  /// that does the real work of stopping someone guessing at the counter, and
+  /// they live in the database rather than in memory so force-quitting the app
+  /// does not clear them.
+  Future _createStaffTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE staff(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        pin_salt TEXT NOT NULL,
+        pin_hash TEXT NOT NULL,
+        pin_iterations INTEGER NOT NULL,
+        is_manager INTEGER NOT NULL DEFAULT 0,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until TEXT
+      )
+    ''');
+    await db.execute('CREATE UNIQUE INDEX idx_staff_name ON staff(name)');
   }
 
   /// Store credit ("utang"). The ledger is append-only: a charge is a positive
@@ -206,6 +233,9 @@ class DatabaseHelper {
     if (oldVersion < 6) {
       await _createUtangTables(db);
     }
+    if (oldVersion < 7) {
+      await _createStaffTable(db);
+    }
   }
 // Idagdag ito sa loob ng DatabaseHelper class
   Future<int> insertProduct(Map<String, dynamic> product) async {
@@ -216,6 +246,10 @@ class DatabaseHelper {
 
   /// Wipes all store data (products, sales, refunds, shifts and the utang
   /// ledger). Irreversible.
+  ///
+  /// Staff are deliberately left alone. They are not store data, and clearing
+  /// them would re-seed the roster with the starting PINs — a data wipe would
+  /// quietly reset the manager's code to one printed in the source.
   Future<void> clearAllData() async {
     final db = await instance.database;
     await db.delete('utang_entries');
