@@ -6,6 +6,7 @@ import '../models/shift_model.dart';
 import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../services/shift_service.dart';
+import '../services/staff_service.dart';
 import '../widgets/pin_sheet.dart';
 
 /// Cash count / end of day — reconcile the drawer and close the shift.
@@ -22,6 +23,7 @@ class CashCountScreen extends StatefulWidget {
 class _CashCountScreenState extends State<CashCountScreen> {
   final SalesService _sales = SalesService();
   final ShiftService _shifts = ShiftService();
+  final StaffService _staff = StaffService();
 
   /// ₱1,000 down to ₱1. Notes first, then coins.
   static const _denominations = [1000, 500, 200, 100, 50, 20, 10, 5, 1];
@@ -102,7 +104,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
   }
 
   Future<void> _closeShift() async {
-    final passed = await PinSheet.show(context, expectedPin: PinSheet.managerPin);
+    final passed = await PinSheet.show(context, verify: _staff.verifyManagerPin);
     if (!passed || !mounted) return;
 
     final shift = await _shifts.closeShift(
