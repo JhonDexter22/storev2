@@ -7,6 +7,13 @@ class SaleItem {
   final int qty;
   final double lineTotal;
 
+  /// This line's share of the sale's discount, in pesos.
+  ///
+  /// Allocated at the till rather than worked out again at refund time, so a
+  /// return pays back exactly what was taken for this line and rounding cannot
+  /// drift between the two calculations.
+  final double discount;
+
   SaleItem({
     this.id,
     this.saleId,
@@ -15,7 +22,15 @@ class SaleItem {
     required this.unitPrice,
     required this.qty,
     required this.lineTotal,
+    this.discount = 0,
   });
+
+  /// What the customer actually paid for this line.
+  double get netTotal => lineTotal - discount;
+
+  /// Per-unit price after the discount — what one of these is worth on a
+  /// partial return.
+  double get netUnitPrice => qty == 0 ? 0 : netTotal / qty;
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -25,6 +40,7 @@ class SaleItem {
         'unit_price': unitPrice,
         'qty': qty,
         'line_total': lineTotal,
+        'discount': discount,
       };
 
   factory SaleItem.fromMap(Map<String, dynamic> map) => SaleItem(
@@ -35,6 +51,7 @@ class SaleItem {
         unitPrice: (map['unit_price'] as num).toDouble(),
         qty: map['qty'],
         lineTotal: (map['line_total'] as num).toDouble(),
+        discount: (map['discount'] as num?)?.toDouble() ?? 0,
       );
 }
 
@@ -48,6 +65,15 @@ class Sale {
   final double cashReceived;
   final double changeAmount;
   final int itemCount;
+
+  /// Pesos taken off, and why. Kept beside [subtotal] and [total] rather than
+  /// folded into them, so a report can show what was given away.
+  final double discount;
+  final String discountReason;
+
+  /// Who rang it up. Empty on sales taken before this was recorded.
+  final String cashier;
+
   final List<SaleItem> items;
 
   Sale({
@@ -60,6 +86,9 @@ class Sale {
     this.cashReceived = 0,
     this.changeAmount = 0,
     required this.itemCount,
+    this.discount = 0,
+    this.discountReason = '',
+    this.cashier = '',
     this.items = const [],
   });
 
@@ -75,6 +104,9 @@ class Sale {
         'cash_received': cashReceived,
         'change_amount': changeAmount,
         'item_count': itemCount,
+        'discount': discount,
+        'discount_reason': discountReason,
+        'cashier': cashier,
       };
 
   factory Sale.fromMap(Map<String, dynamic> map) => Sale(
@@ -87,5 +119,8 @@ class Sale {
         cashReceived: (map['cash_received'] as num?)?.toDouble() ?? 0,
         changeAmount: (map['change_amount'] as num?)?.toDouble() ?? 0,
         itemCount: map['item_count'],
+        discount: (map['discount'] as num?)?.toDouble() ?? 0,
+        discountReason: map['discount_reason'] as String? ?? '',
+        cashier: map['cashier'] as String? ?? '',
       );
 }
