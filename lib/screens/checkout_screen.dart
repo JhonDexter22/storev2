@@ -4,8 +4,11 @@ import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/cart_line.dart';
 import '../models/customer.dart';
+import '../models/discount.dart';
 import '../services/sales_service.dart';
+import '../services/settings_service.dart';
 import '../services/utang_service.dart';
+import '../widgets/discount_sheet.dart';
 
 enum _PayMethod { cash, gcash, card, utang }
 
@@ -35,7 +38,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   List<Customer> _customers = [];
   Customer? _chargeTo;
 
-  double get _due => widget.lines.fold(0, (s, l) => s + l.lineTotal);
+  Discount _discount = Discount.none;
+
+  double get _subtotal => widget.lines.fold(0, (s, l) => s + l.lineTotal);
+  double get _discountAmount => _discount.amountOn(_subtotal);
+
+  /// What the customer pays. Every downstream figure — cash received, change,
+  /// the utang charge, the CTA — reads this, so a discount cannot be shown on
+  /// screen and then quietly left out of one of them.
+  double get _due => _subtotal - _discountAmount;
   double get _change => (_received - _due).clamp(0, double.infinity);
 
   bool get _canComplete {
@@ -89,6 +100,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ? _received
           : (onCredit ? 0 : _due),
       changeAmount: _method == _PayMethod.cash ? _change : 0,
+      discount: _discount,
+      cashier: SettingsService.instance.cashier,
     );
     if (onCredit && _chargeTo?.id != null) {
       await _utang.charge(
@@ -106,6 +119,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         method: methodLabel,
         time: DateTime.now(),
         chargedTo: onCredit ? _chargeTo?.name : null,
+        subtotal: _subtotal,
+        discountAmount: _discountAmount,
+        discountLabel: _discount.label(_subtotal),
       );
     });
   }
@@ -373,6 +389,37 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ],
           const Divider(color: AppColors.divider, height: 1),
           const SizedBox(height: 10),
+          _discountRow(),
+          if (!_discount.isZero) ...[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Subtotal', style: AppText.body()),
+                Text(formatPeso(_subtotal), style: AppText.body()),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    _discount.label(_subtotal),
+                    style: AppText.body(color: AppColors.successText),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text('−${formatPeso(_discountAmount)}',
+                    style: AppText.body(color: AppColors.successText)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            const Divider(color: AppColors.divider, height: 1),
+          ],
+          const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -386,6 +433,59 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ],
       ),
     );
+  }
+
+  /// The discount affordance. Present but quiet when unused — a discount is
+  /// the exception, not part of every sale.
+  Widget _discountRow() {
+    final has = !_discount.isZero;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: _openDiscountSheet,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Icon(has ? Icons.sell_rounded : Icons.sell_outlined,
+                  size: 17,
+                  color: has ? AppColors.successText : AppColors.body),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  has ? 'Discount applied' : 'Add a discount',
+                  style: AppText.body(
+                      color: has ? AppColors.successText : AppColors.body),
+                ),
+              ),
+              if (has)
+                GestureDetector(
+                  onTap: () => setState(() => _discount = Discount.none),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Text('Remove',
+                        style: AppText.chip(color: AppColors.dangerText)),
+                  ),
+                )
+              else
+                const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: AppColors.faint),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDiscountSheet() async {
+    final picked = await DiscountSheet.show(
+      context,
+      subtotal: _subtotal,
+      current: _discount,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _discount = picked);
   }
 
   Widget _paymentMethodRow() {
@@ -763,10 +863,21 @@ class _CompletedSale {
     required this.method,
     required this.time,
     this.chargedTo,
+    this.subtotal = 0,
+    this.discountAmount = 0,
+    this.discountLabel = '',
   });
   final String reference;
   final String method;
   final DateTime time;
+
+  /// Kept for the receipt: a customer given a senior or PWD discount should be
+  /// able to see it was applied, not just a smaller number.
+  final double subtotal;
+  final double discountAmount;
+  final String discountLabel;
+
+  bool get hasDiscount => discountAmount > 0;
 
   /// Set only on the credit path — whose tab this landed on.
   final String? chargedTo;
@@ -840,6 +951,27 @@ class _SuccessView extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
+                    if (done.hasDiscount) ...[
+                      _receiptRow('Subtotal', formatPeso(done.subtotal)),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(done.discountLabel,
+                                style: AppText.body(color: AppColors.successText),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                          ),
+                          const SizedBox(width: 8),
+                          Text('-${formatPeso(done.discountAmount)}',
+                              style: AppText.cardTitle(color: AppColors.successText)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(color: AppColors.divider, height: 1),
+                      const SizedBox(height: 8),
+                    ],
                     _receiptRow(
                       done.onCredit ? 'Added to tab' : 'Amount due',
                       formatPeso(due),
