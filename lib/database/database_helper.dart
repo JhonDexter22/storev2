@@ -30,7 +30,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 7,
+      version: 9,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -76,7 +76,8 @@ class DatabaseHelper {
         active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
         failed_attempts INTEGER NOT NULL DEFAULT 0,
-        locked_until TEXT
+        locked_until TEXT,
+        pin_is_default INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute('CREATE UNIQUE INDEX idx_staff_name ON staff(name)');
@@ -124,6 +125,7 @@ class DatabaseHelper {
         method TEXT NOT NULL,
         is_void INTEGER NOT NULL DEFAULT 0,
         restocked INTEGER NOT NULL DEFAULT 1,
+        cashier TEXT NOT NULL DEFAULT '',
         FOREIGN KEY(sale_id) REFERENCES sales(id)
       )
     ''');
@@ -175,6 +177,28 @@ class DatabaseHelper {
     }
   }
 
+  /// v9 adds discounts and cashier attribution.
+  ///
+  /// The discount columns default to 0, which is the truth for every sale
+  /// taken before this version: none of them had one. `cashier` defaults to
+  /// empty rather than to whoever is signed in now — guessing would put a
+  /// name on old sales that nobody can vouch for.
+  Future _upgradeToV9(Database db) async {
+    for (final sql in [
+      'ALTER TABLE sales ADD COLUMN discount REAL NOT NULL DEFAULT 0',
+      "ALTER TABLE sales ADD COLUMN discount_reason TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE sales ADD COLUMN cashier TEXT NOT NULL DEFAULT ''",
+      'ALTER TABLE sale_items ADD COLUMN discount REAL NOT NULL DEFAULT 0',
+      "ALTER TABLE refunds ADD COLUMN cashier TEXT NOT NULL DEFAULT ''",
+    ]) {
+      try {
+        await db.execute(sql);
+      } catch (_) {
+        // Column already present on a database created fresh at v9.
+      }
+    }
+  }
+
   Future _createSalesTables(Database db) async {
     await db.execute('''
       CREATE TABLE sales(
@@ -186,7 +210,10 @@ class DatabaseHelper {
         payment_method TEXT NOT NULL,
         cash_received REAL NOT NULL DEFAULT 0,
         change_amount REAL NOT NULL DEFAULT 0,
-        item_count INTEGER NOT NULL
+        item_count INTEGER NOT NULL,
+        discount REAL NOT NULL DEFAULT 0,
+        discount_reason TEXT NOT NULL DEFAULT '',
+        cashier TEXT NOT NULL DEFAULT ''
       )
     ''');
     await db.execute('''
@@ -198,6 +225,7 @@ class DatabaseHelper {
         unit_price REAL NOT NULL,
         qty INTEGER NOT NULL,
         line_total REAL NOT NULL,
+        discount REAL NOT NULL DEFAULT 0,
         FOREIGN KEY(sale_id) REFERENCES sales(id)
       )
     ''');
@@ -235,6 +263,21 @@ class DatabaseHelper {
     }
     if (oldVersion < 7) {
       await _createStaffTable(db);
+    }
+    if (oldVersion < 8) {
+      // A v7 install seeded the starting codes and has no way to know it. Mark
+      // everyone as still on a default so the warning appears; changing a PIN
+      // clears the flag. A v8-fresh table already has the column, so guard it.
+      try {
+        await db.execute(
+            'ALTER TABLE staff ADD COLUMN pin_is_default INTEGER NOT NULL DEFAULT 0');
+        await db.update('staff', {'pin_is_default': 1});
+      } catch (_) {
+        // Column already present.
+      }
+    }
+    if (oldVersion < 9) {
+      await _upgradeToV9(db);
     }
   }
 // Idagdag ito sa loob ng DatabaseHelper class
