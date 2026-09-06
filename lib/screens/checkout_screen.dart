@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
@@ -134,6 +135,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         due: _due,
         received: _received,
         change: _change,
+        lines: widget.lines,
       );
     }
 
@@ -891,12 +893,51 @@ class _SuccessView extends StatelessWidget {
     required this.due,
     required this.received,
     required this.change,
+    required this.lines,
   });
 
   final _CompletedSale done;
   final double due;
   final double received;
   final double change;
+  final List<CartLine> lines;
+
+  /// A plain-text receipt.
+  ///
+  /// Text rather than a file: it goes wherever the customer already is —
+  /// Messenger, SMS, email — without them needing an app that opens
+  /// attachments. A senior or PWD discount is itemised because that is the
+  /// half of the receipt they are most likely to be asked to show.
+  String buildReceipt() {
+    final b = StringBuffer()
+      ..writeln(SettingsService.instance.storeName)
+      ..writeln('${done.reference} · ${_stamp(done.time)}')
+      ..writeln('');
+    for (final line in lines) {
+      b.writeln('${line.qty} x ${line.product.name}  ${formatPeso(line.lineTotal)}');
+    }
+    b.writeln('');
+    if (done.hasDiscount) {
+      b
+        ..writeln('Subtotal        ${formatPeso(done.subtotal)}')
+        ..writeln('${done.discountLabel}  -${formatPeso(done.discountAmount)}');
+    }
+    b.writeln('${done.onCredit ? 'Charged to tab' : 'Total'}  ${formatPeso(due)}');
+    if (done.method == 'Cash') {
+      b
+        ..writeln('Cash            ${formatPeso(received)}')
+        ..writeln('Change          ${formatPeso(change)}');
+    } else {
+      b.writeln('Paid by         ${done.method}');
+    }
+    if (done.chargedTo != null) b.writeln('On the tab of   ${done.chargedTo}');
+    return b.toString();
+  }
+
+  static String _stamp(DateTime t) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${t.day}/${t.month}/${t.year} ${two(t.hour)}:${two(t.minute)}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1034,7 +1075,12 @@ class _SuccessView extends StatelessWidget {
                     child: _secondaryBtn(
                       'Share',
                       Icons.ios_share_rounded,
-                      () {},
+                      () => SharePlus.instance.share(
+                        ShareParams(
+                          text: buildReceipt(),
+                          subject: '${SettingsService.instance.storeName} · ${done.reference}',
+                        ),
+                      ),
                     ),
                   ),
                 ],
