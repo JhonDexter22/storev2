@@ -1,5 +1,6 @@
 import '../database/database_helper.dart';
 import '../models/cart_line.dart';
+import '../models/discount.dart';
 import '../models/refund_model.dart';
 import '../models/sale_model.dart';
 
@@ -30,6 +31,7 @@ class PeriodStats {
     required this.transactions,
     required this.itemsSold,
     required this.dailyRevenue,
+    this.discountGiven = 0,
   });
 
   final double revenue;
@@ -37,6 +39,13 @@ class PeriodStats {
   final int transactions;
   final int itemsSold;
   final List<double> dailyRevenue;
+
+  /// Pesos given away in the window. Not part of [revenue] — it is the money
+  /// that did not come in, which is exactly why it is worth showing.
+  final double discountGiven;
+
+  /// What the period would have taken at full price.
+  double get grossRevenue => revenue + discountGiven;
 
   double get deltaPct {
     if (previousRevenue <= 0) return revenue > 0 ? 1 : 0;
@@ -49,16 +58,52 @@ class PeriodStats {
 class SalesService {
   final dbHelper = DatabaseHelper.instance;
 
+  /// Splits [discountAmount] across [lines] in proportion to what each is
+  /// worth, to the centavo.
+  ///
+  /// Proportional shares almost never sum back to the total — three lines
+  /// splitting ₱10.00 give ₱3.33 each and lose a centavo. The remainder goes
+  /// on the largest line, so the parts add up to the whole exactly and a full
+  /// return of every line refunds precisely what was taken.
+  static List<double> allocateDiscount(List<double> lineTotals, double discountAmount) {
+    final shares = List<double>.filled(lineTotals.length, 0);
+    if (discountAmount <= 0 || lineTotals.isEmpty) return shares;
+
+    final subtotal = lineTotals.fold<double>(0, (a, b) => a + b);
+    if (subtotal <= 0) return shares;
+
+    var assigned = 0.0;
+    var largest = 0;
+    for (var i = 0; i < lineTotals.length; i++) {
+      shares[i] = (lineTotals[i] / subtotal * discountAmount * 100).roundToDouble() / 100;
+      assigned += shares[i];
+      if (lineTotals[i] > lineTotals[largest]) largest = i;
+    }
+
+    final remainder = ((discountAmount - assigned) * 100).roundToDouble() / 100;
+    if (remainder != 0) {
+      shares[largest] = ((shares[largest] + remainder) * 100).roundToDouble() / 100;
+    }
+    return shares;
+  }
+
   Future<Sale> recordSale({
     required List<CartLine> lines,
     required String paymentMethod,
     double cashReceived = 0,
     double changeAmount = 0,
+    Discount discount = Discount.none,
+    String cashier = '',
   }) async {
     final db = await dbHelper.database;
     final now = DateTime.now();
     final subtotal = lines.fold<double>(0, (s, l) => s + l.lineTotal);
     final itemCount = lines.fold<int>(0, (s, l) => s + l.qty);
+    final discountAmount = discount.amountOn(subtotal);
+    final shares = allocateDiscount(
+      lines.map((l) => l.lineTotal).toList(),
+      discountAmount,
+    );
 
     late int saleId;
     await db.transaction((txn) async {
@@ -66,18 +111,22 @@ class SalesService {
         'reference': '',
         'created_at': now.toIso8601String(),
         'subtotal': subtotal,
-        'total': subtotal,
+        'total': subtotal - discountAmount,
         'payment_method': paymentMethod,
         'cash_received': cashReceived,
         'change_amount': changeAmount,
         'item_count': itemCount,
+        'discount': discountAmount,
+        'discount_reason': discountAmount > 0 ? discount.reason : '',
+        'cashier': cashier,
       });
 
       final reference = 'S${now.year}${now.month.toString().padLeft(2, '0')}'
           '${now.day.toString().padLeft(2, '0')}-${saleId.toString().padLeft(4, '0')}';
       await txn.update('sales', {'reference': reference}, where: 'id = ?', whereArgs: [saleId]);
 
-      for (final line in lines) {
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i];
         await txn.insert('sale_items', {
           'sale_id': saleId,
           'product_id': line.product.id,
@@ -85,6 +134,7 @@ class SalesService {
           'unit_price': line.product.price,
           'qty': line.qty,
           'line_total': line.lineTotal,
+          'discount': shares[i],
         });
         // Decrement relative to the stored value, not the copy POS loaded.
         // Writing an absolute `loadedStock - qty` would clobber any change made
@@ -130,7 +180,7 @@ class SalesService {
     );
     final sales = rows.map((m) => Sale.fromMap(m)).toList();
 
-    double revenue = 0, prevRevenue = 0;
+    double revenue = 0, prevRevenue = 0, discountGiven = 0;
     int tx = 0, items = 0;
     final daily = List<double>.filled(days, 0);
 
@@ -139,6 +189,7 @@ class SalesService {
       final dayStart = DateTime(d.year, d.month, d.day);
       if (!dayStart.isBefore(windowStart)) {
         revenue += s.total;
+        discountGiven += s.discount;
         tx += 1;
         items += s.itemCount;
         final idx = dayStart.difference(windowStart).inDays;
@@ -154,6 +205,7 @@ class SalesService {
       transactions: tx,
       itemsSold: items,
       dailyRevenue: daily,
+      discountGiven: discountGiven,
     );
   }
 
@@ -167,11 +219,14 @@ class SalesService {
 
   /// Products by revenue over the period, highest first, so bar length and
   /// figures always agree.
+  ///
+  /// Net of each line's share of any discount, so this and [paymentMix] and
+  /// the headline revenue all add up to the same money.
   Future<List<BreakdownRow>> topProducts(int days, {int limit = 5}) async {
     final db = await dbHelper.database;
     final rows = await db.rawQuery('''
       SELECT si.name AS label,
-             SUM(si.line_total) AS value,
+             SUM(si.line_total - si.discount) AS value,
              SUM(si.qty) AS units
       FROM sale_items si
       JOIN sales s ON s.id = si.sale_id
@@ -213,7 +268,7 @@ class SalesService {
     final db = await dbHelper.database;
     final rows = await db.rawQuery('''
       SELECT COALESCE(NULLIF(p.category, ''), 'Other') AS label,
-             SUM(si.line_total) AS value,
+             SUM(si.line_total - si.discount) AS value,
              SUM(si.qty) AS units
       FROM sale_items si
       JOIN sales s ON s.id = si.sale_id
@@ -278,6 +333,7 @@ class SalesService {
     required String method,
     required bool restock,
     required bool isVoid,
+    String cashier = '',
   }) async {
     final db = await dbHelper.database;
     final items = await getSaleItems(sale.id!);
@@ -288,13 +344,18 @@ class SalesService {
     for (final item in items) {
       final qty = lines[item.productId] ?? 0;
       if (qty <= 0) continue;
-      final lineTotal = item.unitPrice * qty;
+      // Priced at what the customer paid, not the shelf price: refunding
+      // `unitPrice * qty` on a discounted sale hands back money that never
+      // came in. Returning the whole sale returns exactly the sale total.
+      final lineTotal = qty == item.qty
+          ? item.netTotal
+          : (item.netUnitPrice * qty * 100).roundToDouble() / 100;
       amount += lineTotal;
       refundItems.add({
         'product_id': item.productId,
         'name': item.name,
         'qty': qty,
-        'unit_price': item.unitPrice,
+        'unit_price': item.netUnitPrice,
         'line_total': lineTotal,
       });
     }
@@ -310,6 +371,7 @@ class SalesService {
         'method': method,
         'is_void': isVoid ? 1 : 0,
         'restocked': restock ? 1 : 0,
+        'cashier': cashier,
       });
 
       for (final ri in refundItems) {
