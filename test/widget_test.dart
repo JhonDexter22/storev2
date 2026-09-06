@@ -72,11 +72,8 @@ void main() {
     });
 
     test('a single-word name has one initial', () {
-      expect(const Staff(name: 'May', role: 'Cashier', pin: '1111').initials, 'M');
-      expect(
-        const Staff(name: 'Ana Reyes', role: 'Cashier', pin: '0000').initials,
-        'AR',
-      );
+      expect(const Staff(name: 'May', role: 'Cashier').initials, 'M');
+      expect(const Staff(name: 'Ana Reyes', role: 'Cashier').initials, 'AR');
     });
 
     test('notifies listeners when a setting changes', () async {
