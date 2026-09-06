@@ -5,6 +5,7 @@ import '../core/responsive.dart';
 import '../models/refund_model.dart';
 import '../models/sale_model.dart';
 import '../services/sales_service.dart';
+import '../services/settings_service.dart';
 
 /// Returns & voids — reverse part or all of a completed sale.
 ///
@@ -424,7 +425,9 @@ class _ReturnDetailScreenState extends State<_ReturnDetailScreen> {
 
   double get _refundDue => _lines.fold<double>(0, (s, l) {
         final qty = _selected[l.item.productId] ?? 0;
-        return s + l.item.unitPrice * qty;
+        // Net of the line's share of any discount, so the figure on screen
+        // is the figure that will be refunded.
+        return s + l.item.netUnitPrice * qty;
       });
 
   bool get _anySelected => _selected.values.any((v) => v > 0);
@@ -472,6 +475,7 @@ class _ReturnDetailScreenState extends State<_ReturnDetailScreen> {
 
     setState(() => _saving = true);
     final refund = await _sales.recordRefund(
+      cashier: SettingsService.instance.cashier,
       sale: widget.sale,
       lines: Map.of(_selected),
       reason: _reason,
@@ -635,7 +639,7 @@ class _ReturnDetailScreenState extends State<_ReturnDetailScreen> {
                 Text(
                   exhausted
                       ? 'Already returned'
-                      : '${formatPeso(line.item.unitPrice)} · ${line.returnable} of ${line.item.qty} returnable',
+                      : '${formatPeso(line.item.netUnitPrice)} · ${line.returnable} of ${line.item.qty} returnable',
                   style: AppText.caption(),
                 ),
               ],
@@ -835,7 +839,7 @@ class _ReturnDetailScreenState extends State<_ReturnDetailScreen> {
                               child: Text('${_selected[l.item.productId]} × ${l.item.name}',
                                   maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.body()),
                             ),
-                            Text(formatPeso(l.item.unitPrice * (_selected[l.item.productId] ?? 0)),
+                            Text(formatPeso(l.item.netUnitPrice * (_selected[l.item.productId] ?? 0)),
                                 style: AppText.body()),
                           ],
                         ),
