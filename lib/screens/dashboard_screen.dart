@@ -4,9 +4,12 @@ import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../models/sale_model.dart';
+import '../services/export_service.dart';
 import '../services/product_service.dart';
 import '../services/sales_service.dart';
+import '../services/settings_service.dart';
 import '../widgets/skeleton.dart';
+import 'store_settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
@@ -138,6 +141,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 16, AppSpace.screenH, 32),
       children: [
         _greetingHeader(),
+        if (_backupIsStale) ...[
+          const SizedBox(height: AppSpace.gapSection),
+          _backupNudge(),
+        ],
         const SizedBox(height: AppSpace.gapBlock),
         _periodChips(),
         const SizedBox(height: AppSpace.gapSection),
@@ -170,6 +177,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
       children: [
         _greetingHeader(),
+        if (_backupIsStale) ...[
+          const SizedBox(height: AppSpace.gapSection),
+          _backupNudge(),
+        ],
         const SizedBox(height: AppSpace.gapSection),
         _periodChips(),
         const SizedBox(height: AppSpace.gapSection),
@@ -492,6 +503,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// True when the shopkeeper asked to be reminded and the last export is
+  /// over a week old — or never happened.
+  bool get _backupIsStale {
+    final settings = SettingsService.instance;
+    if (!settings.autoBackup) return false;
+    final since = ExportService.sinceLastBackup(settings.lastBackup);
+    return since == null || since > const Duration(days: 7);
+  }
+
+  /// The whole store lives in one file on this phone. This is the only thing
+  /// in the app that says so.
+  Widget _backupNudge() {
+    final since = ExportService.sinceLastBackup(SettingsService.instance.lastBackup);
+    final how = since == null
+        ? 'You have never exported a backup.'
+        : 'Your last backup was ${since.inDays} days ago.';
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const StoreSettingsScreen()),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.warningFill,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.warningBorder),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.backup_outlined, size: 17, color: AppColors.warning),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Back up your store',
+                        style: AppText.cardTitle(color: AppColors.warningText)
+                            .copyWith(fontSize: 13)),
+                    const SizedBox(height: 2),
+                    Text('$how Everything is on this phone only.',
+                        style: AppText.caption(color: AppColors.warningText)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  size: 18, color: AppColors.warningText),
+            ],
+          ),
         ),
       ),
     );
