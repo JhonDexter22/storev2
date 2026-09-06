@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/customer.dart';
 import '../models/refund_model.dart';
 import '../services/sales_service.dart';
+import '../services/settings_service.dart';
+import '../services/export_service.dart';
 import '../services/utang_service.dart';
 
 /// Reports — what sells, what pays, which category carries the period.
@@ -17,6 +21,7 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
+  bool _exporting = false;
   final SalesService _sales = SalesService();
   final UtangService _utangService = UtangService();
 
@@ -272,7 +277,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ),
         GestureDetector(
-          onTap: _exportNotAvailable,
+          onTap: _exporting ? null : _export,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             decoration: BoxDecoration(
@@ -284,7 +289,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
               children: [
                 const Icon(Icons.file_download_outlined, size: 15, color: AppColors.primary),
                 const SizedBox(width: 5),
-                Text('Export', style: AppText.chip(color: AppColors.primary)),
+                Text(_exporting ? 'Exporting…' : 'Export',
+                    style: AppText.chip(color: AppColors.primary)),
               ],
             ),
           ),
@@ -293,12 +299,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  void _exportNotAvailable() {
+  /// Exports the whole store, not just this period.
+  ///
+  /// A report is a view over the same rows a backup contains, and shipping two
+  /// different export shapes would mean two things to keep correct. The reader
+  /// filters by date in their spreadsheet.
+  Future<void> _export() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final paths = await ExportService().writeTo(await getTemporaryDirectory());
+      if (!mounted) return;
+      final result = await SharePlus.instance.share(
+        ShareParams(
+          files: [for (final path in paths) XFile(path)],
+          subject: '${SettingsService.instance.storeName} data',
+          text: 'Sales and stock from ${SettingsService.instance.storeName}.',
+        ),
+      );
+      if (!mounted) return;
+      if (result.status != ShareResultStatus.dismissed) {
+        await SettingsService.instance.markBackedUp();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _toast('Could not export: $e');
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  void _toast(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       backgroundColor: AppColors.ink,
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      content: const Text('CSV export is not wired up yet', style: TextStyle(color: Colors.white)),
+      content: Text(message, style: const TextStyle(color: Colors.white)),
     ));
   }
 
@@ -400,6 +436,38 @@ class _ReportsScreenState extends State<ReportsScreen> {
               _footStat('Items', '${s.itemsSold}'),
             ],
           ),
+          // Only when there is something to say. Money given away belongs next
+          // to money taken, but a permanent zero row is just noise.
+          if (s.discountGiven > 0) ...[
+            const SizedBox(height: 12),
+            const Divider(color: AppColors.divider, height: 1),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('-${formatPeso(s.discountGiven)}',
+                          style: AppText.statFigure(color: AppColors.warningText)),
+                      const SizedBox(height: 2),
+                      Text('Discounts given', style: AppText.caption()),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(formatPeso(s.grossRevenue), style: AppText.statFigure()),
+                      const SizedBox(height: 2),
+                      Text('At full price', style: AppText.caption()),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
