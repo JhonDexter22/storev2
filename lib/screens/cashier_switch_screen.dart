@@ -30,6 +30,9 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
   List<Staff> _roster = [];
   bool _loading = true;
 
+  List<Staff> get _onStartingPin =>
+      _roster.where((p) => p.onStartingPin).toList();
+
   @override
   void initState() {
     super.initState();
@@ -109,6 +112,129 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
     _toast('${draft.name} was added to the roster');
   }
 
+  /// Rotates someone off their current code.
+  ///
+  /// Authorised by that person's own PIN or any manager's: a cashier changes
+  /// their own without involving anyone, and a manager can reset one for
+  /// somebody who has forgotten it.
+  Future<void> _changePin(Staff person) async {
+    final authorised = await PinSheet.show(
+      context,
+      verify: (pin) => _staff.verifyPinOrManager(person.id!, pin),
+      title: "Change ${person.name}'s PIN",
+      hint: "Enter ${person.name}'s current PIN, or a manager PIN.",
+      confirmLabel: 'Continue',
+      avatarInitials: person.initials,
+    );
+    if (!authorised || !mounted) return;
+
+    final fresh = await PinSheet.capture(
+      context,
+      title: 'New PIN',
+      hint: 'Choose four digits for ${person.name}.',
+      confirmLabel: 'Continue',
+      avatarInitials: person.initials,
+    );
+    if (fresh == null || !mounted) return;
+
+    final again = await PinSheet.capture(
+      context,
+      title: 'Repeat the PIN',
+      hint: 'Enter it once more to be sure.',
+      confirmLabel: 'Save PIN',
+      avatarInitials: person.initials,
+    );
+    if (again == null || !mounted) return;
+
+    // Checked before saving: a mistyped new PIN discovered at the next sign-in
+    // would lock the person out of their own till.
+    if (fresh != again) {
+      _toast('Those two PINs did not match. Nothing was changed.');
+      return;
+    }
+
+    try {
+      await _staff.setPin(person.id!, fresh);
+    } on StaffValidationException catch (e) {
+      if (!mounted) return;
+      _toast(e.message);
+      return;
+    }
+    await _load();
+    if (!mounted) return;
+    _toast("${person.name}'s PIN was changed");
+  }
+
+  /// Lets the shopkeeper pick whose PIN to change.
+  Future<void> _pickForPinChange() async {
+    final person = await showModalBottomSheet<Staff>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
+            20 + MediaQuery.of(ctx).padding.bottom),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                      color: AppColors.hairline,
+                      borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Whose PIN?',
+                  style: AppText.sectionTitle().copyWith(fontSize: 18)),
+              const SizedBox(height: 12),
+              for (final person in _roster)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  onTap: () => Navigator.pop(ctx, person),
+                  leading: CircleAvatar(
+                    backgroundColor: AppColors.canvas,
+                    child: Text(person.initials,
+                        style: AppText.statFigure(color: AppColors.body, size: 14)),
+                  ),
+                  title: Text(person.name, style: AppText.cardTitle()),
+                  subtitle: Text(
+                    person.onStartingPin
+                        ? '${person.role} · still on the starting code'
+                        : person.role,
+                    style: AppText.caption(
+                        color: person.onStartingPin
+                            ? AppColors.warningText
+                            : AppColors.muted),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded,
+                      color: AppColors.faint, size: 20),
+                ),
+              const SizedBox(height: 6),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (person == null || !mounted) return;
+    await _changePin(person);
+  }
+
   @override
   Widget build(BuildContext context) {
     final active = _settings.cashier;
@@ -168,8 +294,28 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                   const SizedBox(height: 10),
                 ],
               const SizedBox(height: 4),
+              if (!_loading && _onStartingPin.isNotEmpty) ...[
+                _startingPinWarning(),
+                const SizedBox(height: 10),
+              ],
               _notice(),
               const SizedBox(height: AppSpace.gapSection),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : _pickForPinChange,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.body,
+                    side: const BorderSide(color: AppColors.hairline),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.cta)),
+                  ),
+                  icon: const Icon(Icons.password_rounded, size: 17),
+                  label: Text('Change a PIN', style: AppText.chip(color: AppColors.body)),
+                ),
+              ),
+              const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -255,6 +401,47 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Names anyone still on a code that ships in the source, so "change it"
+  /// is a specific instruction rather than general advice.
+  Widget _startingPinWarning() {
+    final names = _onStartingPin.map((p) => p.name).toList();
+    final who = names.length == 1
+        ? names.single
+        : '${names.take(names.length - 1).join(', ')} and ${names.last}';
+    final verb = names.length == 1 ? 'is' : 'are';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.warningFill,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warningBorder),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, size: 16, color: AppColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('$who $verb still on the starting PIN',
+                    style: AppText.cardTitle(color: AppColors.warningText)
+                        .copyWith(fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(
+                  'Those codes ship with the app, so anyone who has seen it '
+                  'knows them. Change them below.',
+                  style: AppText.caption(color: AppColors.warningText),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
