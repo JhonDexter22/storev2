@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Shared design tokens for the POS redesign.
-/// Source: design_handoff_pos_redesign/README.md — direction 1b.
+
+
 class AppColors {
   AppColors._();
 
@@ -356,6 +356,9 @@ class AppSwitch extends StatelessWidget {
     );
   }
 }
+
+/// The currency mark, so screens can label a field without hardcoding it.
+const pesoSign = '₱';
 
 String formatPeso(num value) {
   final isNeg = value < 0;
