@@ -10,6 +10,7 @@ class Staff {
     required this.role,
     this.isManager = false,
     this.active = true,
+    this.onStartingPin = false,
   });
 
   final int? id;
@@ -22,6 +23,10 @@ class Staff {
   /// Former staff are kept rather than deleted, so past shifts and sales still
   /// name a real person.
   final bool active;
+
+  /// Still using the code the install shipped with. Those are in the source,
+  /// so this is a warning to show, not a detail to hide.
+  final bool onStartingPin;
 
   String get initials {
     final parts = name.trim().split(RegExp(r'\s+'));
@@ -38,5 +43,6 @@ class Staff {
         role: map['role'] as String,
         isManager: (map['is_manager'] as int? ?? 0) == 1,
         active: (map['active'] as int? ?? 1) == 1,
+        onStartingPin: (map['pin_is_default'] as int? ?? 0) == 1,
       );
 }
