@@ -55,6 +55,31 @@ class PeriodStats {
   double get avgSale => transactions == 0 ? 0 : revenue / transactions;
 }
 
+/// One discount, as an auditor would want to read it.
+class DiscountRecord {
+  DiscountRecord({
+    required this.reference,
+    required this.at,
+    required this.amount,
+    required this.reason,
+    required this.cashier,
+    required this.subtotal,
+  });
+
+  final String reference;
+  final DateTime at;
+  final double amount;
+  final String reason;
+
+  /// Empty on sales taken before cashiers were recorded — reported as unknown
+  /// rather than blamed on whoever happens to be signed in now.
+  final String cashier;
+  final double subtotal;
+
+  /// What share of the sale was given away, for spotting an outlier.
+  double get share => subtotal <= 0 ? 0 : amount / subtotal;
+}
+
 class SalesService {
   final dbHelper = DatabaseHelper.instance;
 
@@ -235,6 +260,69 @@ class SalesService {
       ORDER BY value DESC
       LIMIT ?
     ''', [windowStart(days).toIso8601String(), limit]);
+    return rows
+        .map((m) => BreakdownRow(
+              label: m['label'] as String,
+              value: (m['value'] as num).toDouble(),
+              units: (m['units'] as num).toInt(),
+            ))
+        .toList();
+  }
+
+  /// Every discount in the period, newest first.
+  ///
+  /// The reason field is mandatory at the till precisely so this list means
+  /// something; without somewhere to read it, requiring it was theatre.
+  Future<List<DiscountRecord>> discountsGiven(int days, {int limit = 50}) async {
+    final db = await dbHelper.database;
+    final rows = await db.query(
+      'sales',
+      where: 'discount > 0 AND created_at >= ?',
+      whereArgs: [windowStart(days).toIso8601String()],
+      orderBy: 'created_at DESC',
+      limit: limit,
+    );
+    return rows
+        .map((m) => DiscountRecord(
+              reference: m['reference'] as String,
+              at: DateTime.parse(m['created_at'] as String),
+              amount: (m['discount'] as num).toDouble(),
+              reason: (m['discount_reason'] as String?)?.trim() ?? '',
+              cashier: (m['cashier'] as String?)?.trim() ?? '',
+              subtotal: (m['subtotal'] as num).toDouble(),
+            ))
+        .toList();
+  }
+
+  /// Discounts grouped by the reason given, largest first.
+  Future<List<BreakdownRow>> discountsByReason(int days) async {
+    return _discountBreakdown(
+        days, "COALESCE(NULLIF(discount_reason, ''), 'No reason given')");
+  }
+
+  /// Discounts grouped by who rang the sale up.
+  ///
+  /// The point of the whole reason-and-cashier trail: one person giving away
+  /// noticeably more than the others is the thing worth seeing.
+  Future<List<BreakdownRow>> discountsByCashier(int days) async {
+    return _discountBreakdown(
+        days, "COALESCE(NULLIF(cashier, ''), 'Not recorded')");
+  }
+
+  Future<List<BreakdownRow>> _discountBreakdown(int days, String labelExpr) async {
+    final db = await dbHelper.database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT $labelExpr AS label,
+             SUM(discount) AS value,
+             COUNT(*) AS units
+      FROM sales
+      WHERE discount > 0 AND created_at >= ?
+      GROUP BY label
+      ORDER BY value DESC
+      ''',
+      [windowStart(days).toIso8601String()],
+    );
     return rows
         .map((m) => BreakdownRow(
               label: m['label'] as String,
