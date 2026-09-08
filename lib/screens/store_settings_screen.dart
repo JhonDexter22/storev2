@@ -209,15 +209,15 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
     setState(() => _exporting = true);
     try {
       final dir = await getTemporaryDirectory();
-      final paths = await _export.writeTo(dir);
+      final path = await _export.writeArchive(dir);
       if (!mounted) return;
 
       final result = await SharePlus.instance.share(
         ShareParams(
-          files: [for (final path in paths) XFile(path)],
+          files: [XFile(path)],
           subject: '${_settings.storeName} backup',
-          text: 'Backup from ${_settings.storeName}, '
-              '${paths.length} files.',
+          text: 'Backup from ${_settings.storeName}. '
+              'Keep this file — restoring needs it.',
         ),
       );
       if (!mounted) return;
@@ -235,7 +235,7 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
       await _settings.markBackedUp();
       if (!mounted) return;
       setState(() {});
-      _toast('Backed up ${paths.length} files');
+      _toast('Backed up to ${p.basename(path)}');
     } catch (e) {
       if (!mounted) return;
       // Worth surfacing rather than swallowing: a backup that silently did
@@ -255,9 +255,11 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
     final picked = await FilePicker.pickFiles(
       allowMultiple: true,
       type: FileType.custom,
-      allowedExtensions: ['csv'],
+      // Zip is what an export produces now; csv stays accepted so backups
+      // taken by an earlier build still restore.
+      allowedExtensions: ['zip', 'csv'],
       withData: true,
-      dialogTitle: 'Pick the CSV files from a backup folder',
+      dialogTitle: 'Pick a backup file',
     );
     if (picked == null || picked.files.isEmpty || !mounted) return;
 
@@ -267,7 +269,11 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
       for (final file in picked.files) {
         final bytes = file.bytes;
         if (bytes == null) continue;
-        files[file.name] = utf8.decode(bytes, allowMalformed: true);
+        if (file.name.toLowerCase().endsWith('.zip')) {
+          files.addAll(RestoreService.readArchive(bytes));
+        } else {
+          files[file.name] = utf8.decode(bytes, allowMalformed: true);
+        }
       }
 
       final preview = await _restore.inspect(files);
