@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite/sqflite.dart' show Sqflite;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -204,6 +206,70 @@ void main() {
       // with this one.
       expect(preview.isValid, isTrue);
       expect(preview.warnings.any((w) => w.contains('future_column')), isTrue);
+    });
+  });
+
+  group('a zip backup', () {
+    late Directory temp;
+
+    setUp(() async {
+      temp = await Directory.systemTemp.createTemp('storev2-zip-test');
+    });
+
+    tearDown(() async {
+      if (temp.existsSync()) await temp.delete(recursive: true);
+    });
+
+    test('one file holds every table', () async {
+      await addProduct(name: 'Lucky Me, Pancit Canton');
+      final path = await export.writeArchive(temp, now: DateTime(2026, 9, 6, 14, 30));
+
+      expect(path, endsWith('storev2-backup-20260906-1430.zip'));
+      final files = RestoreService.readArchive(await File(path).readAsBytes());
+      expect(files.keys,
+          containsAll(ExportService.tables.map((t) => '$t.csv')));
+    });
+
+    test('a store survives a trip through the zip', () async {
+      final p = await addProduct(name: 'Lucky Me, Pancit Canton', price: 33.33);
+      await sales.recordSale(
+        lines: [CartLine(product: p, qty: 3)],
+        paymentMethod: 'Cash',
+        cashier: 'Nena',
+        discount: const Discount(
+            kind: DiscountKind.percent, value: 20, reason: 'Senior citizen'),
+      );
+      final before = await snapshot();
+
+      final path = await export.writeArchive(temp);
+      final bytes = await File(path).readAsBytes();
+
+      await DatabaseHelper.instance.clearAllData();
+      await restore.restore(RestoreService.readArchive(bytes));
+
+      // The zip is a container, not a transformation: what comes out has to be
+      // exactly what went in.
+      expect(await snapshot(), before);
+    });
+
+    test('non-CSV entries in the archive are ignored', () async {
+      await addProduct();
+      final path = await export.writeArchive(temp);
+      final files = RestoreService.readArchive(await File(path).readAsBytes());
+
+      // Somebody may well add their own files alongside the backup; those are
+      // not data and must not be read as a table.
+      expect(files.keys.every((n) => n.endsWith('.csv')), isTrue);
+    });
+
+    test('loose CSVs still restore, so older backups keep working', () async {
+      await addProduct(name: 'Kopiko');
+      final loose = await snapshot();
+
+      await DatabaseHelper.instance.clearAllData();
+      await restore.restore(loose);
+
+      expect((await products.getAllProducts()).single.name, 'Kopiko');
     });
   });
 
