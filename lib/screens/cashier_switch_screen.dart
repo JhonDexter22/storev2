@@ -6,6 +6,7 @@ import '../models/staff.dart';
 import '../services/pin_hasher.dart';
 import '../services/settings_service.dart';
 import '../services/staff_service.dart';
+import '../widgets/change_pin_flow.dart';
 import '../widgets/pin_sheet.dart';
 
 /// Cashier switch — record who is on the till, and who may close it.
@@ -78,14 +79,15 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
   /// Adding someone who can then ring up sales is a manager's decision, so it
   /// goes behind the same gate as closing a shift.
   Future<void> _addCashier() async {
-    final authorised = await PinSheet.show(
+    final authorised = await authoriseAsManager(
       context,
-      verify: _staff.verifyManagerPin,
-      title: 'Manager PIN',
+      staff: _staff,
       hint: 'Enter a manager PIN to add someone to the roster.',
       confirmLabel: 'Continue',
     );
     if (!authorised || !mounted) return;
+    await _load();
+    if (!mounted) return;
 
     final draft = await showModalBottomSheet<_NewStaff>(
       context: context,
@@ -118,55 +120,13 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
   /// their own without involving anyone, and a manager can reset one for
   /// somebody who has forgotten it.
   Future<void> _changePin(Staff person) async {
-    final authorised = await PinSheet.show(
-      context,
-      verify: (pin) => _staff.verifyPinOrManager(person.id!, pin),
-      title: "Change ${person.name}'s PIN",
-      hint: "Enter ${person.name}'s current PIN, or a manager PIN.",
-      confirmLabel: 'Continue',
-      avatarInitials: person.initials,
-    );
-    if (!authorised || !mounted) return;
-
-    final fresh = await PinSheet.capture(
-      context,
-      title: 'New PIN',
-      hint: 'Choose four digits for ${person.name}.',
-      confirmLabel: 'Continue',
-      avatarInitials: person.initials,
-    );
-    if (fresh == null || !mounted) return;
-
-    final again = await PinSheet.capture(
-      context,
-      title: 'Repeat the PIN',
-      hint: 'Enter it once more to be sure.',
-      confirmLabel: 'Save PIN',
-      avatarInitials: person.initials,
-    );
-    if (again == null || !mounted) return;
-
-    // Checked before saving: a mistyped new PIN discovered at the next sign-in
-    // would lock the person out of their own till.
-    if (fresh != again) {
-      _toast('Those two PINs did not match. Nothing was changed.');
-      return;
-    }
-
-    try {
-      await _staff.setPin(person.id!, fresh);
-    } on StaffValidationException catch (e) {
-      if (!mounted) return;
-      _toast(e.message);
-      return;
-    }
-    await _load();
-    if (!mounted) return;
-    _toast("${person.name}'s PIN was changed");
+    final changed =
+        await runChangePinFlow(context, staff: _staff, person: person);
+    if (changed && mounted) await _load();
   }
 
-  /// Lets the shopkeeper pick whose PIN to change.
-  Future<void> _pickForPinChange() async {
+  /// Picks who to act on, then what to do with them.
+  Future<void> _manageStaff() async {
     final person = await showModalBottomSheet<Staff>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -192,7 +152,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              Text('Whose PIN?',
+              Text('Manage staff',
                   style: AppText.sectionTitle().copyWith(fontSize: 18)),
               const SizedBox(height: 12),
               for (final person in _roster)
@@ -232,7 +192,134 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
       ),
     );
     if (person == null || !mounted) return;
-    await _changePin(person);
+    await _actionsFor(person);
+  }
+
+  /// What can be done to one person.
+  Future<void> _actionsFor(Staff person) async {
+    final signedIn = person.name == _settings.cashier;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
+            20 + MediaQuery.of(ctx).padding.bottom),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: AppColors.hairline,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(person.name, style: AppText.sectionTitle().copyWith(fontSize: 18)),
+            const SizedBox(height: 2),
+            Text(person.role, style: AppText.caption()),
+            const SizedBox(height: 14),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              onTap: () => Navigator.pop(ctx, 'pin'),
+              leading: const Icon(Icons.password_rounded,
+                  size: 20, color: AppColors.body),
+              title: Text('Change PIN', style: AppText.cardTitle()),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              onTap: signedIn ? null : () => Navigator.pop(ctx, 'remove'),
+              enabled: !signedIn,
+              leading: Icon(Icons.person_remove_alt_1_rounded,
+                  size: 20,
+                  color: signedIn ? AppColors.faint : AppColors.dangerText),
+              title: Text('Remove from roster',
+                  style: AppText.cardTitle(
+                      color: signedIn ? AppColors.faint : AppColors.dangerText)),
+              subtitle: Text(
+                signedIn
+                    ? 'Sign in as someone else first.'
+                    : 'They keep their place in past sales and shifts.',
+                style: AppText.caption(),
+              ),
+            ),
+            const SizedBox(height: 6),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action == 'pin') return _changePin(person);
+    await _removeStaff(person);
+  }
+
+  /// Takes someone off the till.
+  ///
+  /// A roster change, so it goes behind the same manager gate as adding.
+  /// [StaffService.deactivate] keeps the row, so shifts and sales already
+  /// recorded against the name still point at a real person — what stops is
+  /// their ability to sign in.
+  Future<void> _removeStaff(Staff person) async {
+    final authorised = await authoriseAsManager(
+      context,
+      staff: _staff,
+      hint: 'Enter a manager PIN to remove ${person.name}.',
+      confirmLabel: 'Continue',
+    );
+    if (!authorised || !mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Remove ${person.name}?',
+            style: AppText.sectionTitle().copyWith(fontSize: 17)),
+        content: Text(
+          '${person.name} will no longer be able to sign in or ring up sales. '
+          'Their past sales and shifts are kept.',
+          style: AppText.body(),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Keep them', style: AppText.chip(color: AppColors.body)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Remove', style: AppText.chip(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _staff.deactivate(person.id!);
+    } on StaffValidationException catch (e) {
+      if (!mounted) return;
+      _toast(e.message);
+      return;
+    }
+    await _load();
+    if (!mounted) return;
+    _toast('${person.name} was removed from the roster');
   }
 
   @override
@@ -304,15 +391,15 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                 width: double.infinity,
                 height: 50,
                 child: OutlinedButton.icon(
-                  onPressed: _loading ? null : _pickForPinChange,
+                  onPressed: _loading ? null : _manageStaff,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.body,
                     side: const BorderSide(color: AppColors.hairline),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.cta)),
                   ),
-                  icon: const Icon(Icons.password_rounded, size: 17),
-                  label: Text('Change a PIN', style: AppText.chip(color: AppColors.body)),
+                  icon: const Icon(Icons.manage_accounts_rounded, size: 17),
+                  label: Text('Manage staff', style: AppText.chip(color: AppColors.body)),
                 ),
               ),
               const SizedBox(height: 10),
