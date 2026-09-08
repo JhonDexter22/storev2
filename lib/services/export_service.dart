@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:archive/archive.dart';
 
 import 'package:path/path.dart' as p;
 
@@ -126,6 +129,26 @@ class ExportService {
       paths.add(out.path);
     }
     return paths;
+  }
+
+  /// Packs the whole backup into one zip and returns its path.
+  ///
+  /// One file rather than eight, because restoring meant picking every CSV
+  /// by hand — a long-press and six taps on a phone, during the one situation
+  /// where nobody wants fiddly. The CSVs are still plain inside it, so a
+  /// spreadsheet is one unzip away.
+  Future<String> writeArchive(Directory directory, {DateTime? now}) async {
+    final stamp = _stamp(now ?? DateTime.now());
+    final archive = Archive();
+    for (final file in await buildAll()) {
+      final bytes = utf8.encode(file.csv);
+      archive.addFile(ArchiveFile(file.name, bytes.length, bytes));
+    }
+
+    final encoded = ZipEncoder().encode(archive);
+    final out = File(p.join(directory.path, 'storev2-backup-$stamp.zip'));
+    await out.writeAsBytes(encoded);
+    return out.path;
   }
 
   static String _stamp(DateTime t) {
