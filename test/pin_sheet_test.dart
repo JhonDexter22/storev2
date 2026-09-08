@@ -146,6 +146,72 @@ void main() {
     expect(confirmButton().onPressed, isNotNull);
   });
 
+  testWidgets('a successful verify reports who was let in', (tester) async {
+    usePhoneSurface(tester);
+    Staff? admitted;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () async {
+              admitted = await PinSheet.authorise(
+                context,
+                verify: (_) async => const PinAccepted(
+                    Staff(id: 3, name: 'Nena', role: 'Manager', isManager: true)),
+                title: 'Manager PIN',
+                hint: 'Enter the manager PIN.',
+                confirmLabel: 'Confirm',
+              );
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await type(tester, '2468');
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+
+    // Not a bare true: a caller has to be able to act on the person, which is
+    // how a manager still on the shipped code gets made to change it.
+    expect(admitted?.name, 'Nena');
+    expect(admitted?.isManager, isTrue);
+  });
+
+  testWidgets('authorise returns null when cancelled', (tester) async {
+    usePhoneSurface(tester);
+    Staff? admitted;
+    var returned = false;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () async {
+              admitted = await PinSheet.authorise(
+                context,
+                verify: (_) async => fail('should not verify on cancel'),
+                title: 'Manager PIN',
+                hint: 'Enter the manager PIN.',
+                confirmLabel: 'Confirm',
+              );
+              returned = true;
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(returned, isTrue);
+    expect(admitted, isNull);
+  });
+
   group('capture mode', () {
     Future<String?> pumpCapture(WidgetTester tester, String digits,
         {bool cancel = false}) async {
