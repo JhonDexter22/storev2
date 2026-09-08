@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:archive/archive.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
@@ -50,6 +53,23 @@ class RestoreService {
     'customers',
     'utang_entries',
   ];
+
+  /// Unpacks a backup zip into the {fileName: contents} map a restore takes.
+  ///
+  /// Only the CSVs at the top level are read. Anything else in the archive is
+  /// ignored rather than treated as data — a zip is a container someone may
+  /// well have added their own files to.
+  static Map<String, String> readArchive(List<int> bytes) {
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final files = <String, String>{};
+    for (final entry in archive.files) {
+      if (!entry.isFile) continue;
+      final name = entry.name.split('/').last;
+      if (!name.endsWith('.csv')) continue;
+      files[name] = utf8.decode(entry.content as List<int>, allowMalformed: true);
+    }
+    return files;
+  }
 
   /// Parses a CSV document into rows of fields.
   ///
