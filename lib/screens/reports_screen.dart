@@ -7,6 +7,7 @@ import '../core/responsive.dart';
 import '../models/customer.dart';
 import '../models/refund_model.dart';
 import '../services/sales_service.dart';
+import '../widgets/discount_audit.dart';
 import '../services/settings_service.dart';
 import '../services/export_service.dart';
 import '../services/utang_service.dart';
@@ -22,6 +23,9 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   bool _exporting = false;
+  List<BreakdownRow> _discountReasons = [];
+  List<BreakdownRow> _discountCashiers = [];
+  List<DiscountRecord> _discounts = [];
   final SalesService _sales = SalesService();
   final UtangService _utangService = UtangService();
 
@@ -63,6 +67,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final payment = await _sales.paymentMix(_days);
     final categories = await _sales.categoryMix(_days);
     final refunds = await _sales.getRefunds(_days);
+    final discountReasons = await _sales.discountsByReason(_days);
+    final discountCashiers = await _sales.discountsByCashier(_days);
+    final discounts = await _sales.discountsGiven(_days);
     final utang = await _utangService.getFlows(_days);
     final topBalances = await _utangService.topBalances();
     if (!mounted) return;
@@ -75,6 +82,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _payment = payment;
       _categories = categories;
       _refunds = refunds;
+      _discountReasons = discountReasons;
+      _discountCashiers = discountCashiers;
+      _discounts = discounts;
       _loading = false;
     });
   }
@@ -121,6 +131,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _section('Payment mix'),
         _paymentMix(),
         const SizedBox(height: AppSpace.gapBlock),
+        if (_discounts.isNotEmpty) ...[
+          _section('Discounts'),
+          DiscountAudit(
+            discounts: _discounts,
+            byReason: _discountReasons,
+            byCashier: _discountCashiers,
+          ),
+          const SizedBox(height: AppSpace.gapBlock),
+        ],
         _section('Returns'),
         _returns(),
         const SizedBox(height: AppSpace.gapBlock),
@@ -207,6 +226,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (_discounts.isNotEmpty) ...[
+                    _section('Discounts'),
+                    DiscountAudit(
+                      discounts: _discounts,
+                      byReason: _discountReasons,
+                      byCashier: _discountCashiers,
+                    ),
+                    const SizedBox(height: AppSpace.gapBlock),
+                  ],
                   _section('Returns'),
                   _returns(),
                 ],
@@ -241,10 +269,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         children: [
           Text(label, style: AppText.caption()),
           const SizedBox(height: 4),
-          Text(value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppText.statFigure(size: 19)),
+          _figure(value, size: 19),
         ],
       ),
     );
@@ -308,11 +333,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     if (_exporting) return;
     setState(() => _exporting = true);
     try {
-      final paths = await ExportService().writeTo(await getTemporaryDirectory());
+      final path =
+          await ExportService().writeArchive(await getTemporaryDirectory());
       if (!mounted) return;
       final result = await SharePlus.instance.share(
         ShareParams(
-          files: [for (final path in paths) XFile(path)],
+          files: [XFile(path)],
           subject: '${SettingsService.instance.storeName} data',
           text: 'Sales and stock from ${SettingsService.instance.storeName}.',
         ),
@@ -477,7 +503,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(value, maxLines: 1, style: AppText.cardTitle()),
+            ),
             const SizedBox(height: 2),
             Text(label, style: AppText.caption()),
           ],
@@ -772,10 +802,36 @@ class _ReportsScreenState extends State<ReportsScreen> {
   /// rounding down to a false 0.0%.
   String _refundRateLine() {
     final revenue = _stats?.revenue ?? 0;
-    if (revenue <= 0 || _refundTotal <= 0) return 'No refunds in this range';
+    if (_refundTotal <= 0) return 'No refunds in this range';
+
+    // A refund can be for a sale from an earlier period, so it is not a
+    // fraction of anything this window took. Printing the ratio anyway gave
+    // figures like "5,555,550% of revenue" — arithmetically true and
+    // completely unreadable.
+    if (revenue <= 0) {
+      return 'Refunds only in this range — the sales were from earlier';
+    }
+    if (_refundTotal > revenue) {
+      return 'More than this range took in — some are returns of earlier sales';
+    }
+
     final pct = _refundTotal / revenue * 100;
     if (pct < 0.1) return 'Under 0.1% of revenue';
     return '${pct.toStringAsFixed(1)}% of revenue';
+  }
+
+  /// A money figure that shrinks rather than truncating.
+  ///
+  /// Peso amounts in a sari-sari store run to five and six digits; ellipsing
+  /// them to "-₱999,99…" turns a report into a guess.
+  Widget _figure(String value, {Color? color, double size = 20}) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text(value,
+          maxLines: 1,
+          style: AppText.statFigure(color: color ?? AppColors.ink, size: size)),
+    );
   }
 
   Widget _returns() {
@@ -796,33 +852,32 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   children: [
                     Text('Refunded', style: AppText.caption()),
                     const SizedBox(height: 2),
-                    Text('-${formatPeso(_refundTotal)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.statFigure(color: AppColors.dangerText, size: 20)),
+                    _figure('-${formatPeso(_refundTotal)}',
+                        color: AppColors.dangerText),
                   ],
                 ),
               ),
+              // Each figure shrinks to fit its own column, so without a gap a
+              // wide one sits flush against the next and reads as one number.
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Recorded', style: AppText.caption()),
                     const SizedBox(height: 2),
-                    Text('${_refunds.length}', style: AppText.statFigure(size: 20)),
+                    _figure('${_refunds.length}'),
                   ],
                 ),
               ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Net revenue', style: AppText.caption()),
                     const SizedBox(height: 2),
-                    Text(formatPeso(_netRevenue),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.statFigure(size: 20)),
+                    _figure(formatPeso(_netRevenue)),
                   ],
                 ),
               ),
@@ -843,7 +898,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     children: [
                       Row(
                         children: [
-                          Text(_refunds[i].saleReference, style: AppText.cardTitle()),
+                          // Flexible, or a long reference plus the Void pill
+                          // runs off the edge of the card.
+                          Flexible(
+                            child: Text(_refunds[i].saleReference,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppText.cardTitle()),
+                          ),
                           if (_refunds[i].isVoid) ...[
                             const SizedBox(width: 6),
                             const StatusPill(
@@ -860,8 +922,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ],
                   ),
                 ),
-                Text('-${formatPeso(_refunds[i].amount)}',
-                    style: AppText.cardTitle(color: AppColors.dangerText)),
+                const SizedBox(width: 8),
+                // The amount shrinks rather than ellipsing: a truncated peso
+                // figure in a refund list is worse than a small one.
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text('-${formatPeso(_refunds[i].amount)}',
+                        maxLines: 1,
+                        style: AppText.cardTitle(color: AppColors.dangerText)),
+                  ),
+                ),
               ],
             ),
             if (i != _refunds.length - 1) const Divider(color: AppColors.divider, height: 18),
