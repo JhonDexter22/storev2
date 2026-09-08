@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../models/staff.dart';
 import '../services/staff_service.dart';
 
 /// A four-digit PIN gate, used both for the manager check before a shift close
@@ -63,7 +64,12 @@ class PinSheet extends StatefulWidget {
     );
   }
 
-  static Future<bool> show(
+  /// Verifies a PIN and reports *who* it let in, or null if it was cancelled.
+  ///
+  /// [show] is the same gate when the caller only needs a yes or no. This one
+  /// exists for the callers that must then act on the person — notably to make
+  /// them change a PIN that is still the one printed in the source.
+  static Future<Staff?> authorise(
     BuildContext context, {
     required Future<PinResult> Function(String pin) verify,
     String title = 'Manager PIN',
@@ -72,7 +78,7 @@ class PinSheet extends StatefulWidget {
     String? avatarInitials,
     String? subtitle,
   }) async {
-    final ok = await showModalBottomSheet<bool>(
+    final result = await showModalBottomSheet<Object?>(
       context: context,
       isScrollControlled: true,
       isDismissible: false,
@@ -86,7 +92,33 @@ class PinSheet extends StatefulWidget {
         subtitle: subtitle,
       ),
     );
-    return ok ?? false;
+    return result is Staff ? result : null;
+  }
+
+  static Future<bool> show(
+    BuildContext context, {
+    required Future<PinResult> Function(String pin) verify,
+    String title = 'Manager PIN',
+    String hint = 'Enter the manager PIN to close this shift.',
+    String confirmLabel = 'Confirm close',
+    String? avatarInitials,
+    String? subtitle,
+  }) async {
+    final ok = await showModalBottomSheet<Object?>(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: false,
+      backgroundColor: Colors.transparent,
+      builder: (_) => PinSheet(
+        verify: verify,
+        title: title,
+        hint: hint,
+        confirmLabel: confirmLabel,
+        avatarInitials: avatarInitials,
+        subtitle: subtitle,
+      ),
+    );
+    return ok is Staff;
   }
 
   @override
@@ -163,8 +195,9 @@ class _PinSheetState extends State<PinSheet> {
     if (!mounted) return;
 
     switch (result) {
-      case PinAccepted():
-        Navigator.pop(context, true);
+      case PinAccepted(:final staff):
+        // Pops the person, not a bare true, so a caller can act on who it was.
+        Navigator.pop(context, staff);
       case PinRejected(:final attemptsRemaining):
         setState(() {
           _checking = false;
