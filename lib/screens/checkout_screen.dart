@@ -6,12 +6,13 @@ import '../core/responsive.dart';
 import '../models/cart_line.dart';
 import '../models/customer.dart';
 import '../models/discount.dart';
+import '../models/payment_type.dart';
+import '../services/printer_service.dart';
+import '../services/receipt_document.dart';
 import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../services/utang_service.dart';
 import '../widgets/discount_sheet.dart';
-
-enum _PayMethod { cash, gcash, card, utang }
 
 /// How the cashier left checkout. Both outcomes clear the cart; only
 /// [completed] means stock moved and needs re-reading.
@@ -30,7 +31,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final SalesService _salesService = SalesService();
   final UtangService _utang = UtangService();
 
-  _PayMethod _method = _PayMethod.cash;
+  /// The types offered here come from settings, so a store that does not take
+  /// Card never sees a Card button. Read once on open: changing the setting
+  /// mid-sale would move the buttons under the cashier's finger.
+  late final List<PaymentType> _methods =
+      SettingsService.instance.paymentTypes;
+  late PaymentType _method = _methods.first;
   double _received = 0;
   final _receivedCtrl = TextEditingController();
   bool _saving = false;
@@ -51,9 +57,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   double get _change => (_received - _due).clamp(0, double.infinity);
 
   bool get _canComplete {
-    if (_method == _PayMethod.cash) return _received >= _due;
+    if (_method.kind == PaymentKind.cash) return _received >= _due;
     // Nothing is charged until a name is picked.
-    if (_method == _PayMethod.utang) return _chargeTo != null;
+    if (_method.kind == PaymentKind.utang) return _chargeTo != null;
     return true;
   }
 
@@ -85,22 +91,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Future<void> _completeSale() async {
     if (!_canComplete || _saving) return;
     setState(() => _saving = true);
-    final methodLabel = switch (_method) {
-      _PayMethod.cash => 'Cash',
-      _PayMethod.gcash => 'GCash',
-      _PayMethod.card => 'Card',
-      _PayMethod.utang => 'Utang',
-    };
-    final onCredit = _method == _PayMethod.utang;
+    final methodLabel = _method.name;
+    final onCredit = _method.kind == PaymentKind.utang;
     final sale = await _salesService.recordSale(
       lines: widget.lines,
       paymentMethod: methodLabel,
       // No cash is tendered on the credit path, so nothing is received and no
       // change is calculated.
-      cashReceived: _method == _PayMethod.cash
+      cashReceived: _method.kind == PaymentKind.cash
           ? _received
           : (onCredit ? 0 : _due),
-      changeAmount: _method == _PayMethod.cash ? _change : 0,
+      changeAmount: _method.kind == PaymentKind.cash ? _change : 0,
       discount: _discount,
       cashier: SettingsService.instance.cashier,
     );
@@ -162,13 +163,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       Text('Payment method', style: AppText.sectionTitle()),
       const SizedBox(height: 10),
       _paymentMethodRow(),
-      if (_method == _PayMethod.utang) ...[
+      if (_method.kind == PaymentKind.utang) ...[
         const SizedBox(height: AppSpace.gapSection),
         Text('Charge to', style: AppText.sectionTitle()),
         const SizedBox(height: 10),
         _customerPicker(),
       ],
-      if (_method == _PayMethod.cash) ...[
+      if (_method.kind == PaymentKind.cash) ...[
         const SizedBox(height: AppSpace.gapSection),
         _cashReceivedCard(),
         if (_received > 0 && _received < _due) ...[
@@ -491,11 +492,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Widget _paymentMethodRow() {
-    Widget option(_PayMethod m, IconData icon, String label) {
-      final selected = _method == m;
+    Widget option(PaymentType type) {
+      final selected = _method == type;
       return Expanded(
         child: GestureDetector(
-          onTap: () => setState(() => _method = m),
+          onTap: () => setState(() => _method = type),
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 14),
             decoration: BoxDecoration(
@@ -509,13 +510,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             child: Column(
               children: [
                 Icon(
-                  icon,
+                  type.icon,
                   size: 20,
                   color: selected ? AppColors.primary : AppColors.body,
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  label,
+                  type.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppText.chip(
                     color: selected ? AppColors.primary : AppColors.body,
                   ),
@@ -527,21 +530,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
     }
 
-    return Row(
+    // Wraps rather than a fixed row: a shopkeeper who adds Maya and a bank
+    // transfer would otherwise squeeze six buttons into four widths.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        option(_PayMethod.cash, Icons.payments_outlined, 'Cash'),
-        const SizedBox(width: 8),
-        option(_PayMethod.gcash, Icons.qr_code_2_rounded, 'GCash'),
-        const SizedBox(width: 8),
-        option(_PayMethod.card, Icons.credit_card_rounded, 'Card'),
-        const SizedBox(width: 8),
-        option(
-          _PayMethod.utang,
-          Icons.account_balance_wallet_outlined,
-          'Utang',
-        ),
+        for (final type in _methods)
+          SizedBox(
+            width: _optionWidth(context, _methods.length),
+            child: Row(children: [option(type)]),
+          ),
       ],
     );
+  }
+
+  /// Four across at most, so the buttons stay a comfortable tap target however
+  /// many types the store has switched on.
+  static double _optionWidth(BuildContext context, int count) {
+    final available = MediaQuery.sizeOf(context).width - AppSpace.screenH * 2;
+    final perRow = count <= 4 ? count : 4;
+    return (available - 8 * (perRow - 1)) / perRow;
   }
 
   /// Each row shows the balance now and the balance this sale would create, so
@@ -767,7 +776,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Widget _ctaBar() {
-    final onCredit = _method == _PayMethod.utang;
+    final onCredit = _method.kind == PaymentKind.utang;
     final label = onCredit
         ? 'Charge to utang · ${formatPeso(_due)}'
         : 'Complete sale · ${formatPeso(_due)}';
@@ -887,7 +896,7 @@ class _CompletedSale {
   bool get onCredit => chargedTo != null;
 }
 
-class _SuccessView extends StatelessWidget {
+class _SuccessView extends StatefulWidget {
   const _SuccessView({
     required this.done,
     required this.due,
@@ -902,41 +911,82 @@ class _SuccessView extends StatelessWidget {
   final double change;
   final List<CartLine> lines;
 
-  /// A plain-text receipt.
-  ///
-  /// Text rather than a file: it goes wherever the customer already is —
-  /// Messenger, SMS, email — without them needing an app that opens
-  /// attachments. A senior or PWD discount is itemised because that is the
-  /// half of the receipt they are most likely to be asked to show.
-  String buildReceipt() {
-    final b = StringBuffer()
-      ..writeln(SettingsService.instance.storeName)
-      ..writeln('${done.reference} · ${_stamp(done.time)}')
-      ..writeln('');
-    for (final line in lines) {
-      b.writeln('${line.qty} x ${line.product.name}  ${formatPeso(line.lineTotal)}');
+  @override
+  State<_SuccessView> createState() => _SuccessViewState();
+}
+
+class _SuccessViewState extends State<_SuccessView> {
+  bool _printing = false;
+
+  _CompletedSale get done => widget.done;
+  double get due => widget.due;
+  double get received => widget.received;
+  double get change => widget.change;
+  List<CartLine> get lines => widget.lines;
+
+  @override
+  void initState() {
+    super.initState();
+    // "Automatically print after checkout" was a setting that did nothing
+    // until there was a printer to send to. It only fires when one is chosen,
+    // so leaving it on costs nothing until then.
+    if (SettingsService.instance.printReceipt &&
+        PrinterService.instance.hasPrinter) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _print(auto: true));
     }
-    b.writeln('');
-    if (done.hasDiscount) {
-      b
-        ..writeln('Subtotal        ${formatPeso(done.subtotal)}')
-        ..writeln('${done.discountLabel}  -${formatPeso(done.discountAmount)}');
-    }
-    b.writeln('${done.onCredit ? 'Charged to tab' : 'Total'}  ${formatPeso(due)}');
-    if (done.method == 'Cash') {
-      b
-        ..writeln('Cash            ${formatPeso(received)}')
-        ..writeln('Change          ${formatPeso(change)}');
-    } else {
-      b.writeln('Paid by         ${done.method}');
-    }
-    if (done.chargedTo != null) b.writeln('On the tab of   ${done.chargedTo}');
-    return b.toString();
   }
 
-  static String _stamp(DateTime t) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${t.day}/${t.month}/${t.year} ${two(t.hour)}:${two(t.minute)}';
+  /// The receipt, as a document that renders to both paper and text.
+  ///
+  /// One model for both so a customer comparing the slip in their hand with
+  /// the copy sent to their phone sees the same thing. A senior or PWD
+  /// discount is itemised because that is the half of the receipt they are
+  /// most likely to be asked to show.
+  List<ReceiptBlock> _blocks() => ReceiptDocument.sale(
+        storeName: SettingsService.instance.storeName,
+        reference: done.reference,
+        time: done.time,
+        cashier: SettingsService.instance.cashier,
+        items: [
+          for (final line in lines)
+            ReceiptLineItem(
+              name: line.product.name,
+              qty: line.qty,
+              unitPrice: line.product.price,
+              lineTotal: line.lineTotal,
+            ),
+        ],
+        subtotal: done.subtotal,
+        total: due,
+        method: done.method,
+        discountLabel: done.discountLabel,
+        discountAmount: done.discountAmount,
+        cashReceived: received,
+        change: change,
+        chargedTo: done.chargedTo,
+      );
+
+  /// Text rather than a file: it goes wherever the customer already is —
+  /// Messenger, SMS, email — without them needing an app that opens
+  /// attachments.
+  String buildReceipt() => ReceiptDocument.asText(_blocks());
+
+  Future<void> _print({bool auto = false}) async {
+    if (_printing) return;
+    setState(() => _printing = true);
+    final result = await PrinterService.instance.printDocument(_blocks());
+    if (!mounted) return;
+    setState(() => _printing = false);
+
+    // An automatic print that worked needs no announcement — the paper is the
+    // announcement. One that failed does, or the cashier hands over nothing.
+    if (auto && result.ok) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: result.ok ? AppColors.success : AppColors.ink,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      content: Text(result.message, style: const TextStyle(color: Colors.white)),
+    ));
   }
 
   @override
@@ -1065,9 +1115,9 @@ class _SuccessView extends StatelessWidget {
                 children: [
                   Expanded(
                     child: _secondaryBtn(
-                      'Print receipt',
+                      _printing ? 'Printing…' : 'Print receipt',
                       Icons.print_outlined,
-                      () {},
+                      _printing ? null : _print,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1100,7 +1150,7 @@ class _SuccessView extends StatelessWidget {
     ],
   );
 
-  Widget _secondaryBtn(String label, IconData icon, VoidCallback onTap) {
+  Widget _secondaryBtn(String label, IconData icon, VoidCallback? onTap) {
     return SizedBox(
       height: 46,
       child: OutlinedButton.icon(
