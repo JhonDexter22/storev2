@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
 import 'export_service.dart';
+import 'product_image_store.dart';
 
 /// What a backup contains, checked before anything is touched.
 class RestorePreview {
@@ -12,7 +15,11 @@ class RestorePreview {
     required this.rowCounts,
     required this.warnings,
     required this.errors,
+    this.photoCount = 0,
   });
+
+  /// Product photos found in the archive.
+  final int photoCount;
 
   /// Table name to the number of data rows found.
   final Map<String, int> rowCounts;
@@ -35,12 +42,20 @@ class RestorePreview {
 /// transaction, and the data being replaced is exported first so a restore
 /// aimed at the wrong folder is itself recoverable.
 class RestoreService {
-  RestoreService({DatabaseHelper? dbHelper, ExportService? exportService})
-      : dbHelper = dbHelper ?? DatabaseHelper.instance,
-        exportService = exportService ?? ExportService();
+  RestoreService({
+    DatabaseHelper? dbHelper,
+    ExportService? exportService,
+    ProductImageStore? images,
+  })  : dbHelper = dbHelper ?? DatabaseHelper.instance,
+        exportService = exportService ?? ExportService(),
+        images = images ?? ProductImageStore();
 
   final DatabaseHelper dbHelper;
   final ExportService exportService;
+
+  /// Where restored photos are written. Injectable because the real one needs
+  /// a platform directory the test VM has no answer for.
+  final ProductImageStore images;
 
   /// Load order, so a child row never lands before its parent.
   static const loadOrder = [
@@ -59,6 +74,24 @@ class RestoreService {
   /// Only the CSVs at the top level are read. Anything else in the archive is
   /// ignored rather than treated as data — a zip is a container someone may
   /// well have added their own files to.
+  /// The product photos inside an archive, keyed by file name.
+  ///
+  /// A backup taken before photos were included simply has none, so this comes
+  /// back empty and the restore behaves exactly as it used to.
+  static Map<String, List<int>> readPhotos(List<int> bytes) {
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final photos = <String, List<int>>{};
+    for (final entry in archive.files) {
+      if (!entry.isFile) continue;
+      final parts = entry.name.split('/');
+      if (parts.length < 2 || parts[parts.length - 2] != ExportService.photoFolder) {
+        continue;
+      }
+      photos[parts.last] = List<int>.from(entry.content as List<int>);
+    }
+    return photos;
+  }
+
   static Map<String, String> readArchive(List<int> bytes) {
     final archive = ZipDecoder().decodeBytes(bytes);
     final files = <String, String>{};
@@ -215,7 +248,10 @@ class RestoreService {
   /// are about to replace.
   ///
   /// [files] maps a file name (`sales.csv`) to its contents.
-  Future<RestorePreview> inspect(Map<String, String> files) async {
+  Future<RestorePreview> inspect(
+    Map<String, String> files, {
+    Map<String, List<int>> photos = const {},
+  }) async {
     final db = await dbHelper.database;
     final counts = <String, int>{};
     final warnings = <String>[];
@@ -224,7 +260,11 @@ class RestoreService {
     final recognised = files.keys.where((n) => n.endsWith('.csv')).toSet();
     if (recognised.isEmpty) {
       errors.add('No CSV files were selected.');
-      return RestorePreview(rowCounts: counts, warnings: warnings, errors: errors);
+      return RestorePreview(
+          rowCounts: counts,
+          warnings: warnings,
+          errors: errors,
+          photoCount: photos.length);
     }
 
     var matched = 0;
@@ -261,7 +301,11 @@ class RestoreService {
         warnings.add('$name is not part of a backup and will be ignored.');
       }
     }
-    return RestorePreview(rowCounts: counts, warnings: warnings, errors: errors);
+    return RestorePreview(
+        rowCounts: counts,
+        warnings: warnings,
+        errors: errors,
+        photoCount: photos.length);
   }
 
   /// Replaces the store's data with the backup's.
@@ -275,7 +319,10 @@ class RestoreService {
   ///
   /// Everything happens in one transaction. A failure part-way leaves the
   /// store exactly as it was rather than half-replaced.
-  Future<void> restore(Map<String, String> files) async {
+  Future<void> restore(
+    Map<String, String> files, {
+    Map<String, List<int>> photos = const {},
+  }) async {
     final preview = await inspect(files);
     if (!preview.isValid) {
       throw StateError(preview.errors.join(' '));
@@ -302,5 +349,46 @@ class RestoreService {
         }
       }
     });
+
+    // After the rows, and outside the transaction: a photo that fails to write
+    // must not roll back a restore that has already put the books back.
+    await restorePhotos(photos);
+  }
+
+  /// Writes photos from a backup into this device's photo store and repoints
+  /// each product at its local copy.
+  ///
+  /// The paths in a backup belong to whichever phone made it, so they are
+  /// meaningless here — only the file name survives the trip. Keeping that
+  /// name means restoring a backup onto the phone it came from leaves every
+  /// path exactly as it was.
+  Future<int> restorePhotos(Map<String, List<int>> photos) async {
+    if (photos.isEmpty) return 0;
+
+    final db = await dbHelper.database;
+    final rows = await db.query('products', columns: ['id', 'image_path']);
+    if (rows.isEmpty) return 0;
+
+    Directory? dir;
+    var written = 0;
+    for (final row in rows) {
+      final path = row['image_path'] as String?;
+      if (path == null || path.isEmpty) continue;
+      final bytes = photos[ExportService.photoName(path)];
+      if (bytes == null) continue;
+
+      try {
+        dir ??= await images.directory();
+        final target = File(p.join(dir.path, ExportService.photoName(path)));
+        await target.writeAsBytes(bytes);
+        await db.update('products', {'image_path': target.path},
+            where: 'id = ?', whereArgs: [row['id']]);
+        written++;
+      } catch (_) {
+        // One unwritable photo is not worth failing a restore over; the
+        // product falls back to the placeholder it would have had anyway.
+      }
+    }
+    return written;
   }
 }
