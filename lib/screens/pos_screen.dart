@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../models/backup_status.dart';
 import '../core/responsive.dart';
 import '../models/cart_line.dart';
 import '../models/product_model.dart';
@@ -375,10 +378,32 @@ class _PosScreenState extends State<PosScreen> {
               ],
             ),
           ),
-          const StatusPill(label: 'Synced', fg: AppColors.successText, bg: AppColors.successFill),
+          // Was a green "Synced" pill. Nothing syncs — there is no server and
+          // no account — so it now carries the one fact in this slot that is
+          // true and worth acting on: how old the last backup is.
+          _backupPill(),
         ],
       ),
     );
+  }
+
+  Widget _backupPill() {
+    final raw = SettingsService.instance.lastBackup;
+    final status = BackupStatus.from(raw == null ? null : DateTime.tryParse(raw));
+    return switch (status.level) {
+      BackupLevel.fresh => StatusPill(
+          label: status.label,
+          fg: AppColors.successText,
+          bg: AppColors.successFill),
+      BackupLevel.stale => StatusPill(
+          label: status.label,
+          fg: AppColors.warningText,
+          bg: AppColors.warningFill),
+      BackupLevel.none => StatusPill(
+          label: status.label,
+          fg: AppColors.warningText,
+          bg: AppColors.warningFill),
+    };
   }
 
   Widget _searchRow() {
@@ -708,6 +733,22 @@ class _PosScreenState extends State<PosScreen> {
 }
 
 class _ProductCard extends StatelessWidget {
+  /// The product's photo, or the placeholder if there is none — or if the
+  /// file has gone, which is what a cleared cache used to leave behind.
+  Widget _thumb(Product product) {
+    final path = product.imagePath;
+    if (path == null || path.isEmpty) return const PhotoPlaceholder();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        width: double.infinity,
+        errorBuilder: (_, __, ___) => const PhotoPlaceholder(),
+      ),
+    );
+  }
+
   const _ProductCard({required this.product, required this.qtyInCart, required this.onTap});
 
   final Product product;
@@ -734,7 +775,13 @@ class _ProductCard extends StatelessWidget {
             children: [
               Stack(
                 children: [
-                  SizedBox(height: 78, width: double.infinity, child: const PhotoPlaceholder()),
+                  SizedBox(
+                      height: 78,
+                      width: double.infinity,
+                      // The till is where recognising a product by its picture
+                      // is worth most, and it was the one screen that never
+                      // showed one.
+                      child: _thumb(product)),
                   if (qtyInCart > 0)
                     Positioned(
                       top: 6,
