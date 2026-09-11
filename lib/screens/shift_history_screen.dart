@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/shift_model.dart';
+import '../services/printer_service.dart';
+import '../services/receipt_document.dart';
+import '../services/settings_service.dart';
 import '../services/shift_service.dart';
 
 /// Shift history — find a short drawer without opening a report.
@@ -353,13 +356,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
               child: OutlinedButton.icon(
                 onPressed: () {
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    backgroundColor: AppColors.ink,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    content: const Text('Receipt printing is not wired up yet',
-                        style: TextStyle(color: Colors.white)),
-                  ));
+                  _printSummary(s);
                 },
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.body,
@@ -374,6 +371,24 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
         ),
       ),
     );
+  }
+
+  /// Prints the cash count, for the shopkeeper to sign and keep.
+  ///
+  /// The same slip the drawer was counted against, on paper, so a variance can
+  /// be queried the next morning without unlocking the phone.
+  Future<void> _printSummary(Shift s) async {
+    final result = await PrinterService.instance.printDocument(
+      ReceiptDocument.shift(s,
+          storeName: SettingsService.instance.storeName),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: result.ok ? AppColors.success : AppColors.ink,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      content: Text(result.message, style: const TextStyle(color: Colors.white)),
+    ));
   }
 
   Widget _detailRow(String label, String value) => Row(
