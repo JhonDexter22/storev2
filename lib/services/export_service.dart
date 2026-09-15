@@ -144,11 +144,55 @@ class ExportService {
       final bytes = utf8.encode(file.csv);
       archive.addFile(ArchiveFile(file.name, bytes.length, bytes));
     }
+    for (final entry in (await collectPhotos()).entries) {
+      archive.addFile(ArchiveFile(
+          '$photoFolder/${entry.key}', entry.value.length, entry.value));
+    }
 
     final encoded = ZipEncoder().encode(archive);
     final out = File(p.join(directory.path, 'storev2-backup-$stamp.zip'));
     await out.writeAsBytes(encoded);
     return out.path;
+  }
+
+  /// Where photos sit inside the archive, kept apart from the CSVs so a
+  /// restore can tell data from pictures without guessing at file names.
+  static const photoFolder = 'photos';
+
+  /// The archive entry name for a stored photo path.
+  ///
+  /// Splits on either separator: the path was written by whichever platform
+  /// took the photo, and the backup has to be readable on the other one.
+  static String photoName(String path) =>
+      path.split('/').last.split('\\').last;
+
+  /// Every product photo still on disk, keyed by file name.
+  ///
+  /// Without these a backup restores the books and leaves grey placeholders
+  /// where the pictures were — the numbers survive a lost phone and the
+  /// shopkeeper's own work does not.
+  ///
+  /// Keyed by base name rather than full path so the archive carries nothing
+  /// about this particular device, and two products sharing a photo pack it
+  /// once.
+  Future<Map<String, List<int>>> collectPhotos() async {
+    final db = await dbHelper.database;
+    final rows = await db.query('products', columns: ['image_path']);
+    final photos = <String, List<int>>{};
+
+    for (final row in rows) {
+      final path = row['image_path'] as String?;
+      if (path == null || path.isEmpty) continue;
+      final name = p.basename(path.replaceAll(r'\', '/'));
+      if (photos.containsKey(name)) continue;
+      final file = File(path);
+      // A path whose file has already gone is not worth failing the whole
+      // backup over: the rest of the store still needs to get out.
+      try {
+        if (await file.exists()) photos[name] = await file.readAsBytes();
+      } catch (_) {}
+    }
+    return photos;
   }
 
   static String _stamp(DateTime t) {
