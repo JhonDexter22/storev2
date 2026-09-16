@@ -7,7 +7,7 @@ import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../services/shift_service.dart';
 import '../services/staff_service.dart';
-import '../widgets/pin_sheet.dart';
+import '../widgets/change_pin_flow.dart';
 
 /// Cash count / end of day — reconcile the drawer and close the shift.
 ///
@@ -104,7 +104,12 @@ class _CashCountScreenState extends State<CashCountScreen> {
   }
 
   Future<void> _closeShift() async {
-    final passed = await PinSheet.show(context, verify: _staff.verifyManagerPin);
+    final passed = await authoriseAsManager(
+      context,
+      staff: _staff,
+      hint: 'Enter the manager PIN to close this shift.',
+      confirmLabel: 'Confirm close',
+    );
     if (!passed || !mounted) return;
 
     final shift = await _shifts.closeShift(
