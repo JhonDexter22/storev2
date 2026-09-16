@@ -9,6 +9,8 @@ import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../database/database_helper.dart';
 import '../services/export_service.dart';
+import 'payment_types_screen.dart';
+import 'printer_screen.dart';
 import '../services/restore_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/restore_preview_sheet.dart';
@@ -150,11 +152,46 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
             _overline('Sales'),
             const SizedBox(height: 8),
             _group([
-              _toggleRow('Print receipt', 'Automatically print after checkout',
-                  _settings.printReceipt, _settings.setPrintReceipt),
+              _toggleRow(
+                'Print receipt',
+                // Was a flat "Automatically print after checkout", which was
+                // not true until a printer was chosen. It now says which of
+                // the two it is.
+                _settings.printerAddress == null
+                    ? 'Automatically after checkout — needs a printer'
+                    : 'Automatically after checkout',
+                _settings.printReceipt,
+                (v) async {
+                  await _settings.setPrintReceipt(v);
+                  if (mounted) setState(() {});
+                },
+              ),
+              _navRow(
+                'Receipt printer',
+                _settings.printerAddress == null
+                    ? 'None chosen'
+                    : '${_settings.printerName} · ${_settings.paperWidth.label}',
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PrinterScreen()),
+                ).then((_) {
+                  if (mounted) setState(() {});
+                }),
+              ),
               _toggleRow('Scan sound', 'Beep when the scanner reads a code',
                   _settings.scanSound, _settings.setScanSound),
-              _navRow('Payment methods', 'Cash, GCash, Card', () {}),
+              _navRow(
+                'Payment types',
+                // A live summary rather than a fixed string: the old one read
+                // "Cash, GCash, Card" and had never mentioned Utang.
+                _settings.paymentTypes.map((t) => t.name).join(', '),
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PaymentTypesScreen()),
+                ).then((_) {
+                  if (mounted) setState(() {});
+                }),
+              ),
             ]),
             const SizedBox(height: AppSpace.gapSection),
             _overline('Inventory'),
@@ -266,17 +303,19 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
     setState(() => _restoring = true);
     try {
       final files = <String, String>{};
+      final photos = <String, List<int>>{};
       for (final file in picked.files) {
         final bytes = file.bytes;
         if (bytes == null) continue;
         if (file.name.toLowerCase().endsWith('.zip')) {
           files.addAll(RestoreService.readArchive(bytes));
+          photos.addAll(RestoreService.readPhotos(bytes));
         } else {
           files[file.name] = utf8.decode(bytes, allowMalformed: true);
         }
       }
 
-      final preview = await _restore.inspect(files);
+      final preview = await _restore.inspect(files, photos: photos);
       final current = await _restore.currentRowCounts();
       if (!mounted) return;
 
@@ -289,7 +328,7 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
 
       // Silent safety net, reported afterwards so it is not just invisible.
       final snapshot = await _export.writeTo(await getApplicationDocumentsDirectory());
-      await _restore.restore(files);
+      await _restore.restore(files, photos: photos);
       if (!mounted) return;
 
       setState(() {});
