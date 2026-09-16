@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
+import '../models/payment_type.dart';
 import '../models/refund_model.dart';
 import '../models/sale_model.dart';
 import '../services/sales_service.dart';
@@ -389,7 +390,15 @@ class _ReturnDetailScreenState extends State<_ReturnDetailScreen> {
   final SalesService _sales = SalesService();
 
   static const _reasons = ['Damaged', 'Wrong item', 'Expired', 'Changed mind'];
-  static const _methods = ['Cash', 'GCash', 'Store credit'];
+  /// Refund routes follow the same configuration as checkout: a store that
+  /// does not take GCash should not be offering a GCash refund. Utang is not
+  /// among them — money goes back, it does not go on a tab — and store credit
+  /// is added because it is a refund route rather than a payment type.
+  static List<String> get _methods => [
+        for (final t in SettingsService.instance.paymentTypes)
+          if (t.kind != PaymentKind.utang) t.name,
+        'Store credit',
+      ];
 
   List<ReturnableLine> _lines = [];
   final Map<int, int> _selected = {}; // productId -> qty
@@ -511,8 +520,38 @@ class _ReturnDetailScreenState extends State<_ReturnDetailScreen> {
                   ? Center(
                       child: Padding(
                         padding: const EdgeInsets.all(32),
-                        child: Text('Every line on this sale has already been returned.',
-                            textAlign: TextAlign.center, style: AppText.body()),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.check_circle_outline_rounded,
+                                size: 40, color: AppColors.muted),
+                            const SizedBox(height: 12),
+                            Text(
+                                'Every line on this sale has already been '
+                                'returned.',
+                                textAlign: TextAlign.center,
+                                style: AppText.body()),
+                            const SizedBox(height: 20),
+                            // Was a message in an empty screen whose only way
+                            // out was the back arrow in the corner.
+                            SizedBox(
+                              height: 46,
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(context),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.body,
+                                  side: const BorderSide(
+                                      color: AppColors.hairline),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          AppRadius.cta)),
+                                ),
+                                child: Text('Back to recent sales',
+                                    style: AppText.chip(color: AppColors.body)),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     )
                   : ListView(
