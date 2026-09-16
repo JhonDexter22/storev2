@@ -5,10 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/design_tokens.dart';
+import '../services/product_image_store.dart';
 import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
 import '../services/settings_service.dart';
+import '../widgets/product_card.dart';
+import '../widgets/product_thumb.dart';
 import 'barcode_scanner_screen.dart';
 
 enum _View { grid, list }
@@ -29,6 +32,7 @@ class ProductsScreen extends StatefulWidget {
 class _ProductsScreenState extends State<ProductsScreen> {
   final ProductService _productService = ProductService();
   final ImagePicker _picker = ImagePicker();
+  final ProductImageStore _images = ProductImageStore();
 
   List<Product> _products = [];
   String _search = '';
@@ -110,8 +114,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   Future<String?> _pickImage() async {
-    final xFile = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 600);
-    return xFile?.path;
+    final xFile = await _picker.pickImage(
+        source: ImageSource.gallery, imageQuality: 80, maxWidth: 600);
+    if (xFile == null) return null;
+    // The picker's own file lives in the cache directory, which Android is
+    // free to empty. Copy it somewhere durable before the path is saved.
+    return _images.keep(xFile.path);
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
@@ -342,52 +350,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
         crossAxisCount: columns,
         mainAxisSpacing: AppSpace.gapGrid,
         crossAxisSpacing: AppSpace.gapGrid,
-        childAspectRatio: 0.72,
+        childAspectRatio: ProductCard.aspectRatio,
       ),
       itemCount: items.length,
-      itemBuilder: (_, i) => _gridCard(items[i]),
-    );
-  }
-
-  Widget _gridCard(Product p) {
-    return GestureDetector(
-      onTap: () => _showProductSheet(product: p),
-      child: Container(
-        padding: const EdgeInsets.all(AppSpace.cardPad),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: AppColors.hairline),
-          boxShadow: AppShadows.card,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(height: 78, width: double.infinity, child: _thumb(p, radius: 12)),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 34,
-              child: Text(p.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
-            ),
-            const SizedBox(height: 2),
-            Text(p.category, style: AppText.caption()),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(formatPeso(p.price),
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
-                ),
-                const SizedBox(width: 6),
-                StatusPill(
-                  label: StockStatus.label(p.stock, p.minStock),
-                  fg: StockStatus.text(p.stock, p.minStock),
-                  bg: StockStatus.fill(p.stock, p.minStock),
-                ),
-              ],
-            ),
-          ],
-        ),
+      itemBuilder: (_, i) => ProductCard(
+        product: items[i],
+        onTap: () => _showProductSheet(product: items[i]),
       ),
     );
   }
@@ -415,7 +383,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         ),
         child: Row(
           children: [
-            SizedBox(width: 46, height: 46, child: _thumb(p, radius: 11)),
+            ProductThumb(product: p, size: 46, radius: 11),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -448,19 +416,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
             const Icon(Icons.chevron_right_rounded, color: AppColors.faint, size: 20),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _thumb(Product p, {required double radius}) {
-    final path = p.imagePath;
-    if (path == null || path.isEmpty) return PhotoPlaceholder(borderRadius: radius);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: Image.file(
-        File(path),
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => PhotoPlaceholder(borderRadius: radius),
       ),
     );
   }
