@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../services/settings_service.dart';
 import 'cash_count_screen.dart';
@@ -18,18 +19,18 @@ class SettingsScreen extends StatelessWidget {
   /// starts a sale to put on someone's tab.
   final VoidCallback? onStartSale;
 
-  // ── Design Tokens (matches ProductsScreen) ──────────────────────────────
-  static const Color _bg           = Color(0xFFF5F6FA);
-  static const Color _cardBg       = Color(0xFFFFFFFF);
-  static const Color _ink          = Color(0xFF0D0F1A);
-  static const Color _inkMid       = Color(0xFF5A5F7A);
-  static const Color _border       = Color(0xFFE7EAF4);
-  static const Color _danger       = Color(0xFFDC2626);
+  // These were a private copy of six colours and the card shadow, hand-kept in
+  // step with AppColors. The values matched, which is exactly why it was worth
+  // removing: the next palette change would have left this one screen behind
+  // and nothing would have complained.
+  static const Color _bg = AppColors.canvas;
+  static const Color _cardBg = AppColors.surface;
+  static const Color _ink = AppColors.ink;
+  static const Color _inkMid = AppColors.body;
+  static const Color _border = AppColors.hairline;
+  static const Color _danger = AppColors.danger;
 
-  static const _cardShadow = [
-    BoxShadow(color: Color(0x08000000), blurRadius: 3, offset: Offset(0, 1)),
-    BoxShadow(color: Color(0x0F000000), blurRadius: 18, offset: Offset(0, 8)),
-  ];
+  static const _cardShadow = AppShadows.card;
 
   static const _months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
