@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
@@ -9,6 +7,7 @@ import '../models/cart_line.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
 import '../services/settings_service.dart';
+import '../widgets/product_card.dart';
 import 'barcode_scanner_screen.dart';
 import 'checkout_screen.dart';
 import 'product_screen.dart';
@@ -663,13 +662,14 @@ class _PosScreenState extends State<PosScreen> {
         crossAxisCount: columns,
         mainAxisSpacing: AppSpace.gapGrid,
         crossAxisSpacing: AppSpace.gapGrid,
-        childAspectRatio: 0.72,
+        childAspectRatio: ProductCard.aspectRatio,
       ),
       itemCount: items.length,
-      itemBuilder: (_, i) => _ProductCard(
+      itemBuilder: (_, i) => ProductCard(
         product: items[i],
         qtyInCart: _cart[items[i].id] ?? 0,
-        onTap: () => _addToCart(items[i]),
+        dimWhenOut: true,
+        onTap: items[i].stock <= 0 ? null : () => _addToCart(items[i]),
       ),
     );
   }
@@ -723,110 +723,6 @@ class _PosScreenState extends State<PosScreen> {
                   decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(14)),
                   child: Text('Checkout', style: AppText.chip(color: Colors.white).copyWith(fontSize: 13)),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ProductCard extends StatelessWidget {
-  /// The product's photo, or the placeholder if there is none — or if the
-  /// file has gone, which is what a cleared cache used to leave behind.
-  Widget _thumb(Product product) {
-    final path = product.imagePath;
-    if (path == null || path.isEmpty) return const PhotoPlaceholder();
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Image.file(
-        File(path),
-        fit: BoxFit.cover,
-        width: double.infinity,
-        errorBuilder: (_, __, ___) => const PhotoPlaceholder(),
-      ),
-    );
-  }
-
-  const _ProductCard({required this.product, required this.qtyInCart, required this.onTap});
-
-  final Product product;
-  final int qtyInCart;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final outOfStock = product.stock <= 0;
-    return GestureDetector(
-      onTap: outOfStock ? null : onTap,
-      child: Opacity(
-        opacity: outOfStock ? 0.55 : 1,
-        child: Container(
-          padding: const EdgeInsets.all(AppSpace.cardPad),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppRadius.card),
-            border: Border.all(color: AppColors.hairline),
-            boxShadow: AppShadows.card,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Stack(
-                children: [
-                  SizedBox(
-                      height: 78,
-                      width: double.infinity,
-                      // The till is where recognising a product by its picture
-                      // is worth most, and it was the one screen that never
-                      // showed one.
-                      child: _thumb(product)),
-                  if (qtyInCart > 0)
-                    Positioned(
-                      top: 6,
-                      right: 6,
-                      child: Container(
-                        width: 22,
-                        height: 22,
-                        alignment: Alignment.center,
-                        decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                        child: Text('$qtyInCart',
-                            style: AppText.chip(color: Colors.white).copyWith(fontSize: 11)),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 34,
-                child: Text(
-                  product.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.cardTitle(),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(product.category, style: AppText.caption()),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      formatPeso(product.price),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.cardTitle(),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  StatusPill(
-                    label: StockStatus.label(product.stock, product.minStock),
-                    fg: StockStatus.text(product.stock, product.minStock),
-                    bg: StockStatus.fill(product.stock, product.minStock),
-                  ),
-                ],
               ),
             ],
           ),
