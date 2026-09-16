@@ -429,7 +429,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('REVENUE', style: AppText.overline()),
+          Text(
+            // A headline that quietly ignores returns reads as money kept.
+            // Naming it only when there were returns keeps the usual case
+            // short and the unusual case honest.
+            _refundTotal > 0 ? 'REVENUE BEFORE RETURNS' : 'REVENUE',
+            style: AppText.overline(),
+          ),
           const SizedBox(height: 6),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -450,6 +456,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ),
             ],
           ),
+          if (_refundTotal > 0) ...[
+            const SizedBox(height: 4),
+            Text('${formatPeso(_netRevenue)} after ${formatPeso(_refundTotal)} '
+                'returned', style: AppText.caption()),
+          ],
           const SizedBox(height: 18),
           _BarChart(values: _week),
           const SizedBox(height: 8),
