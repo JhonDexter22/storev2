@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'core/design_tokens.dart';
 import 'core/responsive.dart';
+import 'services/product_image_store.dart';
+import 'services/product_service.dart';
 import 'services/settings_service.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/pos_screen.dart';
@@ -15,6 +19,11 @@ Future<void> main() async {
   // Settings drive the headers and the cash count, so they must be readable
   // synchronously by the time the first screen builds.
   await SettingsService.instance.load();
+  // Photos saved by earlier versions sit in the cache directory, where Android
+  // deletes them without warning. Move them somewhere durable before that
+  // happens; it costs one query on a store with no photos and must never stop
+  // the app opening.
+  unawaited(ProductImageStore().rescueStrays(ProductService()).catchError((_) => 0));
   runApp(const RestockApp());
 }
 
@@ -119,6 +128,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  /// One per tab. A distinct key per tab means switching tabs builds a new
+  /// [Navigator] — so the content pane starts at that tab's root rather than
+  /// still showing whatever was pushed on the last one — while still giving a
+  /// handle on the stack that is currently mounted.
+  late final List<GlobalKey<NavigatorState>> _contentNavKeys =
+      List.generate(_tabs.length, (_) => GlobalKey<NavigatorState>());
+
   void _onTabTap(int index) async {
     HapticFeedback.selectionClick();
     // Animate pressed tab down then back up
@@ -165,11 +181,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // space goes to the content panes instead.
     if (Breakpoints.isTablet(context)) {
       return Scaffold(
-        body: Row(
-          children: [
-            _NavRail(currentIndex: _currentIndex, tabs: _tabs, onTap: _onTabTap),
-            Expanded(child: body),
-          ],
+        body: PopScope(
+          // Back belongs to the content pane first: it should close whatever
+          // was opened from the More hub, not leave the app.
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            final nav = _contentNavKeys[_currentIndex].currentState;
+            if (nav != null && nav.canPop()) nav.pop();
+          },
+          child: Row(
+            children: [
+              _NavRail(currentIndex: _currentIndex, tabs: _tabs, onTap: _onTabTap),
+              Expanded(
+                child: Navigator(
+                  key: _contentNavKeys[_currentIndex],
+                  onGenerateRoute: (_) => MaterialPageRoute<void>(
+                    builder: (_) => body,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
