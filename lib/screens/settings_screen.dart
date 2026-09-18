@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../services/settings_service.dart';
+import '../services/shift_service.dart';
+import '../services/utang_service.dart';
 import 'cash_count_screen.dart';
 import 'cashier_switch_screen.dart';
 import 'product_screen.dart';
@@ -12,70 +14,72 @@ import 'shift_history_screen.dart';
 import 'store_settings_screen.dart';
 import 'utang_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+/// The More hub: everything that is not one of the four main tabs.
+///
+/// Destinations are grouped by when a cashier reaches for them — what runs
+/// every day, what happens at the counter, and what is set up once — rather
+/// than listed flat. The rows that have a live number worth glancing at
+/// (money owed, sales so far this shift) show it on the right so the hub
+/// answers the common question without a tap.
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.onStartSale});
 
   /// Jumps to the POS tab — used by the Utang ledger's "Charge" CTA, which
   /// starts a sale to put on someone's tab.
   final VoidCallback? onStartSale;
 
-  // These were a private copy of six colours and the card shadow, hand-kept in
-  // step with AppColors. The values matched, which is exactly why it was worth
-  // removing: the next palette change would have left this one screen behind
-  // and nothing would have complained.
-  static const Color _bg = AppColors.canvas;
-  static const Color _cardBg = AppColors.surface;
-  static const Color _ink = AppColors.ink;
-  static const Color _inkMid = AppColors.body;
-  static const Color _border = AppColors.hairline;
-  static const Color _danger = AppColors.danger;
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
 
-  static const _cardShadow = AppShadows.card;
-
+class _SettingsScreenState extends State<SettingsScreen> {
   static const _months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
+
+  late final Future<double> _owed = _loadOwed();
+  late final Future<({double total, int count, DateTime openedAt})> _shift =
+      ShiftService().currentShiftSales();
+
+  Future<double> _loadOwed() async {
+    final customers = await UtangService().getCustomers();
+    return customers.fold<double>(0, (sum, c) => sum + (c.balance > 0 ? c.balance : 0));
+  }
 
   String _todayLabel() {
     final now = DateTime.now();
     return '${now.day} ${_months[now.month - 1]}';
   }
 
-  void _open(BuildContext context, Widget screen) {
+  void _open(Widget screen) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
   }
 
-  void _confirmSignOut(BuildContext context) {
+  void _confirmSignOut() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: _cardBg,
+        backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Sign out?',
-            style: TextStyle(color: _ink, fontWeight: FontWeight.w800)),
-        content: const Text(
+        title: Text('Sign out?', style: AppText.sectionTitle()),
+        content: Text(
           'You will need to sign in again to continue using this device.',
-          style: TextStyle(color: _inkMid, fontSize: 14),
+          style: AppText.body(),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel',
-                style: TextStyle(color: _inkMid, fontWeight: FontWeight.w700)),
+            child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               // Signing out means someone has to sign back in to the till.
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CashierSwitchScreen()),
-              );
+              _open(const CashierSwitchScreen());
             },
-            child: const Text('Sign out',
-                style: TextStyle(color: _danger, fontWeight: FontWeight.w800)),
+            child: Text('Sign out', style: AppText.chip(color: AppColors.danger)),
           ),
         ],
       ),
@@ -84,238 +88,454 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = <_MoreItem>[
-      _MoreItem(
-        code: 'RT',
-        title: 'Returns & voids',
-        subtitle: 'Reverse a line or a whole sale',
-        onTap: (ctx) => _open(ctx, const ReturnsScreen()),
-      ),
-      _MoreItem(
-        code: 'RP',
-        title: 'Reports',
-        subtitle: 'Revenue, top products, payment mix',
-        onTap: (ctx) => _open(ctx, const ReportsScreen()),
-      ),
-      _MoreItem(
-        code: 'CC',
-        title: 'Cash count',
-        subtitle: 'End of day reconciliation',
-        onTap: (ctx) => _open(ctx, const CashCountScreen()),
-      ),
-      _MoreItem(
-        code: 'UT',
-        title: 'Utang',
-        subtitle: 'Who owes what, aged oldest first',
-        onTap: (ctx) => _open(ctx, UtangScreen(onCharge: onStartSale)),
-      ),
-      _MoreItem(
-        code: 'SH',
-        title: 'Shift history',
-        subtitle: 'Past closes and drawer variance',
-        onTap: (ctx) => _open(ctx, const ShiftHistoryScreen()),
-      ),
-      _MoreItem(
-        code: 'CS',
-        title: 'Switch cashier',
-        subtitle: 'Change who is on the till',
-        onTap: (ctx) => _open(ctx, const CashierSwitchScreen()),
-      ),
-      _MoreItem(
-        code: 'ST',
-        title: 'Settings',
-        subtitle: 'Receipts, alerts, backup',
-        onTap: (ctx) => _open(ctx, const StoreSettingsScreen()),
-      ),
-      _MoreItem(
-        code: 'PR',
-        title: 'Products',
-        subtitle: 'Full inventory list',
-        onTap: (ctx) => _open(ctx, const ProductsScreen()),
-      ),
-    ];
-
     return ListenableBuilder(
       listenable: SettingsService.instance,
-      builder: (context, _) => _buildScaffold(context, items),
+      builder: (context, _) => _buildScaffold(context),
     );
   }
 
-  Widget _buildScaffold(BuildContext context, List<_MoreItem> items) {
+  Widget _buildScaffold(BuildContext context) {
+    final settings = SettingsService.instance;
+
+    final sections = <_Section>[
+      _Section(
+        title: 'Today',
+        tint: AppColors.primaryTint,
+        iconColor: AppColors.primary,
+        items: [
+          _MoreItem(
+            icon: Icons.bar_chart_rounded,
+            title: 'Reports',
+            subtitle: 'Revenue, top products, payment mix',
+            onTap: () => _open(const ReportsScreen()),
+          ),
+          _MoreItem(
+            icon: Icons.payments_outlined,
+            title: 'Cash count',
+            subtitle: 'End of day reconciliation',
+            trailing: _ShiftMeta(future: _shift),
+            onTap: () => _open(const CashCountScreen()),
+          ),
+          _MoreItem(
+            icon: Icons.history_rounded,
+            title: 'Shift history',
+            subtitle: 'Past closes and drawer variance',
+            onTap: () => _open(const ShiftHistoryScreen()),
+          ),
+        ],
+      ),
+      _Section(
+        title: 'At the counter',
+        tint: AppColors.warningFill,
+        iconColor: AppColors.warningText,
+        items: [
+          _MoreItem(
+            icon: Icons.assignment_return_outlined,
+            title: 'Returns & voids',
+            subtitle: 'Reverse a line or a whole sale',
+            onTap: () => _open(const ReturnsScreen()),
+          ),
+          _MoreItem(
+            icon: Icons.receipt_long_outlined,
+            title: 'Utang',
+            subtitle: 'Who owes what, aged oldest first',
+            trailing: _OwedMeta(future: _owed),
+            onTap: () => _open(UtangScreen(onCharge: widget.onStartSale)),
+          ),
+        ],
+      ),
+      _Section(
+        title: 'Store',
+        tint: AppColors.divider,
+        iconColor: AppColors.body,
+        items: [
+          _MoreItem(
+            icon: Icons.inventory_2_outlined,
+            title: 'Products',
+            subtitle: 'Full inventory list',
+            onTap: () => _open(const ProductsScreen()),
+          ),
+          _MoreItem(
+            icon: Icons.settings_outlined,
+            title: 'Settings',
+            subtitle: 'Receipts, alerts, backup',
+            onTap: () => _open(const StoreSettingsScreen()),
+          ),
+        ],
+      ),
+    ];
+
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: AppColors.canvas,
       body: SafeArea(
         bottom: false,
         child: LayoutBuilder(
           builder: (context, constraints) => ListView(
-          padding: Breakpoints.pagePadding(context, constraints.maxWidth,
-              top: 24, phoneSide: 24),
-          children: [
-            const Text(
-              'More',
-              style: TextStyle(
-                color: _ink,
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -1,
-                height: 1.1,
-              ),
+            padding: Breakpoints.pagePadding(
+              context,
+              constraints.maxWidth,
+              top: 24,
+              // Clear the Sell button that rises out of the bottom bar.
+              bottom: 32 + MediaQuery.paddingOf(context).bottom,
+              phoneSide: 24,
             ),
-            const SizedBox(height: 4),
-            Text(
-              '${SettingsService.instance.cashier} · '
-              '${SettingsService.instance.terminal} · ${_todayLabel()}',
-              style: const TextStyle(
-                color: _inkMid,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 22),
+            children: [
+              Text('More', style: AppText.screenTitle()),
+              const SizedBox(height: 16),
 
-            // ── Menu list ────────────────────────────────────────────────
-            Container(
-              decoration: BoxDecoration(
-                color: _cardBg,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: _border),
-                boxShadow: _cardShadow,
+              _CashierCard(
+                name: settings.cashier,
+                detail: '${settings.storeName} · ${settings.terminal} · ${_todayLabel()}',
+                onSwitch: () => _open(const CashierSwitchScreen()),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  for (int i = 0; i < items.length; i++) ...[
-                    _MenuRow(item: items[i]),
-                    if (i != items.length - 1)
-                      const Padding(
-                        padding: EdgeInsets.only(left: 76),
-                        child: Divider(color: _border, height: 1),
-                      ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 24),
 
-            // ── Sign out ─────────────────────────────────────────────────
-            Container(
-              decoration: BoxDecoration(
-                color: _cardBg,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: _border),
-                boxShadow: _cardShadow,
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _confirmSignOut(context),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 18),
-                    child: Center(
-                      child: Text(
-                        'Sign out',
-                        style: TextStyle(
-                          color: _ink,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+              for (final s in sections) ...[
+                _SectionCard(section: s),
+                const SizedBox(height: 20),
+              ],
+
+              _SignOutRow(onTap: _confirmSignOut),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+// ── Cashier card ───────────────────────────────────────────────────────────────
+/// Who is on the till, where, and a one-tap way to hand over.
+class _CashierCard extends StatelessWidget {
+  const _CashierCard({required this.name, required this.detail, required this.onSwitch});
+
+  final String name;
+  final String detail;
+  final VoidCallback onSwitch;
+
+  String get _initials {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return (parts.first[0] + parts.last[0]).toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.hairline),
+        boxShadow: AppShadows.card,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: const BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              _initials,
+              style: AppText.sectionTitle(color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Signed in as', style: AppText.caption()),
+                const SizedBox(height: 2),
+                Text(name, style: AppText.sectionTitle(), maxLines: 1, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 2),
+                Text(detail, style: AppText.caption(color: AppColors.body), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _SwitchButton(onTap: onSwitch),
+        ],
+      ),
+    );
+  }
+}
+
+class _SwitchButton extends StatelessWidget {
+  const _SwitchButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Switch cashier',
+      child: Material(
+        color: AppColors.primaryTint,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadius.chip),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 9, 14, 9),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.swap_horiz_rounded, size: 18, color: AppColors.primary),
+                const SizedBox(width: 6),
+                Text('Switch', style: AppText.chip(color: AppColors.primary)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Sections ───────────────────────────────────────────────────────────────────
+class _Section {
+  const _Section({
+    required this.title,
+    required this.tint,
+    required this.iconColor,
+    required this.items,
+  });
+
+  final String title;
+  final Color tint;
+  final Color iconColor;
+  final List<_MoreItem> items;
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({required this.section});
+
+  final _Section section;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            section.title.toUpperCase(),
+            style: AppText.overline(color: AppColors.muted),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: AppColors.hairline),
+            boxShadow: AppShadows.card,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (int i = 0; i < section.items.length; i++) ...[
+                _MenuRow(
+                  item: section.items[i],
+                  tint: section.tint,
+                  iconColor: section.iconColor,
+                ),
+                if (i != section.items.length - 1)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 70),
+                    child: Divider(color: AppColors.divider, height: 1),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
 
 class _MoreItem {
   const _MoreItem({
-    required this.code,
+    required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.trailing,
   });
 
-  final String code;
+  final IconData icon;
   final String title;
   final String subtitle;
-  final void Function(BuildContext context) onTap;
+  final VoidCallback onTap;
+
+  /// A live figure shown before the chevron, if the row has one.
+  final Widget? trailing;
 }
 
 class _MenuRow extends StatelessWidget {
-  const _MenuRow({required this.item});
+  const _MenuRow({required this.item, required this.tint, required this.iconColor});
 
   final _MoreItem item;
-
-  static const Color _ink         = Color(0xFF0D0F1A);
-  static const Color _inkMid      = Color(0xFF5A5F7A);
-  static const Color _inkLight    = Color(0xFFA2A7BF);
-  static const Color _accent      = Color(0xFF2554E8);
-  static const Color _accentLight = Color(0xFFEEF2FE);
+  final Color tint;
+  final Color iconColor;
 
   @override
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => item.onTap(context),
-        splashColor: _accentLight,
+        onTap: item.onTap,
+        splashColor: AppColors.primaryTint,
+        highlightColor: AppColors.divider,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
           child: Row(
             children: [
               Container(
-                width: 44, height: 44,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: _accentLight,
+                  color: tint,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 alignment: Alignment.center,
-                child: Text(
-                  item.code,
-                  style: const TextStyle(
-                    color: _accent,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    letterSpacing: 0.2,
-                  ),
-                ),
+                child: Icon(item.icon, size: 21, color: iconColor),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      item.title,
-                      style: const TextStyle(
-                        color: _ink,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.1,
-                      ),
-                    ),
+                    Text(item.title, style: AppText.cardTitle().copyWith(fontSize: 14.5)),
                     const SizedBox(height: 2),
                     Text(
                       item.subtitle,
-                      style: const TextStyle(
-                        color: _inkMid,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w500,
-                      ),
+                      style: AppText.caption(color: AppColors.body),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
+              if (item.trailing != null) ...[
+                const SizedBox(width: 10),
+                item.trailing!,
+              ],
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.faint, size: 22),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Live figures ───────────────────────────────────────────────────────────────
+/// Total outstanding utang, shown only once there is something owed.
+class _OwedMeta extends StatelessWidget {
+  const _OwedMeta({required this.future});
+
+  final Future<double> future;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<double>(
+      future: future,
+      builder: (context, snap) {
+        final owed = snap.data ?? 0;
+        if (owed <= 0) return const SizedBox.shrink();
+        return _MetaPill(
+          text: formatPeso(owed),
+          color: AppColors.warningText,
+          background: AppColors.warningFill,
+        );
+      },
+    );
+  }
+}
+
+/// Sales rung up so far this shift.
+class _ShiftMeta extends StatelessWidget {
+  const _ShiftMeta({required this.future});
+
+  final Future<({double total, int count, DateTime openedAt})> future;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<({double total, int count, DateTime openedAt})>(
+      future: future,
+      builder: (context, snap) {
+        final s = snap.data;
+        if (s == null || s.count == 0) return const SizedBox.shrink();
+        return _MetaPill(
+          text: formatPeso(s.total),
+          color: AppColors.successText,
+          background: AppColors.successFill,
+        );
+      },
+    );
+  }
+}
+
+class _MetaPill extends StatelessWidget {
+  const _MetaPill({required this.text, required this.color, required this.background});
+
+  final String text;
+  final Color color;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+      ),
+      child: Text(
+        text,
+        style: AppText.chip(color: color)
+            .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+      ),
+    );
+  }
+}
+
+// ── Sign out ───────────────────────────────────────────────────────────────────
+/// Deliberately quieter than the destinations above it: a bordered row, no
+/// fill, so it cannot be mistaken for a place to go.
+class _SignOutRow extends StatelessWidget {
+  const _SignOutRow({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.cta),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 15),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.cta),
+            border: Border.all(color: AppColors.dangerBorder),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.logout_rounded, size: 18, color: AppColors.dangerText),
               const SizedBox(width: 8),
-              const Icon(Icons.chevron_right_rounded,
-                  color: _inkLight, size: 22),
+              Text('Sign out', style: AppText.chip(color: AppColors.dangerText).copyWith(fontSize: 14)),
             ],
           ),
         ),
