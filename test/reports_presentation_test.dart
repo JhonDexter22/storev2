@@ -87,6 +87,41 @@ void main() {
     });
   }
 
+  group('the revenue headline', () {
+    testWidgets('with no returns it is plainly revenue', (tester) async {
+      final p = await addProduct(price: 100);
+      await sales.recordSale(
+          lines: [CartLine(product: p, qty: 2)], paymentMethod: 'Cash');
+      await pump(tester);
+
+      expect(find.text('REVENUE'), findsOneWidget);
+      expect(find.text('REVENUE BEFORE RETURNS'), findsNothing);
+      expect(find.textContaining('after'), findsNothing);
+    });
+
+    testWidgets('with returns it says the big figure is before them',
+        (tester) async {
+      final p = await addProduct(price: 100);
+      final sale = await sales.recordSale(
+          lines: [CartLine(product: p, qty: 10)], paymentMethod: 'Cash');
+      await sales.recordRefund(
+        sale: sale,
+        lines: {p.id!: 2},
+        reason: 'Damaged',
+        method: 'Cash',
+        restock: true,
+        isVoid: false,
+      );
+      await pump(tester);
+
+      // The headline ignores refunds, so a shopkeeper reading ₱1,000 would
+      // think they kept it. Naming it is cheaper than moving the number.
+      expect(find.text('REVENUE BEFORE RETURNS'), findsOneWidget);
+      expect(find.text('REVENUE'), findsNothing);
+      expect(find.text('₱800.00 after ₱200.00 returned'), findsOneWidget);
+    });
+  });
+
   group('the returns card', () {
     testWidgets('does not print a nonsense percentage', (tester) async {
       await seedRefundBiggerThanRevenue();
