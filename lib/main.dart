@@ -8,6 +8,7 @@ import 'core/responsive.dart';
 import 'services/product_image_store.dart';
 import 'services/product_service.dart';
 import 'services/settings_service.dart';
+import 'services/stock_alerts.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/pos_screen.dart';
 import 'screens/product_screen.dart';
@@ -60,8 +61,9 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  int _currentIndex = 2;
+class _HomeScreenState extends State<HomeScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
+  int _currentIndex = _kProducts;
 
   // One AnimationController per tab for the press/tap scale effect
   late final List<AnimationController> _scaleControllers;
@@ -69,16 +71,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   static const _navBg = AppColors.surface;
 
+  // Tab indices. Sell sits in the middle: it is the tab a cashier reaches for
+  // most, and centre-bottom is the easiest spot to hit one-handed.
+  static const _kHome = 0;
+  static const _kProducts = 1;
+  static const _kSell = 2;
+  static const _kRestock = 3;
+  static const _kMore = 4;
+
   static const _tabs = [
     _TabItem(
       label: 'Home',
       icon: Icons.home_outlined,
       activeIcon: Icons.home_rounded,
-    ),
-    _TabItem(
-      label: 'POS',
-      icon: Icons.storefront_outlined,
-      activeIcon: Icons.storefront_rounded,
+      badge: _TabBadge.outOfStockDot,
     ),
     _TabItem(
       label: 'Products',
@@ -86,20 +92,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       activeIcon: Icons.inventory_2_rounded,
     ),
     _TabItem(
+      label: 'Sell',
+      icon: Icons.point_of_sale_outlined,
+      activeIcon: Icons.point_of_sale_rounded,
+      hero: true,
+    ),
+    _TabItem(
       label: 'Restock',
-      icon: Icons.autorenew_outlined,
-      activeIcon: Icons.autorenew_rounded,
+      icon: Icons.local_shipping_outlined,
+      activeIcon: Icons.local_shipping_rounded,
+      badge: _TabBadge.needsRestockCount,
     ),
     _TabItem(
       label: 'More',
-      icon: Icons.menu_outlined,
-      activeIcon: Icons.menu_rounded,
+      icon: Icons.grid_view_outlined,
+      activeIcon: Icons.grid_view_rounded,
     ),
   ];
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       systemNavigationBarColor: _navBg,
       systemNavigationBarIconBrightness: Brightness.dark,
@@ -109,23 +123,35 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _tabs.length,
       (_) => AnimationController(
         vsync: this,
-        duration: const Duration(milliseconds: 100),
-        lowerBound: 0.85,
+        duration: const Duration(milliseconds: 140),
+        lowerBound: 0.92,
         upperBound: 1.0,
         value: 1.0,
       ),
     );
     _scaleAnims = _scaleControllers
-        .map((c) => CurvedAnimation(parent: c, curve: Curves.easeOut))
+        .map((c) => CurvedAnimation(parent: c, curve: Curves.easeOutBack))
         .toList();
+
+    unawaited(StockAlerts.instance.refresh());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (final c in _scaleControllers) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Stock can change while the app is in the background (a restore, or a
+    // sale on another device sharing the store), so recount on return.
+    if (state == AppLifecycleState.resumed) {
+      unawaited(StockAlerts.instance.refresh());
+    }
   }
 
   /// One per tab. A distinct key per tab means switching tabs builds a new
@@ -137,6 +163,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _onTabTap(int index) async {
     HapticFeedback.selectionClick();
+    // Every screen that changes stock lives behind one of these tabs, so a
+    // tab change is the moment a badge count can have gone stale.
+    unawaited(StockAlerts.instance.refresh());
     // Animate pressed tab down then back up
     _scaleControllers[index].reverse();
     await Future.delayed(const Duration(milliseconds: 100));
@@ -144,18 +173,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     setState(() => _currentIndex = index);
   }
 
+  void _startSale() => setState(() => _currentIndex = _kSell);
+
   Widget _getScreen() {
     switch (_currentIndex) {
-      case 0:
-        return DashboardScreen(onStartSale: () => setState(() => _currentIndex = 1));
-      case 1:
+      case _kHome:
+        return DashboardScreen(onStartSale: _startSale);
+      case _kSell:
         return const PosScreen();
-      case 2:
+      case _kProducts:
         return const ProductsScreen();
-      case 3:
+      case _kRestock:
         return const RestockScreen();
-      case 4:
-        return SettingsScreen(onStartSale: () => setState(() => _currentIndex = 1));
+      case _kMore:
+        return SettingsScreen(onStartSale: _startSale);
       default:
         return const ProductsScreen();
     }
@@ -265,34 +296,55 @@ class _NavRail extends StatelessWidget {
   }
 
   Widget _railItem(int i) {
+    final tab = tabs[i];
     final selected = i == currentIndex;
-    return GestureDetector(
-      onTap: () => onTap(i),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 68,
-        padding: const EdgeInsets.symmetric(vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primaryTint : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppRadius.iconBtn),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              selected ? tabs[i].activeIcon : tabs[i].icon,
-              size: 21,
-              color: selected ? AppColors.primary : AppColors.faint,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              tabs[i].label,
-              style: TextStyle(
-                color: selected ? AppColors.primary : AppColors.faint,
-                fontSize: 10,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+    // The hero tab is always filled so it reads as the primary action even
+    // when another tab is open; selection is shown by the label instead.
+    final filled = tab.hero;
+    final fg = filled
+        ? Colors.white
+        : selected
+            ? AppColors.primary
+            : AppColors.muted;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: tab.label,
+      child: GestureDetector(
+        onTap: () => onTap(i),
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          width: 68,
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          decoration: BoxDecoration(
+            color: filled
+                ? (selected ? AppColors.primaryPressed : AppColors.primary)
+                : selected
+                    ? AppColors.primaryTint
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.iconBtn),
+          ),
+          child: Column(
+            children: [
+              _Badged(
+                badge: tab.badge,
+                child: Icon(
+                  selected ? tab.activeIcon : tab.icon,
+                  size: 21,
+                  color: fg,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                tab.label,
+                style: TextStyle(
+                  color: fg,
+                  fontSize: 10,
+                  fontWeight: selected || filled ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -315,71 +367,49 @@ class _BottomNav extends StatelessWidget {
 
   static const _accent    = AppColors.primary;
   static const _accentBg  = AppColors.primaryTint;
-  static const _inkLight  = AppColors.faint;
+  static const _inkLight  = AppColors.muted;
   static const _navBg     = AppColors.surface;
-  static const _navBorder = AppColors.dividerStrong;
+
+  /// Bar height, not counting the system inset. The hero button pokes above
+  /// it, so the bar needs enough room for a label under a 56px circle.
+  static const _height = 70.0;
+  static const _heroSize = 56.0;
+  static const _heroLift = 22.0;
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      // No top hairline: the shadow alone carries the edge, which reads
+      // cleaner than shadow + border stacked on top of each other.
       decoration: const BoxDecoration(
         color: _navBg,
-        border: Border(top: BorderSide(color: _navBorder, width: 1)),
         boxShadow: [
           BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 24,
-            offset: Offset(0, -4),
+            color: Color(0x14000000),
+            blurRadius: 20,
+            offset: Offset(0, -2),
           ),
         ],
       ),
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 64,
+          height: _height,
           child: Row(
             children: List.generate(tabs.length, (i) {
+              final tab = tabs[i];
               final selected = i == currentIndex;
               return Expanded(
-                child: GestureDetector(
-                  onTap: () => onTap(i),
-                  behavior: HitTestBehavior.opaque,
-                  child: ScaleTransition(
-                    scale: scaleAnims[i],
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Icon pill
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeOutCubic,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: selected ? _accentBg : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(
-                            selected ? tabs[i].activeIcon : tabs[i].icon,
-                            size: 22,
-                            color: selected ? _accent : _inkLight,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        // Label
-                        AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 180),
-                          style: TextStyle(
-                            color: selected ? _accent : _inkLight,
-                            fontSize: 11,
-                            fontWeight: selected
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            letterSpacing: 0.1,
-                          ),
-                          child: Text(tabs[i].label),
-                        ),
-                      ],
+                child: Semantics(
+                  button: true,
+                  selected: selected,
+                  label: tab.label,
+                  child: GestureDetector(
+                    onTap: () => onTap(i),
+                    behavior: HitTestBehavior.opaque,
+                    child: ScaleTransition(
+                      scale: scaleAnims[i],
+                      child: tab.hero ? _heroTab(tab, selected) : _tab(tab, selected),
                     ),
                   ),
                 ),
@@ -390,6 +420,227 @@ class _BottomNav extends StatelessWidget {
       ),
     );
   }
+
+  /// A regular destination: capsule indicator behind the icon, label below.
+  Widget _tab(_TabItem tab, bool selected) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 5),
+          decoration: BoxDecoration(
+            color: selected ? _accentBg : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.chip),
+          ),
+          child: _Badged(
+            badge: tab.badge,
+            child: Icon(
+              selected ? tab.activeIcon : tab.icon,
+              size: 24,
+              color: selected ? _accent : _inkLight,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        _label(tab.label, selected),
+      ],
+    );
+  }
+
+  /// The Sell tab: a filled circle raised out of the bar so it is the first
+  /// thing the eye lands on and the easiest target for a thumb.
+  Widget _heroTab(_TabItem tab, bool selected) {
+    // A Stack rather than a Column so the circle can overhang the top of the
+    // bar without asking the bar for the extra height.
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.topCenter,
+      children: [
+        Positioned(
+          // Lines up with where a regular tab's label sits.
+          bottom: 9,
+          child: _label(tab.label, true),
+        ),
+        Positioned(
+          top: -_heroLift,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            width: _heroSize,
+            height: _heroSize,
+            decoration: BoxDecoration(
+              color: selected ? AppColors.primaryPressed : _accent,
+              shape: BoxShape.circle,
+              // The ring in the bar colour makes the circle look cut out of
+              // the bar rather than pasted on top of it.
+              border: Border.all(color: _navBg, width: 4),
+              boxShadow: [
+                BoxShadow(
+                  color: _accent.withValues(alpha: 0.35),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Icon(
+              selected ? tab.activeIcon : tab.icon,
+              size: 26,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _label(String text, bool selected) {
+    // The label nudges up 2px when selected so the change registers as
+    // motion, not just a weight swap.
+    return AnimatedSlide(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      offset: Offset(0, selected ? -0.1 : 0),
+      child: AnimatedDefaultTextStyle(
+        duration: const Duration(milliseconds: 180),
+        style: TextStyle(
+          color: selected ? _accent : _inkLight,
+          fontSize: 11,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          letterSpacing: 0.1,
+        ),
+        child: Text(text),
+      ),
+    );
+  }
+}
+
+// ── Badges ─────────────────────────────────────────────────────────────────────
+/// What a tab reports from [StockAlerts], if anything.
+enum _TabBadge {
+  /// A count of products at or under their minimum.
+  needsRestockCount,
+
+  /// A dot when anything is at zero.
+  outOfStockDot,
+}
+
+/// Wraps an icon with its [_TabBadge], listening to [StockAlerts] so the badge
+/// updates without the bar being rebuilt.
+class _Badged extends StatelessWidget {
+  const _Badged({required this.badge, required this.child});
+
+  final _TabBadge? badge;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final b = badge;
+    if (b == null) return child;
+    final alerts = StockAlerts.instance;
+    return switch (b) {
+      _TabBadge.needsRestockCount => ValueListenableBuilder<int>(
+          valueListenable: alerts.needsRestock,
+          builder: (_, count, __) => ValueListenableBuilder<int>(
+            valueListenable: alerts.outOfStock,
+            builder: (_, out, __) => _CountBadge(
+              count: count,
+              // Red once something has actually run out; amber while it is
+              // only running low.
+              color: out > 0 ? AppColors.danger : AppColors.warning,
+              child: child,
+            ),
+          ),
+        ),
+      _TabBadge.outOfStockDot => ValueListenableBuilder<int>(
+          valueListenable: alerts.outOfStock,
+          builder: (_, out, __) => _DotBadge(show: out > 0, child: child),
+        ),
+    };
+  }
+}
+
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({required this.count, required this.color, required this.child});
+
+  final int count;
+  final Color color;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        child,
+        Positioned(
+          top: -6,
+          right: -10,
+          child: AnimatedScale(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutBack,
+            scale: count > 0 ? 1 : 0,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 17),
+              height: 17,
+              padding: const EdgeInsets.symmetric(horizontal: 5),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(AppRadius.chip),
+                border: Border.all(color: AppColors.surface, width: 1.5),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                count > 99 ? '99+' : '$count',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DotBadge extends StatelessWidget {
+  const _DotBadge({required this.show, required this.child});
+
+  final bool show;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        child,
+        Positioned(
+          top: -2,
+          right: -3,
+          child: AnimatedScale(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutBack,
+            scale: show ? 1 : 0,
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: AppColors.danger,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.surface, width: 1.5),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ── Data class ─────────────────────────────────────────────────────────────────
@@ -398,9 +649,17 @@ class _TabItem {
     required this.label,
     required this.icon,
     required this.activeIcon,
+    this.hero = false,
+    this.badge,
   });
 
   final String label;
   final IconData icon;
   final IconData activeIcon;
+
+  /// Drawn as the raised, filled centre button instead of a plain tab.
+  final bool hero;
+
+  /// Live count or dot from [StockAlerts] drawn over the icon.
+  final _TabBadge? badge;
 }
