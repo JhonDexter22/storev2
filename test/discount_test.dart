@@ -270,6 +270,141 @@ void main() {
     });
   });
 
+  group('the audit trail', () {
+    test('lists each discount with who gave it and why', () async {
+      final p = await addProduct(price: 50);
+      await sales.recordSale(
+        lines: [CartLine(product: p, qty: 2)],
+        paymentMethod: 'Cash',
+        cashier: 'Nena',
+        discount: senior,
+      );
+
+      final given = await sales.discountsGiven(1);
+      expect(given, hasLength(1));
+      final d = given.single;
+      expect(d.amount, closeTo(20, 0.001));
+      expect(d.reason, 'Senior citizen');
+      expect(d.cashier, 'Nena');
+      expect(d.subtotal, closeTo(100, 0.001));
+      // The share is what makes an outlier visible at a glance.
+      expect(d.share, closeTo(0.2, 0.0001));
+    });
+
+    test('undiscounted sales are not in it', () async {
+      final p = await addProduct(price: 50);
+      await sales.recordSale(
+          lines: [CartLine(product: p, qty: 1)], paymentMethod: 'Cash');
+      expect(await sales.discountsGiven(1), isEmpty);
+    });
+
+    test('newest first, so the last one given is at the top', () async {
+      final p = await addProduct(price: 50);
+      await sales.recordSale(
+        lines: [CartLine(product: p, qty: 1)],
+        paymentMethod: 'Cash',
+        discount: const Discount(
+            kind: DiscountKind.amount, value: 5, reason: 'First'),
+      );
+      final db = await DatabaseHelper.instance.database;
+      await db.update('sales', {
+        'created_at':
+            DateTime.now().subtract(const Duration(hours: 2)).toIso8601String()
+      });
+      await sales.recordSale(
+        lines: [CartLine(product: p, qty: 1)],
+        paymentMethod: 'Cash',
+        discount: const Discount(
+            kind: DiscountKind.amount, value: 7, reason: 'Second'),
+      );
+
+      expect((await sales.discountsGiven(1)).map((d) => d.reason),
+          ['Second', 'First']);
+    });
+
+    test('groups by reason, largest first', () async {
+      final p = await addProduct(price: 100);
+      for (final reason in ['Senior citizen', 'Senior citizen', 'Suki']) {
+        await sales.recordSale(
+          lines: [CartLine(product: p, qty: 1)],
+          paymentMethod: 'Cash',
+          discount: Discount(
+              kind: DiscountKind.percent,
+              value: reason == 'Suki' ? 5 : 20,
+              reason: reason),
+        );
+      }
+
+      final rows = await sales.discountsByReason(1);
+      expect(rows.first.label, 'Senior citizen');
+      expect(rows.first.value, closeTo(40, 0.001));
+      expect(rows.first.units, 2);
+      expect(rows.last.label, 'Suki');
+      expect(rows.last.value, closeTo(5, 0.001));
+    });
+
+    test('groups by cashier, which is the point of recording one', () async {
+      final p = await addProduct(price: 100);
+      await sales.recordSale(
+        lines: [CartLine(product: p, qty: 1)],
+        paymentMethod: 'Cash',
+        cashier: 'May',
+        discount: senior,
+      );
+      await sales.recordSale(
+        lines: [CartLine(product: p, qty: 1)],
+        paymentMethod: 'Cash',
+        cashier: 'Ronel',
+        discount: const Discount(
+            kind: DiscountKind.percent, value: 5, reason: 'Suki'),
+      );
+
+      final rows = await sales.discountsByCashier(1);
+      expect(rows.map((r) => r.label), ['May', 'Ronel']);
+      expect(rows.first.value, closeTo(20, 0.001));
+    });
+
+    test('a sale from before cashiers were recorded says so', () async {
+      final p = await addProduct(price: 100);
+      await sales.recordSale(
+        lines: [CartLine(product: p, qty: 1)],
+        paymentMethod: 'Cash',
+        discount: senior,
+      );
+
+      // Blank, because the column was added at v9 and older rows have nothing
+      // in it. Attributing those to somebody would be inventing evidence.
+      expect((await sales.discountsGiven(1)).single.cashier, '');
+      expect((await sales.discountsByCashier(1)).single.label, 'Not recorded');
+    });
+
+    test('the grouped totals agree with the period figure', () async {
+      final p = await addProduct(price: 100);
+      await sales.recordSale(
+        lines: [CartLine(product: p, qty: 1)],
+        paymentMethod: 'Cash',
+        cashier: 'May',
+        discount: senior,
+      );
+      await sales.recordSale(
+        lines: [CartLine(product: p, qty: 1)],
+        paymentMethod: 'Cash',
+        cashier: 'Ronel',
+        discount: const Discount(
+            kind: DiscountKind.amount, value: 12.5, reason: 'Damaged'),
+      );
+
+      final stats = await sales.getPeriodStats(1);
+      for (final rows in [
+        await sales.discountsByReason(1),
+        await sales.discountsByCashier(1),
+      ]) {
+        expect(rows.fold<double>(0, (a, r) => a + r.value),
+            closeTo(stats.discountGiven, 0.0001));
+      }
+    });
+  });
+
   group('reports', () {
     test('revenue is net and the discount is reported beside it', () async {
       final p = await addProduct(price: 50);
