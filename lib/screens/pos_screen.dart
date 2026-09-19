@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/design_tokens.dart';
 import '../models/backup_status.dart';
@@ -7,6 +8,8 @@ import '../models/cart_line.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
 import '../services/settings_service.dart';
+import '../widgets/cart_bar.dart';
+import '../widgets/fly_to_cart.dart';
 import '../widgets/product_card.dart';
 import 'barcode_scanner_screen.dart';
 import 'checkout_screen.dart';
@@ -19,7 +22,7 @@ class PosScreen extends StatefulWidget {
   State<PosScreen> createState() => _PosScreenState();
 }
 
-class _PosScreenState extends State<PosScreen> {
+class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   final ProductService _productService = ProductService();
 
   List<Product> _products = [];
@@ -28,10 +31,46 @@ class _PosScreenState extends State<PosScreen> {
   String _category = 'All';
   final Map<int, int> _cart = {}; // productId -> qty
 
+  // ── Add-to-cart choreography ─────────────────────────────────────────────
+  // A tapped product flies from the card into the bar's bag icon, and the
+  // bar only counts it once it lands. [_cart] is the truth the whole time;
+  // the bar shows [_cart] minus whatever is still in the air.
+  final CartBarController _bar = CartBarController();
+  final List<FlyToCart> _flights = [];
+  int _inFlightCount = 0;
+  double _inFlightTotal = 0;
+
+  /// Where the last product tap landed, so the flight starts under the thumb.
+  Offset? _lastTapAt;
+
+  int get _shownCount => (_cartCount - _inFlightCount).clamp(0, _cartCount);
+  double get _shownTotal => (_cartTotal - _inFlightTotal).clamp(0, _cartTotal);
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    for (final f in _flights) {
+      f.cancel();
+    }
+    super.dispose();
+  }
+
+  /// Bring every airborne chip down immediately. Called whenever the cart
+  /// changes by some route other than a card tap, so the bar never shows a
+  /// figure that the in-flight arithmetic cannot account for.
+  void _settleFlights() {
+    if (_flights.isEmpty) return;
+    for (final f in _flights) {
+      f.cancel();
+    }
+    _flights.clear();
+    _inFlightCount = 0;
+    _inFlightTotal = 0;
   }
 
   Future<void> _load() async {
@@ -74,12 +113,52 @@ class _PosScreenState extends State<PosScreen> {
   void _addToCart(Product product) {
     if (product.id == null || product.stock <= 0) return;
     final inCart = _cart[product.id] ?? 0;
-    if (inCart >= product.stock) return;
+    if (inCart >= product.stock) {
+      // Nothing more to give: a firm buzz says "no" without a dialog.
+      HapticFeedback.heavyImpact();
+      return;
+    }
+    HapticFeedback.selectionClick();
     setState(() => _cart[product.id!] = inCart + 1);
+    _fly(product);
+  }
+
+  /// Send [product] from the tapped card to the bag. Falls back to landing
+  /// on the spot when there is nothing to fly to (tablet cart column, or a
+  /// scanner add with no tap position).
+  void _fly(Product product) {
+    final from = _lastTapAt;
+    final to = _bar.bagCenter();
+    if (from == null || to == null) {
+      _bar.bump();
+      return;
+    }
+    _inFlightCount += 1;
+    _inFlightTotal += product.price;
+    late final FlyToCart flight;
+    flight = FlyToCart.launch(
+      context: context,
+      vsync: this,
+      product: product,
+      from: from,
+      to: to,
+      onLand: () {
+        if (!mounted) return;
+        _flights.remove(flight);
+        setState(() {
+          _inFlightCount = (_inFlightCount - 1).clamp(0, _inFlightCount);
+          _inFlightTotal = (_inFlightTotal - product.price).clamp(0, _inFlightTotal);
+        });
+        HapticFeedback.lightImpact();
+        _bar.bump();
+      },
+    );
+    _flights.add(flight);
   }
 
   /// Decrement a line; at zero the line leaves the cart entirely.
   void _decrementLine(int productId) {
+    _settleFlights();
     final qty = _cart[productId] ?? 0;
     if (qty <= 1) {
       setState(() => _cart.remove(productId));
@@ -89,6 +168,7 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   void _incrementLine(int productId) {
+    _settleFlights();
     final product = _products.firstWhere((p) => p.id == productId);
     final qty = _cart[productId] ?? 0;
     if (qty >= product.stock) return;
@@ -127,11 +207,15 @@ class _PosScreenState extends State<PosScreen> {
     final scanned = result;
 
     if (scanned.added.isNotEmpty) {
+      _settleFlights();
       setState(() {
         scanned.added.forEach((id, qty) {
           _cart.update(id, (v) => v + qty, ifAbsent: () => qty);
         });
       });
+      // No card was tapped, so there is nowhere to fly from; just land.
+      HapticFeedback.lightImpact();
+      _bar.bump();
     }
 
     // "Add as new product" on an unknown code hands us the SKU to pre-fill.
@@ -153,6 +237,7 @@ class _PosScreenState extends State<PosScreen> {
       MaterialPageRoute(builder: (_) => CheckoutScreen(lines: lines)),
     );
     if (outcome == null || !mounted) return;
+    _settleFlights();
     setState(_cart.clear);
     if (outcome == CheckoutOutcome.completed) _load();
   }
@@ -201,6 +286,7 @@ class _PosScreenState extends State<PosScreen> {
                     Text('Current sale', style: AppText.sectionTitle().copyWith(fontSize: 18)),
                     GestureDetector(
                       onTap: () {
+                        _settleFlights();
                         setState(_cart.clear);
                         Navigator.pop(ctx);
                       },
@@ -315,7 +401,7 @@ class _PosScreenState extends State<PosScreen> {
           ],
         ),
       ),
-      floatingActionButton: _cartCount > 0 ? _floatingCart() : null,
+      floatingActionButton: _floatingCart(),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
@@ -470,7 +556,10 @@ class _PosScreenState extends State<PosScreen> {
                 ),
                 if (lines.isNotEmpty)
                   GestureDetector(
-                    onTap: () => setState(_cart.clear),
+                    onTap: () {
+                      _settleFlights();
+                      setState(_cart.clear);
+                    },
                     child: Text('Clear', style: AppText.chip(color: AppColors.danger)),
                   ),
               ],
@@ -665,69 +754,28 @@ class _PosScreenState extends State<PosScreen> {
         childAspectRatio: ProductCard.aspectRatio,
       ),
       itemCount: items.length,
-      itemBuilder: (_, i) => ProductCard(
-        product: items[i],
-        qtyInCart: _cart[items[i].id] ?? 0,
-        dimWhenOut: true,
-        onTap: items[i].stock <= 0 ? null : () => _addToCart(items[i]),
+      itemBuilder: (_, i) => Listener(
+        // Remember where the finger went down so the flight to the bag can
+        // start from under it rather than from the card's corner.
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (e) => _lastTapAt = e.position,
+        child: ProductCard(
+          product: items[i],
+          qtyInCart: _cart[items[i].id] ?? 0,
+          dimWhenOut: true,
+          onTap: items[i].stock <= 0 ? null : () => _addToCart(items[i]),
+        ),
       ),
     );
   }
 
   Widget _floatingCart() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpace.screenH),
-      child: GestureDetector(
-        onTap: _openCartSheet,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-          decoration: BoxDecoration(
-            color: AppColors.ink,
-            borderRadius: BorderRadius.circular(AppRadius.hero),
-            boxShadow: AppShadows.floatingCart,
-          ),
-          child: Row(
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 24),
-                  Positioned(
-                    top: -6,
-                    right: -8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(999)),
-                      child: Text('$_cartCount', style: AppText.chip(color: Colors.white)),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('$_cartCount item${_cartCount == 1 ? '' : 's'}',
-                        style: AppText.caption(color: AppColors.faint)),
-                    Text(formatPeso(_cartTotal),
-                        style: AppText.screenTitle(color: Colors.white).copyWith(fontSize: 21)),
-                  ],
-                ),
-              ),
-              GestureDetector(
-                onTap: _openCheckout,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(14)),
-                  child: Text('Checkout', style: AppText.chip(color: Colors.white).copyWith(fontSize: 13)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return CartBar(
+      controller: _bar,
+      count: _shownCount,
+      total: _shownTotal,
+      onTap: _openCartSheet,
+      onCheckout: _openCheckout,
     );
   }
 }
