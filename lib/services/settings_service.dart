@@ -27,6 +27,7 @@ class SettingsService extends ChangeNotifier {
   static const _kPrinterName = 'printer_name';
   static const _kPrinterAddress = 'printer_address';
   static const _kPaperWidth = 'paper_width';
+  static const _kProductsGrid = 'products_grid_view';
 
   SharedPreferences? _prefs;
   bool get isLoaded => _prefs != null;
@@ -158,6 +159,12 @@ class SettingsService extends ChangeNotifier {
   Future<void> setScanSound(bool v) => _setBool(_kScanSound, v);
   Future<void> setLowStockAlerts(bool v) => _setBool(_kLowStockAlerts, v);
   Future<void> setAutoBackup(bool v) => _setBool(_kAutoBackup, v);
+
+  /// Whether the Products screen shows cards (true) or the denser list.
+  /// List is the default: on an inventory screen the stock figure matters
+  /// more than the photo.
+  bool get productsGridView => _prefs?.getBool(_kProductsGrid) ?? false;
+  Future<void> setProductsGridView(bool v) => _setBool(_kProductsGrid, v);
 
   Future<void> setDefaultMinStock(int v) async {
     await _prefs?.setInt(_kDefaultMinStock, v);
