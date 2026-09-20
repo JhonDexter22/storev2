@@ -10,20 +10,56 @@ import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
 import '../services/settings_service.dart';
+import '../services/stock_alerts.dart';
 import '../widgets/product_card.dart';
 import '../widgets/product_thumb.dart';
+import '../widgets/skeleton.dart';
 import 'barcode_scanner_screen.dart';
 
 enum _View { grid, list }
 
-enum _Sort { name, stockAsc, priceDesc }
+enum _Sort { name, stockAsc, priceDesc, recent }
+
+/// What the chip row narrows the catalog to. Stock states and categories
+/// share one row and one selection: "Low" is a filter the same way
+/// "Biscuit" is, and the two would rarely be combined on a phone anyway.
+sealed class _Filter {
+  const _Filter();
+}
+
+class _AllFilter extends _Filter {
+  const _AllFilter();
+}
+
+class _LowFilter extends _Filter {
+  const _LowFilter();
+}
+
+class _OutFilter extends _Filter {
+  const _OutFilter();
+}
+
+class _CategoryFilter extends _Filter {
+  const _CategoryFilter(this.name);
+  final String name;
+
+  @override
+  bool operator ==(Object other) => other is _CategoryFilter && other.name == name;
+
+  @override
+  int get hashCode => name.hashCode;
+}
 
 class ProductsScreen extends StatefulWidget {
-  const ProductsScreen({super.key, this.newProductSku});
+  const ProductsScreen({super.key, this.newProductSku, this.onRestock});
 
   /// When set, the add-product sheet opens on first frame with this SKU
   /// pre-filled — the path from an unknown barcode in the scanner.
   final String? newProductSku;
+
+  /// Jumps to the Restock tab. Null when the screen is pushed from the More
+  /// hub, in which case the low-stock banner filters in place instead.
+  final VoidCallback? onRestock;
 
   @override
   State<ProductsScreen> createState() => _ProductsScreenState();
@@ -36,10 +72,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   List<Product> _products = [];
   String _search = '';
-  String _category = 'All';
-  _View _view = _View.grid;
+  _Filter _filter = const _AllFilter();
+  _View _view = SettingsService.instance.productsGridView ? _View.grid : _View.list;
   _Sort _sort = _Sort.name;
   bool _loading = true;
+
+  final TextEditingController _searchCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -55,21 +93,32 @@ class _ProductsScreenState extends State<ProductsScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    setState(() => _loading = true);
+    if (_products.isEmpty) setState(() => _loading = true);
     final products = await _productService.getAllProducts();
     if (!mounted) return;
     setState(() {
       _products = products;
       _loading = false;
     });
+    // The nav badges read the same numbers; keep them honest after an edit.
+    StockAlerts.instance.refresh();
   }
 
   // ── Derived data ─────────────────────────────────────────────────────────
   List<String> get _categories {
     final cats = _products.map((p) => p.category).toSet().toList()..sort();
-    return ['All', ...cats];
+    return cats;
   }
+
+  bool _isLow(Product p) => p.stock > 0 && p.stock <= p.minStock;
+  bool _isOut(Product p) => p.stock <= 0;
 
   List<Product> get _filtered {
     final q = _search.toLowerCase();
@@ -78,8 +127,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
           p.name.toLowerCase().contains(q) ||
           p.category.toLowerCase().contains(q) ||
           (p.sku ?? '').toLowerCase().contains(q);
-      final matchCat = _category == 'All' || p.category == _category;
-      return matchQ && matchCat;
+      final matchF = switch (_filter) {
+        _AllFilter() => true,
+        _LowFilter() => _isLow(p),
+        _OutFilter() => _isOut(p),
+        _CategoryFilter(name: final n) => p.category == n,
+      };
+      return matchQ && matchF;
     }).toList();
 
     switch (_sort) {
@@ -89,29 +143,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
         list.sort((a, b) => a.stock.compareTo(b.stock));
       case _Sort.priceDesc:
         list.sort((a, b) => b.price.compareTo(a.price));
+      case _Sort.recent:
+        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     }
     return list;
   }
 
   int get _totalUnits => _products.fold(0, (s, p) => s + p.stock);
-  int get _lowCount => _products.where((p) => p.stock > 0 && p.stock <= p.minStock).length;
-  int get _outCount => _products.where((p) => p.stock <= 0).length;
+  double get _inventoryValue => _products.fold(0, (s, p) => s + p.stock * p.price);
+  int get _lowCount => _products.where(_isLow).length;
+  int get _outCount => _products.where(_isOut).length;
+  int _categoryCount(String c) => _products.where((p) => p.category == c).length;
 
-  String get _sortLabel => switch (_sort) {
-        _Sort.name => 'Name A–Z',
-        _Sort.stockAsc => 'Stock: low first',
-        _Sort.priceDesc => 'Price: high first',
-      };
-
-  void _cycleSort() {
-    setState(() {
-      _sort = switch (_sort) {
-        _Sort.name => _Sort.stockAsc,
-        _Sort.stockAsc => _Sort.priceDesc,
-        _Sort.priceDesc => _Sort.name,
-      };
-    });
-  }
+  bool get _narrowed => _search.isNotEmpty || _filter is! _AllFilter;
 
   Future<String?> _pickImage() async {
     final xFile = await _picker.pickImage(
@@ -122,44 +166,104 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return _images.keep(xFile.path);
   }
 
+  void _setView(_View v) {
+    setState(() => _view = v);
+    SettingsService.instance.setProductsGridView(v == _View.grid);
+  }
+
+  /// Scan a barcode from the search bar: a known SKU opens that product, an
+  /// unknown one opens the add sheet with the code already filled in.
+  Future<void> _scanToFind() async {
+    final result = await Navigator.push<ScannerResult>(
+      context,
+      MaterialPageRoute(builder: (_) => const SimpleBarcodeScannerScreen()),
+    );
+    if (result is! ScanCapture || !mounted) return;
+    final match = await _productService.findBySku(result.code);
+    if (!mounted) return;
+    if (match != null) {
+      _showProductSheet(product: match);
+    } else {
+      _showProductSheet(presetSku: result.code);
+    }
+  }
+
   // ── Build ────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
+    final bottomInset = MediaQuery.paddingOf(context).bottom + 32;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            _titleRow(),
-            const SizedBox(height: 14),
-            _searchRow(),
-            const SizedBox(height: 14),
-            _statRow(),
-            const SizedBox(height: 14),
-            _categoryChips(),
-            _resultRow(filtered.length),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-                  : filtered.isEmpty
-                      ? _emptyState()
-                      : (_view == _View.grid ? _gridBody(filtered) : _listBody(filtered)),
-            ),
-          ],
+        child: RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: _load,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+            slivers: [
+              SliverToBoxAdapter(child: _titleRow()),
+              if (!_loading && _lowCount + _outCount > 0)
+                SliverToBoxAdapter(child: _attentionBanner()),
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _PinnedHeader(
+                  height: _PinnedHeader.heightFor(showChips: _showChips),
+                  child: _pinnedTools(),
+                ),
+              ),
+              if (_narrowed && !_loading) SliverToBoxAdapter(child: _resultRow(filtered.length)),
+              if (_loading)
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(AppSpace.screenH, 4, AppSpace.screenH, bottomInset),
+                  sliver: _skeletonList(),
+                )
+              else if (filtered.isEmpty)
+                SliverFillRemaining(hasScrollBody: false, child: _emptyState())
+              else if (_view == _View.grid)
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(AppSpace.screenH, 4, AppSpace.screenH, bottomInset),
+                  sliver: _gridBody(filtered),
+                )
+              else
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(AppSpace.screenH, 4, AppSpace.screenH, bottomInset),
+                  sliver: _listBody(filtered),
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 
+  /// Chips earn their row once there is a second category or something to
+  /// fix; a lone "All / Biscuit" pair is noise.
+  bool get _showChips => _categories.length > 1 || _lowCount > 0 || _outCount > 0;
+
   Widget _titleRow() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 16, AppSpace.screenH, 0),
+      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 16, AppSpace.screenH, 14),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Expanded(child: Text('Products', style: AppText.screenTitle())),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Products', style: AppText.screenTitle()),
+                const SizedBox(height: 2),
+                Text(
+                  _loading
+                      ? 'Loading…'
+                      : '$_totalUnits unit${_totalUnits == 1 ? '' : 's'} · ${formatPeso(_inventoryValue)} on hand',
+                  style: AppText.caption(color: AppColors.body),
+                ),
+              ],
+            ),
+          ),
           GestureDetector(
             onTap: () => _showProductSheet(),
             child: Container(
@@ -184,6 +288,67 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
   }
 
+  /// "3 running low, 1 out" → Restock. The one thing an owner opening this
+  /// screen most often needs to know, put where the eye lands first.
+  Widget _attentionBanner() {
+    final parts = <String>[
+      if (_outCount > 0) '$_outCount out of stock',
+      if (_lowCount > 0) '$_lowCount running low',
+    ];
+    final critical = _outCount > 0;
+    final fg = critical ? AppColors.dangerText : AppColors.warningText;
+    final bg = critical ? AppColors.dangerFill : AppColors.warningFill;
+    final border = critical ? AppColors.dangerBorder : AppColors.warningBorder;
+    final onRestock = widget.onRestock;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH, 12),
+      child: Material(
+        color: bg,
+        borderRadius: BorderRadius.circular(AppRadius.input),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.input),
+          onTap: onRestock ??
+              () => setState(() => _filter = critical ? const _OutFilter() : const _LowFilter()),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.input),
+              border: Border.all(color: border),
+            ),
+            child: Row(
+              children: [
+                Icon(critical ? Icons.error_outline_rounded : Icons.warning_amber_rounded,
+                    size: 18, color: fg),
+                const SizedBox(width: 8),
+                Expanded(child: Text(parts.join(', '), style: AppText.chip(color: fg))),
+                Text(onRestock != null ? 'Restock' : 'Show', style: AppText.chip(color: fg)),
+                Icon(Icons.chevron_right_rounded, size: 18, color: fg),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Search + tools, then the filter chips. Pinned so neither scrolls away.
+  Widget _pinnedTools() {
+    return Container(
+      color: AppColors.canvas,
+      child: Column(
+        children: [
+          _searchRow(),
+          if (_showChips) ...[
+            const SizedBox(height: 10),
+            _filterChips(),
+          ],
+          const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+
   Widget _searchRow() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpace.screenH),
@@ -198,120 +363,127 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 border: Border.all(color: AppColors.hairline),
               ),
               child: TextField(
+                controller: _searchCtrl,
                 onChanged: (v) => setState(() => _search = v),
                 style: AppText.body(color: AppColors.ink),
                 decoration: InputDecoration(
                   border: InputBorder.none,
                   isCollapsed: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                  hintText: 'Search products',
+                  hintText: 'Search name or SKU',
                   hintStyle: AppText.body(color: AppColors.faint),
                   prefixIcon: const Icon(Icons.search_rounded, color: AppColors.muted, size: 20),
                   prefixIconConstraints: const BoxConstraints(minWidth: 42),
+                  suffixIcon: _search.isNotEmpty
+                      ? IconButton(
+                          tooltip: 'Clear',
+                          icon: const Icon(Icons.close_rounded, color: AppColors.muted, size: 18),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _search = '');
+                          },
+                        )
+                      : IconButton(
+                          tooltip: 'Scan barcode',
+                          icon: const Icon(Icons.qr_code_scanner_rounded,
+                              color: AppColors.primary, size: 20),
+                          onPressed: _scanToFind,
+                        ),
+                  suffixIconConstraints: const BoxConstraints(minWidth: 44),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 10),
-          _viewToggle(),
+          _toolsButton(),
         ],
       ),
     );
   }
 
-  /// Segmented control with an ink fill on the active side.
-  Widget _viewToggle() {
-    Widget half(_View v, IconData icon) {
-      final active = _view == v;
-      return GestureDetector(
-        onTap: () => setState(() => _view = v),
+  /// Sort + layout live behind one button; a dot marks a non-default sort so
+  /// "why is Coke first?" has a visible answer.
+  Widget _toolsButton() {
+    final customised = _sort != _Sort.name;
+    return Semantics(
+      button: true,
+      label: 'Sort and layout',
+      child: GestureDetector(
+        onTap: _showSortSheet,
         child: Container(
-          width: 44,
-          height: 44,
+          width: 46,
+          height: 46,
           decoration: BoxDecoration(
-            color: active ? AppColors.ink : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.iconBtn - 1),
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.input),
+            border: Border.all(color: AppColors.hairline),
           ),
-          child: Icon(icon, size: 18, color: active ? Colors.white : AppColors.body),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(1),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.input),
-        border: Border.all(color: AppColors.hairline),
-      ),
-      child: Row(
-        children: [
-          half(_View.grid, Icons.grid_view_rounded),
-          half(_View.list, Icons.view_list_rounded),
-        ],
-      ),
-    );
-  }
-
-  /// One ruled row: products | units | low | out, dividers between.
-  Widget _statRow() {
-    Widget cell(String value, String label, Color color) => Expanded(
-          child: Column(
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              Text(value, style: AppText.statFigure(color: color, size: 19)),
-              const SizedBox(height: 2),
-              Text(label, style: AppText.caption()),
+              const Icon(Icons.tune_rounded, size: 20, color: AppColors.body),
+              if (customised)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                  ),
+                ),
             ],
           ),
-        );
-
-    Widget rule() => Container(width: 1, height: 30, color: AppColors.divider);
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: AppSpace.screenH),
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: AppColors.hairline),
-      ),
-      child: Row(
-        children: [
-          cell('${_products.length}', 'Products', AppColors.ink),
-          rule(),
-          cell('$_totalUnits', 'Units', AppColors.ink),
-          rule(),
-          cell('$_lowCount', 'Low', _lowCount > 0 ? AppColors.warningText : AppColors.ink),
-          rule(),
-          cell('$_outCount', 'Out', _outCount > 0 ? AppColors.dangerText : AppColors.ink),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _categoryChips() {
-    final cats = _categories;
+  Widget _filterChips() {
+    final chips = <(_Filter, String, int, Color?, Color?)>[
+      (const _AllFilter(), 'All', _products.length, null, null),
+      if (_lowCount > 0)
+        (const _LowFilter(), 'Low', _lowCount, AppColors.warningFill, AppColors.warningText),
+      if (_outCount > 0)
+        (const _OutFilter(), 'Out', _outCount, AppColors.dangerFill, AppColors.dangerText),
+      if (_categories.length > 1)
+        for (final c in _categories) (_CategoryFilter(c), c, _categoryCount(c), null, null),
+    ];
+
     return SizedBox(
       height: 36,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: AppSpace.screenH),
-        itemCount: cats.length,
+        itemCount: chips.length,
         separatorBuilder: (_, __) => const SizedBox(width: AppSpace.gapChip),
         itemBuilder: (_, i) {
-          final c = cats[i];
-          final selected = c == _category;
+          final (filter, label, count, tintBg, tintFg) = chips[i];
+          final selected = filter == _filter;
+          final bg = selected ? (tintFg ?? AppColors.ink) : (tintBg ?? AppColors.surface);
+          final fg = selected ? Colors.white : (tintFg ?? AppColors.body);
+          final border = selected ? bg : (tintBg != null ? Colors.transparent : AppColors.hairline);
           return GestureDetector(
-            onTap: () => setState(() => _category = c),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+            onTap: () => setState(() => _filter = selected ? const _AllFilter() : filter),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: selected ? AppColors.ink : AppColors.surface,
+                color: bg,
                 borderRadius: BorderRadius.circular(AppRadius.chip),
-                border: Border.all(color: selected ? AppColors.ink : AppColors.hairline),
+                border: Border.all(color: border),
               ),
-              child: Text(c, style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(label, style: AppText.chip(color: fg)),
+                  const SizedBox(width: 5),
+                  Text('$count',
+                      style: AppText.chip(color: fg.withValues(alpha: selected ? 0.8 : 0.7))
+                          .copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+                ],
+              ),
             ),
           );
         },
@@ -320,108 +492,330 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   Widget _resultRow(int count) {
+    final what = switch (_filter) {
+      _AllFilter() => '',
+      _LowFilter() => ' running low',
+      _OutFilter() => ' out of stock',
+      _CategoryFilter(name: final n) => ' in $n',
+    };
+    final forQ = _search.isNotEmpty ? ' for "$_search"' : '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 14, AppSpace.screenH, 10),
+      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 2, AppSpace.screenH, 8),
       child: Row(
         children: [
-          Text('$count ${count == 1 ? 'result' : 'results'}', style: AppText.body()),
-          const Spacer(),
+          Expanded(
+            child: Text('$count ${count == 1 ? 'result' : 'results'}$what$forQ',
+                style: AppText.body(), maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
           GestureDetector(
-            onTap: _cycleSort,
-            child: Row(
-              children: [
-                Text(_sortLabel, style: AppText.chip(color: AppColors.primary)),
-                const SizedBox(width: 3),
-                const Icon(Icons.unfold_more_rounded, size: 15, color: AppColors.primary),
-              ],
-            ),
+            onTap: () {
+              _searchCtrl.clear();
+              setState(() {
+                _search = '';
+                _filter = const _AllFilter();
+              });
+            },
+            child: Text('Clear', style: AppText.chip(color: AppColors.primary)),
           ),
         ],
       ),
     );
   }
 
+  // ── Sort / layout sheet ──────────────────────────────────────────────────
+  void _showSortSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          Widget sortRow(_Sort s, String label, IconData icon) {
+            final on = _sort == s;
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  setState(() => _sort = s);
+                  setSheet(() {});
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 20, color: on ? AppColors.primary : AppColors.muted),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(label,
+                            style: AppText.cardTitle(color: on ? AppColors.primary : AppColors.ink)
+                                .copyWith(fontSize: 14.5)),
+                      ),
+                      if (on) const Icon(Icons.check_rounded, size: 20, color: AppColors.primary),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+
+          Widget layoutHalf(_View v, IconData icon, String label) {
+            final on = _view == v;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  _setView(v);
+                  setSheet(() {});
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: on ? AppColors.ink : Colors.transparent,
+                    borderRadius: BorderRadius.circular(AppRadius.iconBtn - 1),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(icon, size: 18, color: on ? Colors.white : AppColors.body),
+                      const SizedBox(width: 7),
+                      Text(label, style: AppText.chip(color: on ? Colors.white : AppColors.body)),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+
+          return Container(
+            padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
+                20 + MediaQuery.paddingOf(ctx).bottom),
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _sectionLabel('Sort by'),
+                const SizedBox(height: 4),
+                sortRow(_Sort.name, 'Name A–Z', Icons.sort_by_alpha_rounded),
+                sortRow(_Sort.stockAsc, 'Stock, low first', Icons.trending_down_rounded),
+                sortRow(_Sort.priceDesc, 'Price, high first', Icons.payments_outlined),
+                sortRow(_Sort.recent, 'Recently added', Icons.schedule_rounded),
+                const SizedBox(height: 16),
+                _sectionLabel('Layout'),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(1),
+                  decoration: BoxDecoration(
+                    color: AppColors.canvas,
+                    borderRadius: BorderRadius.circular(AppRadius.input),
+                    border: Border.all(color: AppColors.hairline),
+                  ),
+                  child: Row(
+                    children: [
+                      layoutHalf(_View.list, Icons.view_list_rounded, 'List'),
+                      layoutHalf(_View.grid, Icons.grid_view_rounded, 'Grid'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Bodies ───────────────────────────────────────────────────────────────
   Widget _gridBody(List<Product> items) {
     // A 2-up grid stretches badly on a tablet, so widen the run instead.
     final columns = Breakpoints.isTablet(context) ? 4 : 2;
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH, 32),
+    return SliverGrid(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columns,
         mainAxisSpacing: AppSpace.gapGrid,
         crossAxisSpacing: AppSpace.gapGrid,
         childAspectRatio: ProductCard.aspectRatio,
       ),
-      itemCount: items.length,
-      itemBuilder: (_, i) => ProductCard(
-        product: items[i],
-        onTap: () => _showProductSheet(product: items[i]),
+      delegate: SliverChildBuilderDelegate(
+        (_, i) => ProductCard(
+          product: items[i],
+          onTap: () => _showProductSheet(product: items[i]),
+          onLongPress: () => _showQuickActions(items[i]),
+        ),
+        childCount: items.length,
       ),
     );
   }
 
   Widget _listBody(List<Product> items) {
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH, 32),
+    return SliverList.separated(
       itemCount: items.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, i) => _listRow(items[i]),
     );
   }
 
-  /// 46px thumbnail, name, semantic dot + category + stock, price, chevron.
-  Widget _listRow(Product p) {
-    return GestureDetector(
-      onTap: () => _showProductSheet(product: p),
-      child: Container(
+  Widget _skeletonList() {
+    return SliverList.separated(
+      itemCount: 6,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, __) => SkeletonCard(
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: AppColors.hairline),
-          boxShadow: AppShadows.card,
-        ),
         child: Row(
           children: [
-            ProductThumb(product: p, size: 46, radius: 11),
+            const SkeletonBox(width: 46, height: 46, radius: 11),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: StockStatus.dot(p.stock, p.minStock),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text('${p.category} · ${p.stock} in stock',
-                            maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption()),
-                      ),
-                    ],
-                  ),
+                children: const [
+                  SkeletonBox(width: 140, height: 12, emphasis: true),
+                  SizedBox(height: 8),
+                  SkeletonBox(width: 90, height: 10),
+                  SizedBox(height: 10),
+                  SkeletonBox(height: 4, radius: 2),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            Text(formatPeso(p.price), style: AppText.cardTitle()),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.faint, size: 20),
+            const SizedBox(width: 16),
+            const SkeletonBox(width: 28, height: 20, emphasis: true),
           ],
         ),
       ),
     );
   }
 
+  /// Stock is the hero: a big figure on the right with its minimum under it,
+  /// a thin bar so the ratio reads at a glance, and a tinted row plus an
+  /// inline "+ Stock" when it needs attention. Swipe right for the same.
+  Widget _listRow(Product p) {
+    final low = _isLow(p);
+    final out = _isOut(p);
+    final attention = low || out;
+    final tone = StockStatus.text(p.stock, p.minStock);
+    final bg = attention ? StockStatus.fill(p.stock, p.minStock) : AppColors.surface;
+    final border = out
+        ? AppColors.dangerBorder
+        : low
+            ? AppColors.warningBorder
+            : AppColors.hairline;
+    // Full bar at twice the minimum: "comfortably stocked" is the ceiling,
+    // not the biggest number in the catalog.
+    final target = (p.minStock * 2).clamp(1, 1 << 30);
+    final fraction = (p.stock / target).clamp(0.0, 1.0);
+
+    final row = Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(AppRadius.card),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        onTap: () => _showProductSheet(product: p),
+        onLongPress: () => _showQuickActions(p),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: border),
+            boxShadow: attention ? null : AppShadows.card,
+          ),
+          child: Row(
+            children: [
+              ProductThumb(product: p, size: 46, radius: 11),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(p.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.cardTitle(color: attention ? tone : AppColors.ink)),
+                    const SizedBox(height: 3),
+                    Text('${p.category} · ${formatPeso(p.price)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.caption(color: attention ? tone : AppColors.muted)),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: SizedBox(
+                        height: 4,
+                        child: Stack(
+                          children: [
+                            Container(color: attention ? AppColors.surface : AppColors.divider),
+                            FractionallySizedBox(
+                              widthFactor: fraction,
+                              child: Container(color: StockStatus.dot(p.stock, p.minStock)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('${p.stock}',
+                      style: AppText.statFigure(size: 19, color: attention ? tone : AppColors.ink)),
+                  Text('min ${p.minStock}',
+                      style: AppText.caption(color: attention ? tone : AppColors.muted)),
+                ],
+              ),
+              if (attention) ...[
+                const SizedBox(width: 10),
+                _AddStockPill(onTap: () => _showAddStockSheet(p)),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return Dismissible(
+      key: ValueKey('product-${p.id}'),
+      direction: DismissDirection.startToEnd,
+      // A swipe reveals the action but never removes the row.
+      confirmDismiss: (_) async {
+        _showAddStockSheet(p);
+        return false;
+      },
+      background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 18),
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.add_box_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Text('Add stock', style: AppText.chip(color: Colors.white)),
+          ],
+        ),
+      ),
+      child: row,
+    );
+  }
+
   Widget _emptyState() {
-    final filtering = _search.isNotEmpty || _category != 'All';
+    final filtering = _narrowed;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -444,25 +838,315 @@ class _ProductsScreenState extends State<ProductsScreen> {
               textAlign: TextAlign.center,
               style: AppText.caption(),
             ),
+            if (!filtering) ...[
+              const SizedBox(height: 18),
+              SizedBox(
+                height: 44,
+                child: ElevatedButton.icon(
+                  onPressed: () => _showProductSheet(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.iconBtn)),
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: Text('Add product', style: AppText.chip(color: Colors.white)),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
+  // ── Quick actions ────────────────────────────────────────────────────────
+  /// Long-press menu: the three things done to a product ten times a day,
+  /// without the full edit sheet in the way.
+  void _showQuickActions(Product p) {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        Widget action(IconData icon, String label, VoidCallback onTap,
+            {Color color = AppColors.ink, Color iconBg = AppColors.canvas}) {
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                Navigator.pop(ctx);
+                onTap();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 9),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(11)),
+                      child: Icon(icon, size: 19, color: color),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(label, style: AppText.cardTitle(color: color).copyWith(fontSize: 14.5)),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Container(
+          padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
+              16 + MediaQuery.paddingOf(ctx).bottom),
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration:
+                      BoxDecoration(color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  ProductThumb(product: p, size: 44, radius: 11),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(p.name,
+                            maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.sectionTitle()),
+                        const SizedBox(height: 2),
+                        Text('${p.stock} in stock · ${formatPeso(p.price)}', style: AppText.caption()),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Divider(color: AppColors.divider, height: 1),
+              const SizedBox(height: 6),
+              action(Icons.add_box_outlined, 'Add stock', () => _showAddStockSheet(p),
+                  color: AppColors.primary, iconBg: AppColors.primaryTint),
+              action(Icons.edit_outlined, 'Edit', () => _showProductSheet(product: p)),
+              action(Icons.copy_rounded, 'Duplicate', () => _showProductSheet(template: p)),
+              action(Icons.delete_outline_rounded, 'Delete', () => _deleteWithUndo(p),
+                  color: AppColors.danger, iconBg: AppColors.dangerFill),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// A number pad and a Save: what restocking off a delivery actually needs.
+  void _showAddStockSheet(Product p) {
+    final ctrl = TextEditingController();
+    int amount = 0;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final after = p.stock + amount;
+
+          Future<void> save() async {
+            if (amount <= 0) return;
+            await _productService.addStock(p.id!, amount);
+            if (ctx.mounted) Navigator.pop(ctx);
+            HapticFeedback.lightImpact();
+            await _load();
+            if (!mounted) return;
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(_snack('Added $amount · ${p.name} now $after'));
+          }
+
+          Widget quick(int n) => Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    ctrl.text = '${amount + n}';
+                    setSheet(() => amount += n);
+                  },
+                  child: Container(
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.canvas,
+                      borderRadius: BorderRadius.circular(AppRadius.iconBtn),
+                      border: Border.all(color: AppColors.hairline),
+                    ),
+                    child: Text('+$n', style: AppText.chip()),
+                  ),
+                ),
+              );
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+            child: Container(
+              padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
+                  20 + MediaQuery.paddingOf(ctx).bottom),
+              decoration: const BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                          color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Add stock', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                  const SizedBox(height: 2),
+                  Text('${p.name} · ${p.stock} on hand', style: AppText.caption()),
+                  const SizedBox(height: 16),
+                  Container(
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: AppColors.canvas,
+                      borderRadius: BorderRadius.circular(AppRadius.input),
+                      border: Border.all(color: AppColors.hairline),
+                    ),
+                    child: TextField(
+                      controller: ctrl,
+                      autofocus: true,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      textAlign: TextAlign.center,
+                      style: AppText.largeFigure(),
+                      onChanged: (v) => setSheet(() => amount = int.tryParse(v) ?? 0),
+                      onSubmitted: (_) => save(),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        isCollapsed: true,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                        hintText: '0',
+                        hintStyle: AppText.largeFigure(color: AppColors.faint),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      quick(5),
+                      const SizedBox(width: 8),
+                      quick(10),
+                      const SizedBox(width: 8),
+                      quick(12),
+                      const SizedBox(width: 8),
+                      quick(24),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Text('After', style: AppText.body()),
+                      const Spacer(),
+                      Text('$after', style: AppText.statFigure(size: 18, color: AppColors.primary)),
+                      Text(' units', style: AppText.caption()),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: amount > 0 ? save : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        disabledBackgroundColor: AppColors.disabledFill,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.cta)),
+                      ),
+                      child: Text(amount > 0 ? 'Add $amount' : 'Add stock',
+                          style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Delete now, offer Undo for a few seconds. The row comes back with the
+  /// same id, so sale history that points at it stays intact.
+  Future<void> _deleteWithUndo(Product p) async {
+    await _productService.deleteProduct(p.id!);
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(_snack(
+        'Deleted ${p.name}',
+        action: SnackBarAction(
+          label: 'Undo',
+          textColor: AppColors.primary,
+          onPressed: () async {
+            await _productService.insertProduct(p);
+            _load();
+          },
+        ),
+      ));
+  }
+
+  SnackBar _snack(String text, {SnackBarAction? action}) {
+    return SnackBar(
+      content: Text(text, style: AppText.body(color: Colors.white)),
+      backgroundColor: AppColors.ink,
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 4),
+      // Sit above the raised Sell button rather than under it.
+      margin: EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH,
+          12 + MediaQuery.paddingOf(context).bottom),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
+      action: action,
+    );
+  }
+
   // ── Add / edit sheet ─────────────────────────────────────────────────────
-  void _showProductSheet({Product? product, String? presetSku}) {
+  /// [product] edits in place; [template] seeds a new product from an
+  /// existing one (Duplicate) — same name, price, category and photo, but no
+  /// SKU (they are unique) and no stock (it has not been counted yet).
+  void _showProductSheet({Product? product, Product? template, String? presetSku}) {
     final isEdit = product != null;
-    final nameCtrl = TextEditingController(text: product?.name ?? '');
-    final priceCtrl = TextEditingController(text: isEdit ? product.price.toStringAsFixed(2) : '');
+    final seed = product ?? template;
+    final nameCtrl = TextEditingController(text: seed?.name ?? '');
+    final priceCtrl = TextEditingController(text: seed != null ? seed.price.toStringAsFixed(2) : '');
     final skuCtrl = TextEditingController(text: presetSku ?? product?.sku ?? '');
-    final categoryCtrl = TextEditingController(text: product?.category ?? '');
+    final categoryCtrl = TextEditingController(text: seed?.category ?? '');
     final formKey = GlobalKey<FormState>();
 
-    String? imagePath = product?.imagePath;
+    String? imagePath = seed?.imagePath;
     int stock = product?.stock ?? 0;
     // A new product starts at the store's configured default minimum.
-    int minStock = product?.minStock ?? SettingsService.instance.defaultMinStock;
+    int minStock = seed?.minStock ?? SettingsService.instance.defaultMinStock;
 
     showModalBottomSheet(
       context: context,
@@ -507,7 +1191,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(isEdit ? 'Edit product' : 'New product',
+                            Text(isEdit ? 'Edit product' : (template != null ? 'Duplicate product' : 'New product'),
                                 style: AppText.sectionTitle().copyWith(fontSize: 18)),
                             if (isEdit)
                               Text(product.name, maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -695,7 +1379,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                   shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(AppRadius.cta)),
                                 ),
-                                onPressed: () => _confirmDelete(ctx, product),
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  _deleteWithUndo(product);
+                                },
                                 child: Text('Delete product',
                                     style: AppText.chip(color: AppColors.danger).copyWith(fontSize: 15)),
                               ),
@@ -712,36 +1399,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
         },
       ),
     );
-  }
-
-  Future<void> _confirmDelete(BuildContext sheetCtx, Product product) async {
-    final confirmed = await showDialog<bool>(
-      context: sheetCtx,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Delete this product?', style: AppText.sectionTitle().copyWith(fontSize: 17)),
-        content: Text(
-          '"${product.name}" will be removed from the catalog. Past sales that included it are not affected.',
-          style: AppText.body(),
-        ),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Delete', style: AppText.chip(color: AppColors.danger)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await _productService.deleteProduct(product.id!);
-    if (sheetCtx.mounted) Navigator.pop(sheetCtx);
-    _load();
   }
 
   // ── Sheet helpers ────────────────────────────────────────────────────────
@@ -814,6 +1471,67 @@ class _ProductsScreenState extends State<ProductsScreen> {
             onIncrement: () => onChanged(value + 1),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Bits ───────────────────────────────────────────────────────────────────────
+/// Fixed-height pinned block for the search row and chips.
+class _PinnedHeader extends SliverPersistentHeaderDelegate {
+  const _PinnedHeader({required this.height, required this.child});
+
+  final double height;
+  final Widget child;
+
+  static double heightFor({required bool showChips}) => 46 + 10 + (showChips ? 36 + 10 : 0);
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return SizedBox.expand(child: child);
+  }
+
+  @override
+  bool shouldRebuild(_PinnedHeader old) => old.height != height || old.child != child;
+}
+
+/// Inline "+ Stock" on a low or out row: the row already knows what is
+/// wrong, so it offers the fix.
+class _AddStockPill extends StatelessWidget {
+  const _AddStockPill({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Add stock',
+      child: Material(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.chip),
+          onTap: onTap,
+          child: const Padding(
+            padding: EdgeInsets.fromLTRB(9, 8, 11, 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.add_rounded, size: 16, color: Colors.white),
+                SizedBox(width: 2),
+                Text('Stock',
+                    style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
