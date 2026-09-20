@@ -14,12 +14,16 @@ class ProductCard extends StatelessWidget {
     super.key,
     required this.product,
     required this.onTap,
+    this.onLongPress,
     this.qtyInCart = 0,
     this.dimWhenOut = false,
   });
 
   final Product product;
   final VoidCallback? onTap;
+
+  /// The catalog hangs its quick-action sheet off a long press.
+  final VoidCallback? onLongPress;
 
   /// Units of this product already in the sale — drawn as a badge on the photo.
   final int qtyInCart;
@@ -39,6 +43,7 @@ class ProductCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Opacity(
         opacity: dimmed ? 0.55 : 1,
         child: Container(
