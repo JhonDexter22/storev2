@@ -178,11 +178,15 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _getScreen() {
     switch (_currentIndex) {
       case _kHome:
-        return DashboardScreen(onStartSale: _startSale);
+        return DashboardScreen(
+          onStartSale: _startSale,
+          onOpenProducts: () => setState(() => _currentIndex = _kProducts),
+          onOpenRestock: () => setState(() => _currentIndex = _kRestock),
+        );
       case _kSell:
         return const PosScreen();
       case _kProducts:
-        return const ProductsScreen();
+        return ProductsScreen(onRestock: () => setState(() => _currentIndex = _kRestock));
       case _kRestock:
         return const RestockScreen();
       case _kMore:
@@ -239,7 +243,21 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     return Scaffold(
-      body: body,
+      // The Sell button rises out of the bar and over the body's bottom edge.
+      // Report that overhang as bottom padding so screens that respect the
+      // safe area (SafeArea, ListView defaults) keep their last row clear of
+      // it — the Scaffold itself has already stripped the system inset here.
+      body: Builder(
+        builder: (context) {
+          final mq = MediaQuery.of(context);
+          return MediaQuery(
+            data: mq.copyWith(
+              padding: mq.padding.copyWith(bottom: _BottomNav.overhang),
+            ),
+            child: body,
+          );
+        },
+      ),
       bottomNavigationBar: _BottomNav(
         currentIndex: _currentIndex,
         tabs: _tabs,
@@ -375,6 +393,9 @@ class _BottomNav extends StatelessWidget {
   static const _height = 70.0;
   static const _heroSize = 56.0;
   static const _heroLift = 22.0;
+
+  /// How far the hero button reaches above the bar's top edge.
+  static const overhang = _heroLift;
 
   @override
   Widget build(BuildContext context) {
