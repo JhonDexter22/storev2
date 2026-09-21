@@ -199,6 +199,21 @@ class SalesService {
     return _withItems(db, result.map((m) => Sale.fromMap(m)).toList());
   }
 
+  /// The given sales with their lines, in the order asked for. Ids that no
+  /// longer exist are simply absent.
+  Future<Map<int, Sale>> getSalesByIds(Iterable<int> ids) async {
+    final wanted = ids.toSet().toList();
+    if (wanted.isEmpty) return const {};
+    final db = await dbHelper.database;
+    final rows = await db.query(
+      'sales',
+      where: 'id IN (${List.filled(wanted.length, '?').join(',')})',
+      whereArgs: wanted,
+    );
+    final sales = await _withItems(db, rows.map((m) => Sale.fromMap(m)).toList());
+    return {for (final s in sales) s.id!: s};
+  }
+
   Future<List<Sale>> _withItems(DatabaseExecutor db, List<Sale> sales) async {
     if (sales.isEmpty) return sales;
 

@@ -3,7 +3,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/design_tokens.dart';
 import '../models/customer.dart';
+import '../models/sale_model.dart';
+import '../services/sales_service.dart';
 import '../services/utang_service.dart';
+import 'sale_detail_sheet.dart';
 
 /// One customer's book: the running balance, every charge and payment,
 /// and the things done from here — remind, take a payment, call, edit.
@@ -52,6 +55,10 @@ class _LedgerSheetState extends State<_LedgerSheet> {
   final UtangService _utang = UtangService();
   late Customer _c = widget.customer;
   List<UtangEntry> _entries = [];
+
+  /// The sales behind the charges, so an entry can say what was bought and
+  /// open the receipt, rather than showing a reference number.
+  Map<int, Sale> _sales = const {};
   bool _loading = true;
   bool _changed = false;
 
@@ -64,9 +71,11 @@ class _LedgerSheetState extends State<_LedgerSheet> {
   Future<void> _load() async {
     final entries = await _utang.getEntries(_c.id!);
     final fresh = await _utang.getCustomer(_c.id!);
+    final sales = await SalesService().getSalesByIds(entries.map((e) => e.saleId).whereType<int>());
     if (!mounted) return;
     setState(() {
       _entries = entries;
+      _sales = sales;
       if (fresh != null) _c = fresh;
       _loading = false;
     });
@@ -257,10 +266,18 @@ class _LedgerSheetState extends State<_LedgerSheet> {
 
   Widget _entryRow(UtangEntry e) {
     final charge = e.isCharge;
+    final sale = e.saleId == null ? null : _sales[e.saleId];
+    // A charge from the till names what was bought; the receipt number is
+    // a poor substitute and lives in the receipt itself.
     final detail = charge
-        ? (e.note?.isNotEmpty == true ? e.note! : (e.saleId != null ? 'Sale on tab' : 'Charge'))
+        ? (sale != null
+            ? sale.summary()
+            : (e.note?.isNotEmpty == true ? e.note! : 'Charge'))
         : 'Paid by ${e.method ?? 'cash'}';
-    return Padding(
+    final sub = charge && sale != null
+        ? '${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'} · ${_when(e.createdAtDate)} · ${sale.shortRef}'
+        : _when(e.createdAtDate);
+    final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
@@ -284,7 +301,7 @@ class _LedgerSheetState extends State<_LedgerSheet> {
               children: [
                 Text(detail, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
                 const SizedBox(height: 2),
-                Text(_when(e.createdAtDate), style: AppText.caption()),
+                Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption()),
               ],
             ),
           ),
@@ -293,8 +310,17 @@ class _LedgerSheetState extends State<_LedgerSheet> {
             '${charge ? '+' : '−'}${formatPeso(e.amount.abs())}',
             style: AppText.cardTitle(color: charge ? AppColors.ink : AppColors.successText),
           ),
+          if (sale != null) ...[
+            const SizedBox(width: 2),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.faint, size: 18),
+          ],
         ],
       ),
+    );
+    if (sale == null) return row;
+    return InkWell(
+      onTap: () => showSaleDetail(context, sale),
+      child: row,
     );
   }
 
