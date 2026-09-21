@@ -94,6 +94,38 @@ class Sale {
 
   DateTime get createdAtDate => DateTime.parse(createdAt);
 
+  Sale withItems(List<SaleItem> lines) => Sale(
+        id: id,
+        reference: reference,
+        createdAt: createdAt,
+        subtotal: subtotal,
+        total: total,
+        paymentMethod: paymentMethod,
+        cashReceived: cashReceived,
+        changeAmount: changeAmount,
+        itemCount: itemCount,
+        discount: discount,
+        discountReason: discountReason,
+        cashier: cashier,
+        items: lines,
+      );
+
+  /// What was bought, in a line: "SkyFlakes ×2, Kopiko +1 more". A receipt
+  /// number tells nobody anything; the first product or two usually does.
+  /// Falls back to the reference for sales saved before lines were loaded.
+  String summary({int max = 2}) {
+    if (items.isEmpty) return reference;
+    final shown = items.take(max).map((i) => i.qty > 1 ? '${i.name} ×${i.qty}' : i.name);
+    final rest = items.length - max;
+    return rest > 0 ? '${shown.join(', ')} +$rest more' : shown.join(', ');
+  }
+
+  /// The short tail of the reference — enough to match against a slip.
+  String get shortRef {
+    final dash = reference.lastIndexOf('-');
+    return dash == -1 ? reference : '#${reference.substring(dash + 1)}';
+  }
+
   Map<String, dynamic> toMap() => {
         'id': id,
         'reference': reference,
