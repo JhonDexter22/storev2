@@ -6,11 +6,15 @@ import '../models/backup_status.dart';
 import '../core/responsive.dart';
 import '../models/cart_line.dart';
 import '../models/product_model.dart';
+import '../models/sale_model.dart';
+import '../services/held_sales.dart';
 import '../services/product_service.dart';
+import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/cart_bar.dart';
 import '../widgets/fly_to_cart.dart';
 import '../widgets/product_card.dart';
+import '../widgets/product_thumb.dart';
 import 'barcode_scanner_screen.dart';
 import 'checkout_screen.dart';
 import 'product_screen.dart';
@@ -24,12 +28,25 @@ class PosScreen extends StatefulWidget {
 
 class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   final ProductService _productService = ProductService();
+  final SalesService _salesService = SalesService();
 
   List<Product> _products = [];
   bool _loading = true;
   String _search = '';
   String _category = 'All';
   final Map<int, int> _cart = {}; // productId -> qty
+
+  // ── Speed ────────────────────────────────────────────────────────────────
+  /// A pseudo-category of the products sold most this fortnight. Most of a
+  /// store's sales are the same twenty items; this puts them one tap away.
+  static const _kPopular = 'Popular';
+
+  /// Product ids in sold-most-first order, empty until there is history.
+  List<int> _frequentIds = const [];
+
+  /// The sale before this one, for "repeat last sale".
+  Sale? _lastSale;
+  bool _pickedDefaultCategory = false;
 
   // ── Add-to-cart choreography ─────────────────────────────────────────────
   // A tapped product flies from the card into the bar's bag icon, and the
@@ -49,15 +66,22 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    HeldSales.instance.addListener(_onHeldChanged);
+    HeldSales.instance.load();
     _load();
   }
 
   @override
   void dispose() {
+    HeldSales.instance.removeListener(_onHeldChanged);
     for (final f in _flights) {
       f.cancel();
     }
     super.dispose();
+  }
+
+  void _onHeldChanged() {
+    if (mounted) setState(() {});
   }
 
   /// Bring every airborne chip down immediately. Called whenever the cart
@@ -76,25 +100,49 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   Future<void> _load() async {
     setState(() => _loading = true);
     final products = await _productService.getAllProducts();
+    final frequent = await _salesService.frequentProductIds(14, limit: 12);
+    final recent = await _salesService.getRecentSales(limit: 1);
+    if (!mounted) return;
     setState(() {
       _products = products;
+      // Only ids that still exist and can be sold earn a place.
+      _frequentIds = [
+        for (final id in frequent)
+          if (products.any((p) => p.id == id)) id,
+      ];
+      _lastSale = recent.isEmpty ? null : recent.first;
       _loading = false;
+      // Open on Popular once there is enough history for it to be useful;
+      // a store with three products sold is better served by All.
+      if (!_pickedDefaultCategory) {
+        _pickedDefaultCategory = true;
+        if (_frequentIds.length >= 6) _category = _kPopular;
+      }
     });
   }
 
   List<String> get _categories {
     final cats = _products.map((p) => p.category).toSet().toList()..sort();
-    return ['All', ...cats];
+    return [if (_frequentIds.isNotEmpty) _kPopular, 'All', ...cats];
   }
 
-  List<Product> get _filtered => _products.where((p) {
-        final q = _search.toLowerCase();
-        final matchQ = q.isEmpty ||
-            p.name.toLowerCase().contains(q) ||
-            (p.sku ?? '').toLowerCase().contains(q);
-        final matchCat = _category == 'All' || p.category == _category;
-        return matchQ && matchCat;
-      }).toList();
+  List<Product> get _filtered {
+    final q = _search.toLowerCase();
+    // A search reaches the whole catalog whatever chip is selected: the
+    // cashier typing a name has already said which product they want.
+    if (_category == _kPopular && q.isEmpty) {
+      return [
+        for (final id in _frequentIds) _products.firstWhere((p) => p.id == id),
+      ];
+    }
+    return _products.where((p) {
+      final matchQ = q.isEmpty ||
+          p.name.toLowerCase().contains(q) ||
+          (p.sku ?? '').toLowerCase().contains(q);
+      final matchCat = q.isNotEmpty || _category == 'All' || _category == _kPopular || p.category == _category;
+      return matchQ && matchCat;
+    }).toList();
+  }
 
   List<CartLine> get _cartLines => _cart.entries
       .map((e) {
@@ -110,31 +158,34 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   int get _cartCount => _cart.values.fold(0, (a, b) => a + b);
   double get _cartTotal => _cartLines.fold(0, (s, l) => s + l.lineTotal);
 
-  void _addToCart(Product product) {
-    if (product.id == null || product.stock <= 0) return;
+  /// Adds [qty] of [product], capped at what is on the shelf.
+  void _addToCart(Product product, {int qty = 1}) {
+    if (product.id == null || product.stock <= 0 || qty <= 0) return;
     final inCart = _cart[product.id] ?? 0;
     if (inCart >= product.stock) {
       // Nothing more to give: a firm buzz says "no" without a dialog.
       HapticFeedback.heavyImpact();
       return;
     }
+    final added = (product.stock - inCart).clamp(0, qty);
     HapticFeedback.selectionClick();
-    setState(() => _cart[product.id!] = inCart + 1);
-    _fly(product);
+    setState(() => _cart[product.id!] = inCart + added);
+    _fly(product, qty: added);
   }
 
   /// Send [product] from the tapped card to the bag. Falls back to landing
   /// on the spot when there is nothing to fly to (tablet cart column, or a
   /// scanner add with no tap position).
-  void _fly(Product product) {
+  void _fly(Product product, {int qty = 1}) {
     final from = _lastTapAt;
     final to = _bar.bagCenter();
     if (from == null || to == null) {
       _bar.bump();
       return;
     }
-    _inFlightCount += 1;
-    _inFlightTotal += product.price;
+    final value = product.price * qty;
+    _inFlightCount += qty;
+    _inFlightTotal += value;
     late final FlyToCart flight;
     flight = FlyToCart.launch(
       context: context,
@@ -142,12 +193,13 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       product: product,
       from: from,
       to: to,
+      qty: qty,
       onLand: () {
         if (!mounted) return;
         _flights.remove(flight);
         setState(() {
-          _inFlightCount = (_inFlightCount - 1).clamp(0, _inFlightCount);
-          _inFlightTotal = (_inFlightTotal - product.price).clamp(0, _inFlightTotal);
+          _inFlightCount = (_inFlightCount - qty).clamp(0, _inFlightCount);
+          _inFlightTotal = (_inFlightTotal - value).clamp(0, _inFlightTotal);
         });
         HapticFeedback.lightImpact();
         _bar.bump();
@@ -155,6 +207,341 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     );
     _flights.add(flight);
   }
+
+  /// Long-press: how many? A keypad for the bulk buys — a dozen eggs, six
+  /// sachets — that would otherwise be a dozen taps.
+  void _showQtySheet(Product product) {
+    if (product.id == null || product.stock <= 0) return;
+    HapticFeedback.mediumImpact();
+    final inCart = _cart[product.id] ?? 0;
+    final room = product.stock - inCart;
+    if (room <= 0) {
+      HapticFeedback.heavyImpact();
+      return;
+    }
+    final ctrl = TextEditingController();
+    int qty = 0;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final capped = qty.clamp(0, room);
+          final overRoom = qty > room;
+
+          void confirm() {
+            if (capped <= 0) return;
+            Navigator.pop(ctx);
+            _addToCart(product, qty: capped);
+          }
+
+          Widget quick(int n) => Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    ctrl.text = '$n';
+                    setSheet(() => qty = n);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: qty == n ? AppColors.ink : AppColors.canvas,
+                      borderRadius: BorderRadius.circular(AppRadius.iconBtn),
+                      border: Border.all(color: qty == n ? AppColors.ink : AppColors.hairline),
+                    ),
+                    child: Text('$n', style: AppText.chip(color: qty == n ? Colors.white : AppColors.ink)),
+                  ),
+                ),
+              );
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+            child: Container(
+              padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
+                  20 + MediaQuery.paddingOf(ctx).bottom),
+              decoration: const BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                          color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      ProductThumb(product: product, size: 44, radius: 11),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(product.name,
+                                maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.sectionTitle()),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${formatPeso(product.price)} each · $room available'
+                              '${inCart > 0 ? ' · $inCart in cart' : ''}',
+                              style: AppText.caption(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: AppColors.canvas,
+                      borderRadius: BorderRadius.circular(AppRadius.input),
+                      border: Border.all(color: overRoom ? AppColors.danger : AppColors.hairline),
+                    ),
+                    child: TextField(
+                      controller: ctrl,
+                      autofocus: true,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      textAlign: TextAlign.center,
+                      style: AppText.largeFigure(),
+                      onChanged: (v) => setSheet(() => qty = int.tryParse(v) ?? 0),
+                      onSubmitted: (_) => confirm(),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        isCollapsed: true,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                        hintText: '0',
+                        hintStyle: AppText.largeFigure(color: AppColors.faint),
+                      ),
+                    ),
+                  ),
+                  if (overRoom) ...[
+                    const SizedBox(height: 6),
+                    Text('Only $room left — adding $capped',
+                        style: AppText.caption(color: AppColors.dangerText)),
+                  ],
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      quick(2),
+                      const SizedBox(width: 8),
+                      quick(3),
+                      const SizedBox(width: 8),
+                      quick(6),
+                      const SizedBox(width: 8),
+                      quick(12),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: capped > 0 ? confirm : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        disabledBackgroundColor: AppColors.disabledFill,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.cta)),
+                      ),
+                      child: Text(
+                        capped > 0 ? 'Add $capped · ${formatPeso(product.price * capped)}' : 'Add to sale',
+                        style: AppText.chip(color: Colors.white).copyWith(fontSize: 15),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Repeat / hold ────────────────────────────────────────────────────────
+  /// Puts the last sale's lines back in the cart, as far as stock allows.
+  void _repeatLastSale() {
+    final sale = _lastSale;
+    if (sale == null || sale.items.isEmpty) return;
+    _settleFlights();
+    var skipped = 0;
+    setState(() {
+      for (final item in sale.items) {
+        final product = _products.where((p) => p.id == item.productId).firstOrNull;
+        if (product == null || product.stock <= 0) {
+          skipped++;
+          continue;
+        }
+        final have = _cart[product.id] ?? 0;
+        final add = (product.stock - have).clamp(0, item.qty);
+        if (add <= 0) {
+          skipped++;
+          continue;
+        }
+        _cart[product.id!] = have + add;
+      }
+    });
+    HapticFeedback.lightImpact();
+    _bar.bump();
+    if (skipped > 0) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(_snack('$skipped item${skipped == 1 ? '' : 's'} skipped — out of stock'));
+    }
+  }
+
+  /// Sets the running sale aside so the next customer can be served.
+  Future<void> _holdSale() async {
+    if (_cart.isEmpty) return;
+    _settleFlights();
+    final label = _cartLines.take(2).map((l) => l.qty > 1 ? '${l.product.name} ×${l.qty}' : l.product.name).join(', ');
+    final more = _cartLines.length - 2;
+    await HeldSales.instance.hold(_cart, label: more > 0 ? '$label +$more more' : label);
+    if (!mounted) return;
+    setState(_cart.clear);
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(_snack('Sale held — tap Held to bring it back'));
+  }
+
+  /// Brings a held sale back. A running sale is held in its place rather
+  /// than merged or lost: the two customers' baskets stay separate.
+  Future<void> _resumeHeld(HeldSale held) async {
+    _settleFlights();
+    if (_cart.isNotEmpty) await _holdSale();
+    await HeldSales.instance.remove(held.id);
+    if (!mounted) return;
+    setState(() {
+      _cart.clear();
+      held.lines.forEach((id, qty) {
+        final product = _products.where((p) => p.id == id).firstOrNull;
+        if (product == null || product.stock <= 0) return;
+        _cart[id] = qty.clamp(1, product.stock);
+      });
+    });
+    HapticFeedback.lightImpact();
+    _bar.bump();
+  }
+
+  void _showHeldSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ListenableBuilder(
+        listenable: HeldSales.instance,
+        builder: (ctx, _) {
+          final held = HeldSales.instance.sales;
+          if (held.isEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (ctx.mounted) Navigator.pop(ctx);
+            });
+          }
+          return Container(
+            padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
+                16 + MediaQuery.paddingOf(ctx).bottom),
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration:
+                        BoxDecoration(color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text('Held sales', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                const SizedBox(height: 2),
+                Text('Tap one to bring it back to the register.', style: AppText.caption()),
+                const SizedBox(height: 12),
+                for (final h in held) _heldRow(ctx, h),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _heldRow(BuildContext sheetCtx, HeldSale h) {
+    final t = TimeOfDay.fromDateTime(h.heldAt).format(context);
+    final total = h.lines.entries.fold<double>(0, (sum, e) {
+      final p = _products.where((p) => p.id == e.key).firstOrNull;
+      return sum + (p?.price ?? 0) * e.value;
+    });
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppColors.canvas,
+        borderRadius: BorderRadius.circular(AppRadius.input),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.input),
+          onTap: () {
+            Navigator.pop(sheetCtx);
+            _resumeHeld(h);
+          },
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+            child: Row(
+              children: [
+                const Icon(Icons.pause_circle_outline_rounded, color: AppColors.primary, size: 22),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(h.label.isEmpty ? '${h.itemCount} items' : h.label,
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
+                      const SizedBox(height: 2),
+                      Text('${h.itemCount} item${h.itemCount == 1 ? '' : 's'} · held $t', style: AppText.caption()),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(formatPeso(total), style: AppText.cardTitle()),
+                IconButton(
+                  tooltip: 'Discard',
+                  icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.muted),
+                  onPressed: () => HeldSales.instance.remove(h.id),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  SnackBar _snack(String text) => SnackBar(
+        content: Text(text, style: AppText.body(color: Colors.white)),
+        backgroundColor: AppColors.ink,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+        margin: EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH,
+            96 + MediaQuery.paddingOf(context).bottom),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
+      );
 
   /// Decrement a line; at zero the line leaves the cart entirely.
   void _decrementLine(int productId) {
@@ -281,9 +668,24 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 16),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Current sale', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                    Expanded(
+                      child: Text('Current sale', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _holdSale();
+                      },
+                      child: Row(
+                        children: [
+                          const Icon(Icons.pause_rounded, size: 16, color: AppColors.primary),
+                          const SizedBox(width: 2),
+                          Text('Hold', style: AppText.chip(color: AppColors.primary)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
                     GestureDetector(
                       onTap: () {
                         _settleFlights();
@@ -294,6 +696,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                     ),
                   ],
                 ),
+                const SizedBox(height: 4),
+                Text('Swipe a line to remove it', style: AppText.caption(color: AppColors.faint)),
                 const SizedBox(height: 14),
                 Flexible(
                   child: ListView.separated(
@@ -303,7 +707,14 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                     itemBuilder: (_, i) {
                       final line = lines[i];
                       final id = line.product.id!;
-                      return Row(
+                      return _swipeToRemove(
+                        key: ValueKey('sheet-$id'),
+                        onRemove: () {
+                          _settleFlights();
+                          setState(() => _cart.remove(id));
+                          setSheet(() {});
+                        },
+                        child: Row(
                         children: [
                           Expanded(
                             child: Column(
@@ -338,6 +749,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                             },
                           ),
                         ],
+                      ),
                       );
                     },
                   ),
@@ -390,6 +802,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           children: [
             _header(),
             _searchRow(),
+            _quickRow(),
             const SizedBox(height: 12),
             _categoryChips(),
             const SizedBox(height: 6),
@@ -421,6 +834,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                 children: [
                   _header(),
                   _searchRow(),
+                  _quickRow(),
                   const SizedBox(height: 12),
                   _categoryChips(),
                   const SizedBox(height: 6),
@@ -554,7 +968,23 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                   child: Text('Current sale',
                       style: AppText.sectionTitle().copyWith(fontSize: 17)),
                 ),
-                if (lines.isNotEmpty)
+                if (HeldSales.instance.count > 0) ...[
+                  _QuickPill(
+                    icon: Icons.pause_circle_outline_rounded,
+                    label: 'Held',
+                    badge: HeldSales.instance.count,
+                    onTap: _showHeldSheet,
+                    tint: true,
+                    dense: true,
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                if (lines.isNotEmpty) ...[
+                  GestureDetector(
+                    onTap: _holdSale,
+                    child: Text('Hold', style: AppText.chip(color: AppColors.primary)),
+                  ),
+                  const SizedBox(width: 14),
                   GestureDetector(
                     onTap: () {
                       _settleFlights();
@@ -562,6 +992,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                     },
                     child: Text('Clear', style: AppText.chip(color: AppColors.danger)),
                   ),
+                ],
               ],
             ),
           ),
@@ -587,7 +1018,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                           const SizedBox(height: 12),
                           Text('No items yet', style: AppText.cardTitle()),
                           const SizedBox(height: 4),
-                          Text('Tap a product to add it to the sale.',
+                          Text('Tap a product to add it, or hold to choose a quantity.',
                               textAlign: TextAlign.center, style: AppText.caption()),
                         ],
                       ),
@@ -598,7 +1029,14 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                     itemCount: lines.length,
                     separatorBuilder: (_, __) =>
                         const Divider(color: AppColors.divider, height: 1),
-                    itemBuilder: (_, i) => _cartLineRow(lines[i]),
+                    itemBuilder: (_, i) => _swipeToRemove(
+                      key: ValueKey('col-${lines[i].product.id}'),
+                      onRemove: () {
+                        _settleFlights();
+                        setState(() => _cart.remove(lines[i].product.id!));
+                      },
+                      child: _cartLineRow(lines[i]),
+                    ),
                   ),
           ),
           if (lines.isNotEmpty) _cartFooter(),
@@ -708,6 +1146,42 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     );
   }
 
+  /// "Repeat last sale" while the cart is empty, and the held-sales chip
+  /// whenever there is something held. Collapses to nothing otherwise, so
+  /// the grid keeps its height on a store with no history.
+  Widget _quickRow() {
+    final last = _lastSale;
+    final canRepeat = _cart.isEmpty && last != null && last.items.isNotEmpty && !_loading;
+    final heldCount = HeldSales.instance.count;
+    if (!canRepeat && heldCount == 0) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 10, AppSpace.screenH, 0),
+      child: Row(
+        children: [
+          if (canRepeat)
+            Expanded(
+              child: _QuickPill(
+                icon: Icons.replay_rounded,
+                label: 'Repeat last sale',
+                detail: last.summary(),
+                onTap: _repeatLastSale,
+              ),
+            ),
+          if (canRepeat && heldCount > 0) const SizedBox(width: 8),
+          if (heldCount > 0)
+            _QuickPill(
+              icon: Icons.pause_circle_outline_rounded,
+              label: 'Held',
+              badge: heldCount,
+              onTap: _showHeldSheet,
+              tint: true,
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _categoryChips() {
     final cats = _categories;
     return SizedBox(
@@ -730,7 +1204,16 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                 borderRadius: BorderRadius.circular(AppRadius.chip),
                 border: Border.all(color: selected ? AppColors.ink : AppColors.hairline),
               ),
-              child: Text(c, style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (c == _kPopular) ...[
+                    Icon(Icons.bolt_rounded, size: 15, color: selected ? Colors.white : AppColors.primary),
+                    const SizedBox(width: 3),
+                  ],
+                  Text(c, style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
+                ],
+              ),
             ),
           );
         },
@@ -764,8 +1247,30 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           qtyInCart: _cart[items[i].id] ?? 0,
           dimWhenOut: true,
           onTap: items[i].stock <= 0 ? null : () => _addToCart(items[i]),
+          onLongPress: items[i].stock <= 0 ? null : () => _showQtySheet(items[i]),
         ),
       ),
+    );
+  }
+
+  /// A line that can be swiped away. The red backdrop and the bin make the
+  /// gesture discoverable the first time; after that it is just faster than
+  /// stepping the quantity down.
+  Widget _swipeToRemove({required Key key, required VoidCallback onRemove, required Widget child}) {
+    return Dismissible(
+      key: key,
+      direction: DismissDirection.endToStart,
+      onDismissed: (_) {
+        HapticFeedback.lightImpact();
+        onRemove();
+      },
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 18),
+        color: AppColors.dangerFill,
+        child: const Icon(Icons.delete_outline_rounded, color: AppColors.dangerText, size: 22),
+      ),
+      child: child,
     );
   }
 
@@ -776,6 +1281,82 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       total: _shownTotal,
       onTap: _openCartSheet,
       onCheckout: _openCheckout,
+    );
+  }
+}
+
+/// A slim action above the chips: repeat the last sale, or open held sales.
+class _QuickPill extends StatelessWidget {
+  const _QuickPill({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.detail,
+    this.badge,
+    this.tint = false,
+    this.dense = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? detail;
+  final int? badge;
+  final VoidCallback onTap;
+  final bool tint;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = tint ? AppColors.primary : AppColors.ink;
+    return Material(
+      color: tint ? AppColors.primaryTint : AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadius.chip),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+        onTap: onTap,
+        child: Container(
+          height: dense ? 32 : 38,
+          padding: EdgeInsets.symmetric(horizontal: dense ? 10 : 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.chip),
+            border: Border.all(color: tint ? Colors.transparent : AppColors.hairline),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 17, color: fg),
+              const SizedBox(width: 6),
+              // With a detail the pill sits in an Expanded, so both texts
+              // can give way; without one it sizes to its content.
+              if (detail != null)
+                Flexible(
+                  child: Text(label,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.chip(color: fg)),
+                )
+              else
+                Text(label, style: AppText.chip(color: fg)),
+              if (detail != null) ...[
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(detail!,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption()),
+                ),
+              ],
+              if (badge != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(AppRadius.chip),
+                  ),
+                  child: Text('$badge', style: AppText.chip(color: Colors.white).copyWith(fontSize: 11)),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

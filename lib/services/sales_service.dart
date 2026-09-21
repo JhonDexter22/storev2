@@ -1,3 +1,5 @@
+import 'package:sqflite/sqflite.dart';
+
 import '../database/database_helper.dart';
 import '../models/cart_line.dart';
 import '../models/discount.dart';
@@ -175,10 +177,44 @@ class SalesService {
     return Sale.fromMap(rows.first);
   }
 
+  /// The latest sales, each with its lines attached — one query for the
+  /// sales and one for all their items, so a list of receipts can say what
+  /// was bought without a query per row.
   Future<List<Sale>> getRecentSales({int limit = 10}) async {
     final db = await dbHelper.database;
     final result = await db.query('sales', orderBy: 'id DESC', limit: limit);
-    return result.map((m) => Sale.fromMap(m)).toList();
+    return _withItems(db, result.map((m) => Sale.fromMap(m)).toList());
+  }
+
+  /// Every sale in the last [days] days (today inclusive), newest first,
+  /// with lines attached.
+  Future<List<Sale>> getSalesForPeriod(int days) async {
+    final db = await dbHelper.database;
+    final result = await db.query(
+      'sales',
+      where: 'created_at >= ?',
+      whereArgs: [windowStart(days).toIso8601String()],
+      orderBy: 'id DESC',
+    );
+    return _withItems(db, result.map((m) => Sale.fromMap(m)).toList());
+  }
+
+  Future<List<Sale>> _withItems(DatabaseExecutor db, List<Sale> sales) async {
+    if (sales.isEmpty) return sales;
+
+    final ids = sales.map((s) => s.id).whereType<int>().toList();
+    final rows = await db.query(
+      'sale_items',
+      where: 'sale_id IN (${List.filled(ids.length, '?').join(',')})',
+      whereArgs: ids,
+      orderBy: 'id ASC',
+    );
+    final bySale = <int, List<SaleItem>>{};
+    for (final r in rows) {
+      final item = SaleItem.fromMap(r);
+      bySale.putIfAbsent(item.saleId ?? -1, () => []).add(item);
+    }
+    return [for (final s in sales) s.withItems(bySale[s.id] ?? const [])];
   }
 
   Future<List<SaleItem>> getSaleItems(int saleId) async {
@@ -241,6 +277,23 @@ class SalesService {
   }
 
   // ── Reports ────────────────────────────────────────────────────────────
+
+  /// Product ids by units sold over the period, most sold first — what the
+  /// till puts one tap away. Keyed by id rather than name so a renamed
+  /// product keeps its place.
+  Future<List<int>> frequentProductIds(int days, {int limit = 12}) async {
+    final db = await dbHelper.database;
+    final rows = await db.rawQuery('''
+      SELECT si.product_id AS id, SUM(si.qty) AS units
+      FROM sale_items si
+      JOIN sales s ON s.id = si.sale_id
+      WHERE s.created_at >= ?
+      GROUP BY si.product_id
+      ORDER BY units DESC, MAX(s.created_at) DESC
+      LIMIT ?
+    ''', [windowStart(days).toIso8601String(), limit]);
+    return [for (final r in rows) (r['id'] as num).toInt()];
+  }
 
   /// Products by revenue over the period, highest first, so bar length and
   /// figures always agree.

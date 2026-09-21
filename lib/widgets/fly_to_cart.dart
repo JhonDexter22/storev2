@@ -25,6 +25,7 @@ class FlyToCart {
     required Offset from,
     required Offset to,
     required VoidCallback onLand,
+    int qty = 1,
   }) {
     final ctrl = AnimationController(
       vsync: vsync,
@@ -33,7 +34,7 @@ class FlyToCart {
     late final FlyToCart flight;
     final entry = OverlayEntry(
       builder: (_) =>
-          _FlightChip(product: product, from: from, to: to, progress: ctrl),
+          _FlightChip(product: product, from: from, to: to, progress: ctrl, qty: qty),
     );
     flight = FlyToCart._(entry, ctrl);
     Overlay.of(context, rootOverlay: true).insert(entry);
@@ -67,12 +68,16 @@ class _FlightChip extends StatelessWidget {
     required this.from,
     required this.to,
     required this.progress,
+    this.qty = 1,
   });
 
   final Product product;
   final Offset from;
   final Offset to;
   final Animation<double> progress;
+
+  /// More than one shows a "×N" tag on the chip so a bulk add reads as one.
+  final int qty;
 
   static const _size = 52.0;
 
@@ -123,23 +128,50 @@ class _FlightChip extends StatelessWidget {
                 ),
               );
             },
-            child: Container(
-              width: _size,
-              height: _size,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.surface,
-                boxShadow: AppShadows.cardHover,
-              ),
-              padding: const EdgeInsets.all(3),
-              child: ClipOval(
-                child: ProductThumb(
-                  product: product,
-                  size: _size - 6,
-                  radius: _size,
-                  iconSize: 20,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: _size,
+                  height: _size,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.surface,
+                    boxShadow: AppShadows.cardHover,
+                  ),
+                  padding: const EdgeInsets.all(3),
+                  child: ClipOval(
+                    child: ProductThumb(
+                      product: product,
+                      size: _size - 6,
+                      radius: _size,
+                      iconSize: 20,
+                    ),
+                  ),
                 ),
-              ),
+                if (qty > 1)
+                  Positioned(
+                    right: -6,
+                    bottom: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppColors.surface, width: 2),
+                      ),
+                      child: Text(
+                        '×$qty',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],

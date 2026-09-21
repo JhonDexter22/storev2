@@ -45,7 +45,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
   Future<void> _open(Sale sale, {required bool startAsVoid}) async {
     final done = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => _ReturnDetailScreen(sale: sale, startAsVoid: startAsVoid)),
+      MaterialPageRoute(builder: (_) => ReturnDetailScreen(sale: sale, startAsVoid: startAsVoid)),
     );
     if (done == true) _load();
   }
@@ -106,7 +106,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                             Expanded(
                               child: _selected == null
                                   ? _pickPrompt()
-                                  : _ReturnDetailScreen(
+                                  : ReturnDetailScreen(
                                       key: ValueKey(_selected!.id),
                                       sale: _selected!,
                                       startAsVoid: false,
@@ -167,10 +167,10 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(sale.reference, style: AppText.cardTitle()),
+                  Text(sale.summary(), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
                   const SizedBox(height: 2),
                   Text(
-                    '${t.format(context)} · ${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'} · ${sale.paymentMethod}',
+                    '${t.format(context)} · ${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'} · ${sale.paymentMethod} · ${sale.shortRef}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppText.caption(),
@@ -286,10 +286,12 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(sale.reference, style: AppText.cardTitle()),
+                    Text(sale.summary(), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
                     const SizedBox(height: 2),
                     Text(
-                      '${t.format(context)} · ${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'} · ${sale.paymentMethod}',
+                      '${t.format(context)} · ${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'} · ${sale.paymentMethod} · ${sale.shortRef}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: AppText.caption(),
                     ),
                   ],
@@ -365,8 +367,8 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
 
 // ── Return detail ──────────────────────────────────────────────────────────
 
-class _ReturnDetailScreen extends StatefulWidget {
-  const _ReturnDetailScreen({
+class ReturnDetailScreen extends StatefulWidget {
+  const ReturnDetailScreen({
     super.key,
     required this.sale,
     required this.startAsVoid,
@@ -383,10 +385,10 @@ class _ReturnDetailScreen extends StatefulWidget {
   final VoidCallback? onDone;
 
   @override
-  State<_ReturnDetailScreen> createState() => _ReturnDetailScreenState();
+  State<ReturnDetailScreen> createState() => _ReturnDetailScreenState();
 }
 
-class _ReturnDetailScreenState extends State<_ReturnDetailScreen> {
+class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
   final SalesService _sales = SalesService();
 
   static const _reasons = ['Damaged', 'Wrong item', 'Expired', 'Changed mind'];
