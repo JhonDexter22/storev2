@@ -30,7 +30,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -91,7 +91,9 @@ class DatabaseHelper {
       CREATE TABLE customers(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        phone TEXT,
+        last_reminded_at TEXT
       )
     ''');
     await db.execute('''
@@ -278,6 +280,21 @@ class DatabaseHelper {
     }
     if (oldVersion < 9) {
       await _upgradeToV9(db);
+    }
+    if (oldVersion < 10) {
+      // v10: a phone number per customer, so a reminder can go straight to
+      // their SMS, and when they were last reminded, so nobody is nagged
+      // twice in a day. Both nullable — most suki are known by face.
+      for (final sql in [
+        'ALTER TABLE customers ADD COLUMN phone TEXT',
+        'ALTER TABLE customers ADD COLUMN last_reminded_at TEXT',
+      ]) {
+        try {
+          await db.execute(sql);
+        } catch (_) {
+          // Column already present on a database created fresh at v10.
+        }
+      }
     }
   }
 // Idagdag ito sa loob ng DatabaseHelper class

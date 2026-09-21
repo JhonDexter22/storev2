@@ -7,6 +7,8 @@ class Customer {
     this.id,
     required this.name,
     required this.createdAt,
+    this.phone,
+    this.lastRemindedAt,
     this.balance = 0,
     this.oldestChargeAt,
     this.lastActivityAt,
@@ -17,6 +19,22 @@ class Customer {
   final int? id;
   final String name;
   final String createdAt;
+
+  /// Mobile number for reminders, if the shopkeeper has it. Null otherwise.
+  final String? phone;
+
+  bool get hasPhone => (phone ?? '').trim().isNotEmpty;
+
+  /// When a reminder was last sent, so the list can show it and the
+  /// shopkeeper does not nag the same person twice in a day.
+  final DateTime? lastRemindedAt;
+
+  bool get remindedToday {
+    final at = lastRemindedAt;
+    if (at == null) return false;
+    final now = DateTime.now();
+    return at.year == now.year && at.month == now.month && at.day == now.day;
+  }
 
   /// Charges minus payments. Zero means settled.
   final double balance;
@@ -79,6 +97,8 @@ class Customer {
         id: id,
         name: name,
         createdAt: createdAt,
+        phone: phone,
+        lastRemindedAt: lastRemindedAt,
         balance: balance ?? this.balance,
         oldestChargeAt: oldestChargeAt ?? this.oldestChargeAt,
         lastActivityAt: lastActivityAt ?? this.lastActivityAt,
@@ -90,6 +110,10 @@ class Customer {
         id: m['id'],
         name: m['name'],
         createdAt: m['created_at'],
+        phone: m['phone'] as String?,
+        lastRemindedAt: m['last_reminded_at'] == null
+            ? null
+            : DateTime.tryParse(m['last_reminded_at'] as String),
       );
 }
 

@@ -49,6 +49,7 @@ dependencies:
   archive: ^4.2.0
   print_bluetooth_thermal: ^1.2.1
   image: ^4.10.1
+  url_launcher: ^6.3.2
  
 
 

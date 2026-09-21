@@ -167,6 +167,11 @@ class _Historical {
       await db.execute('ALTER TABLE sale_items ADD COLUMN discount REAL NOT NULL DEFAULT 0');
       await db.execute("ALTER TABLE refunds ADD COLUMN cashier TEXT NOT NULL DEFAULT ''");
     }
+
+    if (version >= 10) {
+      await db.execute('ALTER TABLE customers ADD COLUMN phone TEXT');
+      await db.execute('ALTER TABLE customers ADD COLUMN last_reminded_at TEXT');
+    }
   }
 
   /// Puts one representative row in every table that exists at [version], so
@@ -314,11 +319,11 @@ void main() {
       0;
 
   group('every shipped version upgrades to the current one', () {
-    for (var from = 1; from <= 9; from++) {
-      test('v$from reaches v9 with its data intact', () async {
+    for (var from = 1; from <= 10; from++) {
+      test('v$from reaches v10 with its data intact', () async {
         final db = await upgradeFrom(from);
 
-        expect(await db.getVersion(), 9);
+        expect(await db.getVersion(), 10);
 
         // The product predates every migration, so it is the row that proves
         // an upgrade moved the schema without touching the data.
@@ -462,13 +467,13 @@ void main() {
       await DatabaseHelper.resetForTests();
 
       final again = await DatabaseHelper.instance.database;
-      expect(await again.getVersion(), 9);
+      expect(await again.getVersion(), 10);
       expect(await again.query('products'), before);
     });
 
-    test('a database already at v9 is left alone', () async {
-      final db = await upgradeFrom(9);
-      expect(await db.getVersion(), 9);
+    test('a database already at v10 is left alone', () async {
+      final db = await upgradeFrom(10);
+      expect(await db.getVersion(), 10);
       expect((await db.query('products')).single['price'], 17.5);
     });
   });

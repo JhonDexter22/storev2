@@ -24,12 +24,58 @@ class UtangFlows {
 class UtangService {
   final dbHelper = DatabaseHelper.instance;
 
-  Future<int> addCustomer(String name) async {
+  Future<int> addCustomer(String name, {String? phone}) async {
     final db = await dbHelper.database;
     return db.insert('customers', {
       'name': name.trim(),
       'created_at': DateTime.now().toIso8601String(),
+      'phone': _cleanPhone(phone),
     });
+  }
+
+  Future<void> updateCustomer(int id, {required String name, String? phone}) async {
+    final db = await dbHelper.database;
+    await db.update(
+      'customers',
+      {'name': name.trim(), 'phone': _cleanPhone(phone)},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Digits and a leading plus only; empty becomes null so "no number"
+  /// has one spelling.
+  static String? _cleanPhone(String? raw) {
+    if (raw == null) return null;
+    final cleaned = raw.replaceAll(RegExp(r'[^0-9+]'), '');
+    return cleaned.isEmpty ? null : cleaned;
+  }
+
+  Future<void> markReminded(int id) async {
+    final db = await dbHelper.database;
+    await db.update(
+      'customers',
+      {'last_reminded_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Payments taken today, across every customer — the figure that answers
+  /// "did the reminders work?".
+  Future<({double amount, int count})> collectedToday() async {
+    final db = await dbHelper.database;
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).toIso8601String();
+    final rows = await db.rawQuery(
+      "SELECT COALESCE(SUM(-amount),0) AS v, COUNT(*) AS n FROM utang_entries "
+      "WHERE kind = 'payment' AND created_at >= ?",
+      [start],
+    );
+    return (
+      amount: (rows.first['v'] as num).toDouble(),
+      count: (rows.first['n'] as num).toInt(),
+    );
   }
 
   /// Every customer with their balance, the age of the currently-outstanding
