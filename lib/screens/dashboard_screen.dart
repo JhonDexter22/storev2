@@ -8,18 +8,31 @@ import '../services/export_service.dart';
 import '../services/product_service.dart';
 import '../services/sales_service.dart';
 import '../services/settings_service.dart';
+import '../widgets/add_stock_sheet.dart';
+import '../widgets/product_thumb.dart';
+import '../widgets/sale_detail_sheet.dart';
+import '../widgets/sale_row.dart';
 import '../widgets/skeleton.dart';
+import 'reports_screen.dart';
+import 'sales_list_screen.dart';
 import 'store_settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
     super.key,
     this.onStartSale,
+    this.onOpenProducts,
+    this.onOpenRestock,
     this.productService,
     this.salesService,
   });
 
   final VoidCallback? onStartSale;
+
+  /// Tab jumps for the Inventory and Stock alerts tiles. Null when the
+  /// dashboard is shown outside the tab shell.
+  final VoidCallback? onOpenProducts;
+  final VoidCallback? onOpenRestock;
 
   /// Injectable so tests can drive the failure path; production passes neither.
   final ProductService? productService;
@@ -84,6 +97,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _loading = false;
         _error = (code: _errorCode(e), at: DateTime.now());
       });
+    }
+  }
+
+  /// Reloads everything without dropping to the skeleton — for changes made
+  /// from this screen, where a flash of placeholders would be jarring.
+  Future<void> _refresh() async {
+    try {
+      final products = await _productService.getAllProducts();
+      final recent = await _salesService.getRecentSales(limit: 5);
+      final stats = await _salesService.getPeriodStats(_periodDays);
+      final chart = await _salesService.getPeriodStats(7);
+      if (!mounted) return;
+      setState(() {
+        _products = products;
+        _recentSales = recent;
+        _stats = stats;
+        _chartDays = chart.dailyRevenue;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = (code: _errorCode(e), at: DateTime.now()));
     }
   }
 
@@ -815,84 +849,125 @@ class _DashboardScreenState extends State<DashboardScreen> {
       crossAxisSpacing: AppSpace.gapGrid,
       childAspectRatio: 1.7,
       children: [
-        _statCard('Transactions', '${stats.transactions}', Icons.receipt_long_outlined, AppColors.primary),
-        _statCard('Items sold', '${stats.itemsSold}', Icons.shopping_bag_outlined, AppColors.primary),
-        _statCard('Inventory', '$_totalUnits units', Icons.inventory_2_outlined, AppColors.body),
+        _statCard(
+          'Transactions',
+          '${stats.transactions}',
+          Icons.receipt_long_outlined,
+          AppColors.primary,
+          onTap: () => _push(SalesListScreen(days: _periodDays)),
+        ),
+        _statCard(
+          'Items sold',
+          '${stats.itemsSold}',
+          Icons.shopping_bag_outlined,
+          AppColors.primary,
+          onTap: () => _push(const ReportsScreen()),
+        ),
+        _statCard(
+          'Inventory',
+          '$_totalUnits units',
+          Icons.inventory_2_outlined,
+          AppColors.body,
+          onTap: widget.onOpenProducts,
+        ),
         _stockAlertsCard(),
       ],
     );
   }
 
-  Widget _statCard(String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpace.cardPad),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
+  Future<void> _push(Widget screen) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    // A return recorded from a receipt, or stock changed in Products,
+    // changes the figures on this screen.
+    if (mounted) _refresh();
+  }
+
+  /// A figure that opens the thing it counts. The arrow in the corner is
+  /// the only hint it is a button; the whole tile is the target.
+  Widget _statCard(String label, String value, IconData icon, Color color,
+      {VoidCallback? onTap, Widget? figure, Color? tint, Color? border}) {
+    return Material(
+      color: tint ?? AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadius.card),
+      child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: AppColors.hairline),
-      ),
-      // The tile's height is fixed by the grid, so the figure and label are
-      // loose-flexible: at ordinary text sizes nothing changes, and when the
-      // reader has scaled text up they shrink rather than clip.
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Icon(icon, size: 18, color: color),
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(value, style: AppText.statFigure()),
-            ),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(AppSpace.cardPad),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: border ?? AppColors.hairline),
           ),
-          Flexible(
-            child: Text(label,
-                style: AppText.caption(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
+          // The tile's height is fixed by the grid, so the figure and label are
+          // loose-flexible: at ordinary text sizes nothing changes, and when the
+          // reader has scaled text up they shrink rather than clip.
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 18, color: color),
+                  const Spacer(),
+                  if (onTap != null)
+                    const Icon(Icons.arrow_outward_rounded, size: 15, color: AppColors.faint),
+                ],
+              ),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: figure ?? Text(value, style: AppText.statFigure()),
+                ),
+              ),
+              Flexible(
+                child: Text(label,
+                    style: AppText.caption(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
+  /// Calm when there is nothing to do; coloured, and a shortcut to Restock,
+  /// only once a number is above zero. Orange zeros read as a warning about
+  /// nothing.
   Widget _stockAlertsCard() {
-    return Container(
-      padding: const EdgeInsets.all(AppSpace.cardPad),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: AppColors.hairline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final calm = _lowCount == 0 && _outCount == 0;
+    if (calm) {
+      return _statCard(
+        'Stock alerts',
+        'All stocked',
+        Icons.check_circle_outline_rounded,
+        AppColors.success,
+        onTap: widget.onOpenRestock,
+        figure: Text('All stocked', style: AppText.statFigure(color: AppColors.successText, size: 20)),
+      );
+    }
+    final critical = _outCount > 0;
+    return _statCard(
+      'Stock alerts',
+      '',
+      Icons.warning_amber_rounded,
+      critical ? AppColors.danger : AppColors.warning,
+      onTap: widget.onOpenRestock,
+      tint: critical ? AppColors.dangerFill : AppColors.warningFill,
+      border: critical ? AppColors.dangerBorder : AppColors.warningBorder,
+      figure: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.warning),
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Row(
-                children: [
-                  Text('$_lowCount',
-                      style: AppText.statFigure(color: AppColors.warningText, size: 20)),
-                  Text(' low', style: AppText.caption(color: AppColors.warningText)),
-                  const SizedBox(width: 8),
-                  Text('$_outCount',
-                      style: AppText.statFigure(color: AppColors.dangerText, size: 20)),
-                  Text(' out', style: AppText.caption(color: AppColors.dangerText)),
-                ],
-              ),
-            ),
-          ),
-          Flexible(
-            child: Text('Stock alerts',
-                style: AppText.caption(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ),
+          if (_outCount > 0) ...[
+            Text('$_outCount', style: AppText.statFigure(color: AppColors.dangerText, size: 20)),
+            Text(' out', style: AppText.caption(color: AppColors.dangerText)),
+          ],
+          if (_outCount > 0 && _lowCount > 0) const SizedBox(width: 8),
+          if (_lowCount > 0) ...[
+            Text('$_lowCount', style: AppText.statFigure(color: AppColors.warningText, size: 20)),
+            Text(' low', style: AppText.caption(color: AppColors.warningText)),
+          ],
         ],
       ),
     );
@@ -919,30 +994,93 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  /// A product that needs restocking, with the fix on the row: "+ Stock"
+  /// opens the same sheet Products uses, so a shortage seen on Home is
+  /// dealt with on Home.
   Widget _attentionRow(Product p) {
+    final tone = StockStatus.text(p.stock, p.minStock);
     return Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
       child: Row(
         children: [
-          const SizedBox(width: 40, height: 40, child: PhotoPlaceholder(borderRadius: 10)),
+          ProductThumb(product: p, size: 40, radius: 10),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(p.name, style: AppText.cardTitle(), maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text('${p.stock} left · min ${p.minStock}', style: AppText.caption()),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: StockStatus.dot(p.stock, p.minStock),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        p.stock <= 0 ? 'Out of stock · min ${p.minStock}' : '${p.stock} left · min ${p.minStock}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.caption(color: tone),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
-          StatusPill(
-            label: StockStatus.label(p.stock, p.minStock),
-            fg: StockStatus.text(p.stock, p.minStock),
-            bg: StockStatus.fill(p.stock, p.minStock),
+          const SizedBox(width: 10),
+          Semantics(
+            button: true,
+            label: 'Add stock',
+            child: Material(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(AppRadius.chip),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.chip),
+                onTap: () => _addStock(p),
+                child: const Padding(
+                  padding: EdgeInsets.fromLTRB(9, 8, 11, 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add_rounded, size: 16, color: Colors.white),
+                      SizedBox(width: 2),
+                      Text('Stock',
+                          style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _addStock(Product p) async {
+    final added = await showAddStockSheet(context, p);
+    if (added == null || !mounted) return;
+    await _refresh();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text('Added $added · ${p.name} now ${p.stock + added}',
+            style: AppText.body(color: Colors.white)),
+        backgroundColor: AppColors.ink,
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH,
+            12 + MediaQuery.paddingOf(context).bottom),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
+      ));
   }
 
   Widget _recentSalesList() {
@@ -977,30 +1115,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _saleRow(Sale s) {
-    final t = TimeOfDay.fromDateTime(s.createdAtDate);
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(color: AppColors.primaryTint, borderRadius: BorderRadius.circular(10)),
-            child: const Icon(Icons.receipt_outlined, color: AppColors.primary, size: 18),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(s.reference, style: AppText.cardTitle()),
-                Text('${s.paymentMethod} · ${t.format(context)}', style: AppText.caption()),
-              ],
-            ),
-          ),
-          Text(formatPeso(s.total), style: AppText.cardTitle()),
-        ],
-      ),
+    return SaleRow(
+      sale: s,
+      products: _products,
+      onTap: () async {
+        final changed = await showSaleDetail(context, s);
+        if (changed == true) _load();
+      },
     );
   }
 
