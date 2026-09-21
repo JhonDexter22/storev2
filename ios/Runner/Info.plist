@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo of a product to show on the register.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose a product photo from your library.</string>
 </dict>
 </plist>

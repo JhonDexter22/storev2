@@ -30,7 +30,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Home'), findsOneWidget);
-    expect(find.text('POS'), findsOneWidget);
+    expect(find.text('Sell'), findsOneWidget);
     expect(find.text('Restock'), findsOneWidget);
     expect(find.text('More'), findsOneWidget);
     // "Products" is the default tab, so it also appears as the screen title
@@ -38,14 +38,18 @@ void main() {
     expect(find.text('Products'), findsWidgets);
   });
 
-  testWidgets('Products screen shows the ruled stat row', (WidgetTester tester) async {
+  testWidgets('Products screen shows the inventory summary', (WidgetTester tester) async {
     await tester.pumpWidget(const RestockApp());
+    await tester.pump();
     await tester.pump();
 
     expect(find.text('Products'), findsWidgets);
-    for (final label in ['Units', 'Low', 'Out']) {
-      expect(find.text(label), findsOneWidget);
-    }
+    // The header carries the summary subtitle (still loading on frame one,
+    // since this suite's database factory never settles under the fake
+    // clock), the search field and the Add button.
+    expect(find.textContaining(RegExp(r'on hand|Loading')), findsOneWidget);
+    expect(find.text('Search name or SKU'), findsOneWidget);
+    expect(find.text('Add'), findsOneWidget);
   });
 
   group('SettingsService', () {

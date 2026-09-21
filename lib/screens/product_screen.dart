@@ -11,6 +11,7 @@ import '../models/product_model.dart';
 import '../services/product_service.dart';
 import '../services/settings_service.dart';
 import '../services/stock_alerts.dart';
+import '../widgets/add_stock_sheet.dart';
 import '../widgets/product_card.dart';
 import '../widgets/product_thumb.dart';
 import '../widgets/skeleton.dart';
@@ -157,13 +158,134 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   bool get _narrowed => _search.isNotEmpty || _filter is! _AllFilter;
 
-  Future<String?> _pickImage() async {
-    final xFile = await _picker.pickImage(
-        source: ImageSource.gallery, imageQuality: 80, maxWidth: 600);
+  /// Camera or gallery, then squared and kept. Returns null if the
+  /// shopkeeper backed out.
+  Future<String?> _pickImage(ImageSource source) async {
+    XFile? xFile;
+    try {
+      xFile = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        preferredCameraDevice: CameraDevice.rear,
+      );
+    } catch (_) {
+      // No camera, or permission refused: say so rather than surface a
+      // platform error; the gallery route is one tap away.
+      if (source == ImageSource.camera && mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(_snack('Camera is not available — choose from your gallery instead'));
+      }
+      return null;
+    }
     if (xFile == null) return null;
     // The picker's own file lives in the cache directory, which Android is
-    // free to empty. Copy it somewhere durable before the path is saved.
-    return _images.keep(xFile.path);
+    // free to empty. Square it and copy it somewhere durable before the
+    // path is saved.
+    return _images.keepSquared(xFile.path);
+  }
+
+  /// Where should the photo come from? Camera leads: the product is on the
+  /// shelf in front of the person adding it. Returns '' for "remove".
+  Future<String?> _choosePhoto({bool hasPhoto = false}) async {
+    final choice = await showModalBottomSheet<_PhotoChoice>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        Widget row(IconData icon, String label, _PhotoChoice value,
+            {Color color = AppColors.ink, Color iconBg = AppColors.canvas}) {
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => Navigator.pop(ctx, value),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 9),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(11)),
+                      child: Icon(icon, size: 19, color: color),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(label, style: AppText.cardTitle(color: color).copyWith(fontSize: 14.5)),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Container(
+          padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
+              12 + MediaQuery.paddingOf(ctx).bottom),
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration:
+                      BoxDecoration(color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(hasPhoto ? 'Change photo' : 'Add a photo',
+                  style: AppText.sectionTitle().copyWith(fontSize: 17)),
+              const SizedBox(height: 6),
+              row(Icons.photo_camera_outlined, 'Take photo', _PhotoChoice.camera,
+                  color: AppColors.primary, iconBg: AppColors.primaryTint),
+              row(Icons.photo_library_outlined, 'Choose from gallery', _PhotoChoice.gallery),
+              if (hasPhoto)
+                row(Icons.delete_outline_rounded, 'Remove photo', _PhotoChoice.remove,
+                    color: AppColors.danger, iconBg: AppColors.dangerFill),
+            ],
+          ),
+        );
+      },
+    );
+    return switch (choice) {
+      null => null,
+      _PhotoChoice.camera => _pickImage(ImageSource.camera),
+      _PhotoChoice.gallery => _pickImage(ImageSource.gallery),
+      _PhotoChoice.remove => '',
+    };
+  }
+
+  /// Straight to the camera and straight back to the list — cataloguing a
+  /// shelf of 200 items should not mean 200 trips through the edit sheet.
+  Future<void> _snapPhoto(Product p) async {
+    final path = await _pickImage(ImageSource.camera);
+    if (path == null || !mounted) return;
+    final old = p.imagePath;
+    await _productService.updateProduct(Product(
+      id: p.id,
+      name: p.name,
+      stock: p.stock,
+      minStock: p.minStock,
+      category: p.category,
+      createdAt: p.createdAt,
+      price: p.price,
+      sku: p.sku,
+      imagePath: path,
+    ));
+    if (old != null && old != path) _images.discard(old);
+    HapticFeedback.lightImpact();
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(_snack('Photo saved · ${p.name}'));
   }
 
   void _setView(_View v) {
@@ -942,6 +1064,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
               action(Icons.add_box_outlined, 'Add stock', () => _showAddStockSheet(p),
                   color: AppColors.primary, iconBg: AppColors.primaryTint),
               action(Icons.edit_outlined, 'Edit', () => _showProductSheet(product: p)),
+              action(
+                Icons.photo_camera_outlined,
+                (p.imagePath ?? '').isEmpty ? 'Take photo' : 'Retake photo',
+                () => _snapPhoto(p),
+              ),
               action(Icons.copy_rounded, 'Duplicate', () => _showProductSheet(template: p)),
               action(Icons.delete_outline_rounded, 'Delete', () => _deleteWithUndo(p),
                   color: AppColors.danger, iconBg: AppColors.dangerFill),
@@ -952,147 +1079,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
   }
 
-  /// A number pad and a Save: what restocking off a delivery actually needs.
-  void _showAddStockSheet(Product p) {
-    final ctrl = TextEditingController();
-    int amount = 0;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) {
-          final after = p.stock + amount;
-
-          Future<void> save() async {
-            if (amount <= 0) return;
-            await _productService.addStock(p.id!, amount);
-            if (ctx.mounted) Navigator.pop(ctx);
-            HapticFeedback.lightImpact();
-            await _load();
-            if (!mounted) return;
-            ScaffoldMessenger.of(context)
-              ..hideCurrentSnackBar()
-              ..showSnackBar(_snack('Added $amount · ${p.name} now $after'));
-          }
-
-          Widget quick(int n) => Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    ctrl.text = '${amount + n}';
-                    setSheet(() => amount += n);
-                  },
-                  child: Container(
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: AppColors.canvas,
-                      borderRadius: BorderRadius.circular(AppRadius.iconBtn),
-                      border: Border.all(color: AppColors.hairline),
-                    ),
-                    child: Text('+$n', style: AppText.chip()),
-                  ),
-                ),
-              );
-
-          return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
-            child: Container(
-              padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
-                  20 + MediaQuery.paddingOf(ctx).bottom),
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                          color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text('Add stock', style: AppText.sectionTitle().copyWith(fontSize: 18)),
-                  const SizedBox(height: 2),
-                  Text('${p.name} · ${p.stock} on hand', style: AppText.caption()),
-                  const SizedBox(height: 16),
-                  Container(
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: AppColors.canvas,
-                      borderRadius: BorderRadius.circular(AppRadius.input),
-                      border: Border.all(color: AppColors.hairline),
-                    ),
-                    child: TextField(
-                      controller: ctrl,
-                      autofocus: true,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      textAlign: TextAlign.center,
-                      style: AppText.largeFigure(),
-                      onChanged: (v) => setSheet(() => amount = int.tryParse(v) ?? 0),
-                      onSubmitted: (_) => save(),
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        isCollapsed: true,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                        hintText: '0',
-                        hintStyle: AppText.largeFigure(color: AppColors.faint),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      quick(5),
-                      const SizedBox(width: 8),
-                      quick(10),
-                      const SizedBox(width: 8),
-                      quick(12),
-                      const SizedBox(width: 8),
-                      quick(24),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Text('After', style: AppText.body()),
-                      const Spacer(),
-                      Text('$after', style: AppText.statFigure(size: 18, color: AppColors.primary)),
-                      Text(' units', style: AppText.caption()),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: amount > 0 ? save : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        disabledBackgroundColor: AppColors.disabledFill,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.cta)),
-                      ),
-                      child: Text(amount > 0 ? 'Add $amount' : 'Add stock',
-                          style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+  Future<void> _showAddStockSheet(Product p) async {
+    final added = await showAddStockSheet(context, p);
+    if (added == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(_snack('Added $added · ${p.name} now ${p.stock + added}'));
   }
 
   /// Delete now, offer Undo for a few seconds. The row comes back with the
@@ -1114,6 +1108,27 @@ class _ProductsScreenState extends State<ProductsScreen> {
           },
         ),
       ));
+  }
+
+  /// One of the two buttons drawn inside the empty photo slot. Purely
+  /// visual — the whole slot is the tap target.
+  Widget _photoCta(IconData icon, String label, {bool primary = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: primary ? AppColors.primary : AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+        border: Border.all(color: primary ? AppColors.primary : AppColors.hairline),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 17, color: primary ? Colors.white : AppColors.body),
+          const SizedBox(width: 6),
+          Text(label, style: AppText.chip(color: primary ? Colors.white : AppColors.body)),
+        ],
+      ),
+    );
   }
 
   SnackBar _snack(String text, {SnackBarAction? action}) {
@@ -1218,33 +1233,63 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         children: [
                           _sectionLabel('Product information'),
                           const SizedBox(height: 10),
-                          GestureDetector(
-                            onTap: () async {
-                              final path = await _pickImage();
-                              if (path != null) setSheet(() => imagePath = path);
-                            },
-                            child: Container(
-                              width: double.infinity,
-                              height: 104,
-                              decoration: BoxDecoration(
-                                color: AppColors.canvas,
-                                borderRadius: BorderRadius.circular(AppRadius.input),
-                                border: Border.all(color: AppColors.hairline),
+                          Builder(builder: (_) {
+                            final hasPhoto = imagePath != null && imagePath!.isNotEmpty;
+                            return GestureDetector(
+                              onTap: () async {
+                                final path = await _choosePhoto(hasPhoto: hasPhoto);
+                                if (path == null) return;
+                                // '' means "remove"; the file itself is only
+                                // discarded once the product is saved.
+                                setSheet(() => imagePath = path.isEmpty ? null : path);
+                              },
+                              child: Container(
+                                width: double.infinity,
+                                height: 120,
+                                decoration: BoxDecoration(
+                                  color: AppColors.canvas,
+                                  borderRadius: BorderRadius.circular(AppRadius.input),
+                                  border: Border.all(color: AppColors.hairline),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: hasPhoto
+                                    ? Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          Image.file(File(imagePath!), fit: BoxFit.cover),
+                                          Positioned(
+                                            right: 10,
+                                            bottom: 10,
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.ink.withValues(alpha: 0.72),
+                                                borderRadius: BorderRadius.circular(AppRadius.chip),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(Icons.photo_camera_outlined,
+                                                      size: 14, color: Colors.white),
+                                                  const SizedBox(width: 5),
+                                                  Text('Change', style: AppText.chip(color: Colors.white)),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          _photoCta(Icons.photo_camera_outlined, 'Take photo', primary: true),
+                                          const SizedBox(width: 10),
+                                          _photoCta(Icons.photo_library_outlined, 'Gallery'),
+                                        ],
+                                      ),
                               ),
-                              clipBehavior: Clip.antiAlias,
-                              child: imagePath != null && imagePath!.isNotEmpty
-                                  ? Image.file(File(imagePath!), fit: BoxFit.cover)
-                                  : Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        const Icon(Icons.add_photo_alternate_outlined,
-                                            color: AppColors.faint, size: 26),
-                                        const SizedBox(height: 6),
-                                        Text('Add a photo', style: AppText.caption()),
-                                      ],
-                                    ),
-                            ),
-                          ),
+                            );
+                          }),
                           const SizedBox(height: 14),
                           _fieldLabel('Product name'),
                           _field(nameCtrl, hint: 'e.g. SkyFlakes',
@@ -1344,6 +1389,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                               ),
                               onPressed: () async {
                                 if (!formKey.currentState!.validate()) return;
+                                var photo = imagePath;
+                                // A duplicate must not share the original's
+                                // file, or deleting either would blank both.
+                                if (template != null && photo != null && photo == template.imagePath) {
+                                  photo = await _images.duplicate(photo);
+                                }
                                 final p = Product(
                                   id: product?.id,
                                   name: nameCtrl.text.trim(),
@@ -1353,10 +1404,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                   createdAt: product?.createdAt ?? DateTime.now().toIso8601String(),
                                   price: double.tryParse(priceCtrl.text) ?? 0,
                                   sku: skuCtrl.text.trim().isEmpty ? null : skuCtrl.text.trim(),
-                                  imagePath: imagePath,
+                                  imagePath: photo,
                                 );
                                 if (isEdit) {
                                   await _productService.updateProduct(p);
+                                  // The photo that was replaced or removed is
+                                  // nobody's now.
+                                  final old = product.imagePath;
+                                  if (old != null && old != photo) _images.discard(old);
                                 } else {
                                   await _productService.insertProduct(p);
                                 }
@@ -1536,3 +1591,5 @@ class _AddStockPill extends StatelessWidget {
     );
   }
 }
+
+enum _PhotoChoice { camera, gallery, remove }

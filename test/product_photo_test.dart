@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -215,6 +216,58 @@ void main() {
       final s = BackupStatus.from(now.add(const Duration(days: 3)), now: now);
       expect(s.label, 'Backed up');
       expect(s.level, BackupLevel.fresh);
+    });
+  });
+
+  group('squaring a photo', () {
+    /// A tall 4:3 frame, the shape a phone camera produces, with a distinct
+    /// colour in each vertical third so the crop can be checked.
+    Future<File> tallPhoto() async {
+      final image = img.Image(width: 300, height: 900);
+      img.fill(image, color: img.ColorRgb8(255, 0, 0));
+      img.fillRect(image, x1: 0, y1: 300, x2: 299, y2: 599, color: img.ColorRgb8(0, 255, 0));
+      img.fillRect(image, x1: 0, y1: 600, x2: 299, y2: 899, color: img.ColorRgb8(0, 0, 255));
+      final f = File(p.join(cache.path, 'camera.jpg'));
+      await f.writeAsBytes(img.encodeJpg(image));
+      return f;
+    }
+
+    test('crops the middle square and keeps it as a jpg', () async {
+      final kept = await store.keepSquared((await tallPhoto()).path);
+      expect(p.dirname(kept), p.join(temp.path, ProductImageStore.folderName));
+      expect(p.extension(kept), '.jpg');
+      final out = img.decodeImage(await File(kept).readAsBytes())!;
+      expect(out.width, out.height);
+      expect(out.width, 300);
+      // The middle third was green; the top and bottom (red, blue) are gone.
+      final px = out.getPixel(150, 150);
+      expect(px.g > 200 && px.r < 60 && px.b < 60, isTrue, reason: 'centre of the crop is the green band');
+    });
+
+    test('shrinks anything larger than the stored side', () async {
+      final image = img.Image(width: 1600, height: 1200);
+      img.fill(image, color: img.ColorRgb8(10, 20, 30));
+      final f = File(p.join(cache.path, 'big.jpg'));
+      await f.writeAsBytes(img.encodeJpg(image));
+      final out = img.decodeImage(await File(await store.keepSquared(f.path)).readAsBytes())!;
+      expect(out.width, ProductImageStore.squareSide);
+      expect(out.height, ProductImageStore.squareSide);
+    });
+
+    test('a file that is not an image is kept as it is', () async {
+      final picked = await pickedPhoto();
+      final kept = await store.keepSquared(picked.path);
+      expect(p.dirname(kept), p.join(temp.path, ProductImageStore.folderName));
+      expect(await File(kept).readAsBytes(), await picked.readAsBytes());
+    });
+
+    test('duplicate makes a second file', () async {
+      final kept = await store.keep((await pickedPhoto()).path);
+      final copy = await store.duplicate(kept);
+      expect(copy, isNot(kept));
+      expect(await File(copy).exists(), isTrue);
+      await store.discard(kept);
+      expect(await File(copy).exists(), isTrue, reason: 'the copy survives the original being discarded');
     });
   });
 }

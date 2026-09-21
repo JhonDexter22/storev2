@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -62,6 +64,61 @@ class ProductImageStore {
     return target;
   }
 
+  /// Side of the square every product photo is stored at. Thumbnails are
+  /// 40–52px and the card photo is under 200px wide, so anything larger is
+  /// disk and decode time for nothing.
+  static const squareSide = 600;
+
+  /// Squares and shrinks a freshly taken or picked photo, then keeps it.
+  ///
+  /// A phone camera hands back a tall 4:3 frame of the shelf; the thumbnail
+  /// shows the middle of it anyway, so cropping to that square up front
+  /// makes every product picture the same shape and a fraction of the size.
+  /// Falls back to keeping the original untouched if it cannot be decoded.
+  Future<String> keepSquared(String sourcePath, {DateTime? now}) async {
+    final source = File(sourcePath);
+    if (!await source.exists()) return sourcePath;
+    try {
+      final bytes = await source.readAsBytes();
+      final squared = await compute(_squareJpeg, bytes);
+      if (squared == null) return keep(sourcePath, now: now);
+      final dir = await directory();
+      final stamp = (now ?? DateTime.now()).microsecondsSinceEpoch;
+      var target = p.join(dir.path, '$stamp.jpg');
+      var attempt = 1;
+      while (await File(target).exists()) {
+        target = p.join(dir.path, '$stamp-$attempt.jpg');
+        attempt++;
+      }
+      await File(target).writeAsBytes(squared, flush: true);
+      return target;
+    } catch (_) {
+      return keep(sourcePath, now: now);
+    }
+  }
+
+  /// Runs in an isolate: decoding a camera frame on the UI thread would
+  /// freeze the sheet for a visible moment.
+  static Uint8List? _squareJpeg(Uint8List bytes) {
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return null;
+    // Cameras record orientation as metadata; bake it in so the crop is of
+    // the picture the shopkeeper saw, not the sensor's idea of "up".
+    final upright = img.bakeOrientation(decoded);
+    final side = upright.width < upright.height ? upright.width : upright.height;
+    final cropped = img.copyCrop(
+      upright,
+      x: (upright.width - side) ~/ 2,
+      y: (upright.height - side) ~/ 2,
+      width: side,
+      height: side,
+    );
+    final sized = side > squareSide
+        ? img.copyResize(cropped, width: squareSide, height: squareSide, interpolation: img.Interpolation.average)
+        : cropped;
+    return Uint8List.fromList(img.encodeJpg(sized, quality: 85));
+  }
+
   /// Copies photos that earlier versions left in the cache, before Android
   /// gets round to deleting them. Returns how many were rescued.
   ///
@@ -82,6 +139,26 @@ class ProductImageStore {
       rescued++;
     }
     return rescued;
+  }
+
+  /// A second copy of a kept photo, for a duplicated product. Two products
+  /// pointing at one file would lose the picture together when either was
+  /// deleted.
+  Future<String> duplicate(String path, {DateTime? now}) async {
+    final source = File(path);
+    if (!await source.exists()) return path;
+    final dir = await directory();
+    var ext = p.extension(path);
+    if (ext.isEmpty) ext = '.jpg';
+    final stamp = (now ?? DateTime.now()).microsecondsSinceEpoch;
+    var target = p.join(dir.path, '$stamp$ext');
+    var attempt = 1;
+    while (await File(target).exists()) {
+      target = p.join(dir.path, '$stamp-$attempt$ext');
+      attempt++;
+    }
+    await source.copy(target);
+    return target;
   }
 
   /// Removes a photo no product points at any more. Failure is not worth
