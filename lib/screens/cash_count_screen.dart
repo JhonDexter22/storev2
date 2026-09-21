@@ -7,7 +7,9 @@ import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../services/shift_service.dart';
 import '../services/staff_service.dart';
+import '../services/shift_summary.dart';
 import '../widgets/change_pin_flow.dart';
+import '../widgets/day_close_view.dart';
 
 /// Cash count / end of day — reconcile the drawer and close the shift.
 ///
@@ -39,6 +41,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
   int _saleCount = 0;
   DateTime _openedAt = DateTime.now();
   Shift? _closed;
+  ShiftSummary? _summary;
 
   final _settings = SettingsService.instance;
   String get _cashier => _settings.cashier;
@@ -123,8 +126,14 @@ class _CashCountScreenState extends State<CashCountScreen> {
       saleCount: _saleCount,
       openedAt: _openedAt,
     );
+    // The full report for the owner: sales, payment mix, top sellers, and
+    // the drawer that was just counted.
+    final summary = await ShiftSummaryService().forShift(shift);
     if (!mounted) return;
-    setState(() => _closed = shift);
+    setState(() {
+      _closed = shift;
+      _summary = summary;
+    });
   }
 
   @override
@@ -135,7 +144,16 @@ class _CashCountScreenState extends State<CashCountScreen> {
         body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
       );
     }
-    if (_closed != null) return _closedView(_closed!);
+    if (_closed != null && _summary != null) {
+      return DayCloseView(
+        summary: _summary!,
+        onDone: () => Navigator.pop(context, true),
+        onRecount: () => setState(() {
+          _closed = null;
+          _summary = null;
+        }),
+      );
+    }
     if (Breakpoints.isTablet(context)) return _tabletLayout();
 
     return Scaffold(
@@ -550,105 +568,6 @@ class _CashCountScreenState extends State<CashCountScreen> {
           const SizedBox(height: 6),
           Text('Requires a manager PIN', style: AppText.caption()),
         ],
-      ),
-    );
-  }
-
-  Widget _closedView(Shift shift) {
-    final color = shift.variance.abs() < 0.005
-        ? AppColors.success
-        : (shift.variance < 0 ? AppColors.danger : AppColors.primary);
-    final fill = shift.variance.abs() < 0.005
-        ? AppColors.successFill
-        : (shift.variance < 0 ? AppColors.dangerFill : AppColors.primaryTint);
-
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 32, AppSpace.screenH, 24),
-          child: Column(
-            children: [
-              Container(
-                width: 84,
-                height: 84,
-                decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
-                child: Icon(Icons.check_rounded, color: color, size: 44),
-              ),
-              const SizedBox(height: 18),
-              Text('Shift closed', style: AppText.sectionTitle().copyWith(fontSize: 19)),
-              const SizedBox(height: 4),
-              Text('${shift.terminal} · ${shift.cashier}', style: AppText.caption()),
-              const SizedBox(height: 22),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(AppSpace.cardPad),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(AppRadius.card),
-                  border: Border.all(color: AppColors.hairline),
-                ),
-                child: Column(
-                  children: [
-                    _row('Opening float', formatPeso(shift.openingFloat)),
-                    const SizedBox(height: 8),
-                    _row('Cash sales', formatPeso(shift.cashSales)),
-                    const SizedBox(height: 8),
-                    _row('Expected', formatPeso(shift.expected)),
-                    const SizedBox(height: 8),
-                    _row('Counted', formatPeso(shift.counted)),
-                    const SizedBox(height: 10),
-                    const Divider(color: AppColors.divider, height: 1),
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Variance', style: AppText.body()),
-                        Flexible(
-                          child: Text(
-                            '${shift.variance > 0 ? '+' : ''}${formatPeso(shift.variance)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppText.largeFigure(color: color).copyWith(fontSize: 30),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: OutlinedButton(
-                  onPressed: () => setState(() => _closed = null),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.body,
-                    side: const BorderSide(color: AppColors.hairline),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
-                  ),
-                  child: Text('Recount drawer', style: AppText.chip(color: AppColors.body).copyWith(fontSize: 15)),
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
-                  ),
-                  child: Text('Done', style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

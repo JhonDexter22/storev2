@@ -6,6 +6,8 @@ import '../models/shift_model.dart';
 import '../services/printer_service.dart';
 import '../services/receipt_document.dart';
 import '../services/settings_service.dart';
+import '../services/shift_summary.dart';
+import '../widgets/day_close_view.dart';
 import '../services/shift_service.dart';
 
 /// Shift history — find a short drawer without opening a report.
@@ -353,6 +355,25 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
             SizedBox(
               width: double.infinity,
               height: 50,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _openReport(s);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
+                ),
+                icon: const Icon(Icons.summarize_outlined, size: 16),
+                label: Text('Full day report', style: AppText.chip(color: Colors.white)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
               child: OutlinedButton.icon(
                 onPressed: () {
                   Navigator.pop(ctx);
@@ -368,6 +389,23 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// The same end-of-day report the close shows, for any shift in history:
+  /// sales, payment mix, top sellers and the drawer, with Send and Print.
+  Future<void> _openReport(Shift s) async {
+    final summary = await ShiftSummaryService().forShift(s);
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => DayCloseView(
+          summary: summary,
+          title: 'Shift report',
+          onDone: () => Navigator.pop(ctx),
         ),
       ),
     );

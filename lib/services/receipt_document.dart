@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../core/design_tokens.dart' show formatPeso;
 import '../models/shift_model.dart';
+import 'shift_summary.dart';
 import 'escpos.dart';
 
 /// One element of a receipt, independent of how it reaches paper.
@@ -163,6 +164,59 @@ class ReceiptDocument {
         for (final d in _sortedDenominations(s.denominations))
           ReceiptRow('  ${formatPeso(d.key)} x ${d.value}',
               formatPeso(d.key * d.value)),
+      ],
+      const ReceiptGap(),
+      ReceiptRow('Signature', '_' * 12),
+    ];
+  }
+
+  /// The end-of-day report for the owner: what came in, how, what sold,
+  /// what went back out, and whether the drawer balanced. Prints on the
+  /// receipt printer and reads the same as a text message.
+  static List<ReceiptBlock> dayClose(ShiftSummary sum, {required String storeName}) {
+    final shift = sum.shift;
+    return [
+      ReceiptTitle(storeName),
+      const ReceiptCentred('END OF DAY'),
+      ReceiptCentred('${_stamp(sum.from)} -'),
+      ReceiptCentred(_stamp(sum.to)),
+      if (shift != null) ReceiptCentred('${shift.terminal} · ${shift.cashier}'),
+      const ReceiptRule(),
+      ReceiptHeadline('SALES', formatPeso(sum.revenue)),
+      ReceiptRow('Transactions', '${sum.transactions}'),
+      ReceiptRow('Items sold', '${sum.items}'),
+      if (sum.transactions > 0) ReceiptRow('Average sale', formatPeso(sum.averageSale)),
+      if (sum.byMethod.isNotEmpty) ...[
+        const ReceiptGap(),
+        const ReceiptNote('Paid by:'),
+        for (final m in sum.byMethod)
+          ReceiptRow('  ${m.label} (${m.units})', formatPeso(m.value)),
+      ],
+      if (sum.topProducts.isNotEmpty) ...[
+        const ReceiptGap(),
+        const ReceiptNote('Top sellers:'),
+        for (final t in sum.topProducts)
+          ReceiptRow('  ${t.units} x ${t.label}', formatPeso(t.value)),
+      ],
+      if (sum.discounts > 0 || sum.refunds > 0 || sum.utangCharged > 0) ...[
+        const ReceiptGap(),
+        if (sum.discounts > 0) ReceiptRow('Discounts given', '-${formatPeso(sum.discounts)}'),
+        if (sum.refunds > 0)
+          ReceiptRow('Refunds (${sum.refundCount})', '-${formatPeso(sum.refunds)}'),
+        if (sum.utangCharged > 0) ReceiptRow('On tab (utang)', formatPeso(sum.utangCharged)),
+      ],
+      if (shift != null) ...[
+        const ReceiptRule(),
+        const ReceiptNote('Cash drawer:'),
+        ReceiptRow('Opening float', formatPeso(shift.openingFloat)),
+        ReceiptRow('Cash sales', formatPeso(shift.cashSales)),
+        ReceiptRow('Expected', formatPeso(shift.expected)),
+        ReceiptRow('Counted', formatPeso(shift.counted)),
+        ReceiptRow(
+          shift.variance < 0 ? 'SHORT' : (shift.variance > 0 ? 'OVER' : 'BALANCED'),
+          formatPeso(shift.variance.abs()),
+          strong: true,
+        ),
       ],
       const ReceiptGap(),
       ReceiptRow('Signature', '_' * 12),

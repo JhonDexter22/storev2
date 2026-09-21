@@ -13,6 +13,8 @@ import '../widgets/product_thumb.dart';
 import '../widgets/sale_detail_sheet.dart';
 import '../widgets/sale_row.dart';
 import '../widgets/skeleton.dart';
+import '../services/shift_service.dart';
+import 'cash_count_screen.dart';
 import 'reports_screen.dart';
 import 'sales_list_screen.dart';
 import 'store_settings_screen.dart';
@@ -25,6 +27,7 @@ class DashboardScreen extends StatefulWidget {
     this.onOpenRestock,
     this.productService,
     this.salesService,
+    this.shiftService,
   });
 
   final VoidCallback? onStartSale;
@@ -37,6 +40,7 @@ class DashboardScreen extends StatefulWidget {
   /// Injectable so tests can drive the failure path; production passes neither.
   final ProductService? productService;
   final SalesService? salesService;
+  final ShiftService? shiftService;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -59,6 +63,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Sale> _recentSales = [];
   PeriodStats? _stats;
   List<double> _chartDays = [];
+
+  /// Sales since the last close — what a Close day would sum up.
+  ({double total, int count, DateTime openedAt})? _openShift;
 
   @override
   void initState() {
@@ -90,6 +97,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _chartDays = chart.dailyRevenue;
         _loading = false;
       });
+      _loadOpenShift();
     } catch (e) {
       // Without this the spinner would run forever on a read failure.
       if (!mounted) return;
@@ -115,9 +123,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _stats = stats;
         _chartDays = chart.dailyRevenue;
       });
+      _loadOpenShift();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = (code: _errorCode(e), at: DateTime.now()));
+    }
+  }
+
+  /// The Close day card's figures. Fetched on its own, after the screen has
+  /// its data: it is a nicety, and a slow or failed read here must not hold
+  /// up or break the dashboard.
+  Future<void> _loadOpenShift() async {
+    try {
+      final shift = await (widget.shiftService ?? ShiftService()).currentShiftSales();
+      if (!mounted) return;
+      setState(() => _openShift = shift);
+    } catch (_) {
+      // Card simply stays hidden.
     }
   }
 
@@ -197,6 +219,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _recentSalesList(),
         const SizedBox(height: AppSpace.gapBlock),
         _startSaleCard(),
+        if (_openShift != null && _openShift!.count > 0) ...[
+          const SizedBox(height: AppSpace.gapGrid),
+          _closeDayCard(),
+        ],
       ],
     );
   }
@@ -229,6 +255,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _startSaleCard(),
+                  if (_openShift != null && _openShift!.count > 0) ...[
+                    const SizedBox(height: AppSpace.gapGrid),
+                    _closeDayCard(),
+                  ],
                   const SizedBox(height: AppSpace.gapGrid),
                   _statRow([
                     _statCard('Transactions', '${stats.transactions}',
@@ -1122,6 +1152,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final changed = await showSaleDetail(context, s);
         if (changed == true) _load();
       },
+    );
+  }
+
+  /// The end-of-day door, shown once there is a day to close. Quiet next
+  /// to the sale button: it is pressed once, not a hundred times.
+  Widget _closeDayCard() {
+    final shift = _openShift!;
+    final since = TimeOfDay.fromDateTime(shift.openedAt).format(context);
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadius.card),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        onTap: () => _push(const CashCountScreen()),
+        child: Container(
+          padding: const EdgeInsets.all(AppSpace.cardPad),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: AppColors.hairline),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(11)),
+                child: const Icon(Icons.nightlight_round, color: Colors.white, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Close day', style: AppText.cardTitle()),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${formatPeso(shift.total)} · ${shift.count} sale${shift.count == 1 ? '' : 's'} since $since',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.caption(),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.faint, size: 20),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
