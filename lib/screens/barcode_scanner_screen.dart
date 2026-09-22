@@ -4,6 +4,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/product_model.dart';
+import '../widgets/product_thumb.dart';
 import '../services/product_service.dart';
 
 /// What the scanner hands back when it closes.
@@ -394,7 +395,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
       children: [
         Row(
           children: [
-            const SizedBox(width: 52, height: 52, child: PhotoPlaceholder()),
+            ProductThumb(product: p, size: 52, radius: 12),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
