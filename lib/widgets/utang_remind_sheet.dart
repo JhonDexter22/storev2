@@ -72,10 +72,9 @@ class _RemindSheetState extends State<_RemindSheet> {
       await _sent();
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Could not open your messages app — try Share instead'),
-        behavior: SnackBarBehavior.floating,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open your messages app — try Share instead')),
+      );
     }
   }
 
