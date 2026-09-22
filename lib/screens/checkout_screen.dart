@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../core/design_tokens.dart';
@@ -114,6 +115,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
     }
     if (!mounted) return;
+    // The one moment on this screen that deserves a thump.
+    HapticFeedback.mediumImpact();
     setState(() {
       _saving = false;
       _done = _CompletedSale(
@@ -983,9 +986,7 @@ class _SuccessViewState extends State<_SuccessView> {
     if (auto && result.ok) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       backgroundColor: result.ok ? AppColors.success : AppColors.ink,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      content: Text(result.message, style: const TextStyle(color: Colors.white)),
+      content: Text(result.message),
     ));
   }
 
