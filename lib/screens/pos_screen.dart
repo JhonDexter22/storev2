@@ -533,15 +533,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     );
   }
 
-  SnackBar _snack(String text) => SnackBar(
-        content: Text(text, style: AppText.body(color: Colors.white)),
-        backgroundColor: AppColors.ink,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-        margin: EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH,
-            96 + MediaQuery.paddingOf(context).bottom),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
-      );
+  /// Look and placement come from the app theme: Scaffold floats it above
+  /// the cart bar on its own.
+  SnackBar _snack(String text) => SnackBar(content: Text(text), duration: const Duration(seconds: 3));
 
   /// Decrement a line; at zero the line leaves the cart entirely.
   void _decrementLine(int productId) {
