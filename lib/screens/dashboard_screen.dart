@@ -14,6 +14,7 @@ import '../widgets/sale_detail_sheet.dart';
 import '../widgets/sale_row.dart';
 import '../widgets/skeleton.dart';
 import '../services/shift_service.dart';
+import '../services/stock_alerts.dart';
 import 'cash_count_screen.dart';
 import 'reports_screen.dart';
 import 'sales_list_screen.dart';
@@ -124,6 +125,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _chartDays = chart.dailyRevenue;
       });
       _loadOpenShift();
+      // Stock added from Home changes the nav badges too.
+      StockAlerts.instance.refresh();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = (code: _errorCode(e), at: DateTime.now()));
@@ -183,7 +186,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ? _errorState(_error!)
                 : RefreshIndicator(
                     color: AppColors.primary,
-                    onRefresh: _load,
+                    onRefresh: _refresh,
                     child: Breakpoints.isTablet(context)
                         ? _tabletBody()
                         : _phoneBody(),
@@ -1102,15 +1105,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text('Added $added · ${p.name} now ${p.stock + added}',
-            style: AppText.body(color: Colors.white)),
-        backgroundColor: AppColors.ink,
-        behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH,
-            12 + MediaQuery.paddingOf(context).bottom),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
-      ));
+      ..showSnackBar(SnackBar(content: Text('Added $added · ${p.name} now ${p.stock + added}')));
   }
 
   Widget _recentSalesList() {
