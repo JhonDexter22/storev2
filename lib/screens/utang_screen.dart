@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
@@ -181,19 +182,7 @@ class _UtangScreenState extends State<UtangScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(
-                'Reminder sent to ${c.name}',
-                style: AppText.body(color: Colors.white),
-              ),
-              backgroundColor: AppColors.ink,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.input),
-              ),
-            ),
-          );
+          ..showSnackBar(SnackBar(content: Text('Reminder sent to ${c.name}')));
       }
       return true;
     }
@@ -218,9 +207,9 @@ class _UtangScreenState extends State<UtangScreen> {
     final changed = await showCustomerLedger(
       context,
       c,
-      onRecordPayment: () => _recordPayment(c).then((v) => v),
-      onRemind: () => _remind(c),
-      onEdit: () => _editCustomer(c),
+      onRecordPayment: _recordPayment,
+      onRemind: _remind,
+      onEdit: _editCustomer,
     );
     if (changed == true) _load();
   }
@@ -354,6 +343,7 @@ class _UtangScreenState extends State<UtangScreen> {
       amount: amount,
       method: method,
     );
+    HapticFeedback.lightImpact();
     await _load();
     return true;
   }
@@ -386,40 +376,45 @@ class _UtangScreenState extends State<UtangScreen> {
 
   Widget _body(BuildContext context) {
     final tablet = Breakpoints.isTablet(context);
-    return ListView(
-      padding: tablet
-          ? const EdgeInsets.fromLTRB(24, 6, 24, 32)
-          : const EdgeInsets.fromLTRB(
-              AppSpace.screenH,
-              6,
-              AppSpace.screenH,
-              32,
-            ),
-      children: [
-        _statTiles(),
-        const SizedBox(height: AppSpace.gapSection),
-        _filterChips(),
-        const SizedBox(height: AppSpace.gapSection),
-        if (_visible.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 32),
-            child: Center(
-              child: Text(
-                'Nobody in this group right now',
-                style: AppText.body(),
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: tablet
+            ? const EdgeInsets.fromLTRB(24, 6, 24, 32)
+            : const EdgeInsets.fromLTRB(
+                AppSpace.screenH,
+                6,
+                AppSpace.screenH,
+                32,
               ),
-            ),
-          )
-        else if (tablet)
-          ..._cardPairs()
-        else
-          for (final c in _visible) ...[
-            _customerCard(c),
-            const SizedBox(height: 10),
-          ],
-        const SizedBox(height: 6),
-        _addButton(),
-      ],
+        children: [
+          _statTiles(),
+          const SizedBox(height: AppSpace.gapSection),
+          _filterChips(),
+          const SizedBox(height: AppSpace.gapSection),
+          if (_visible.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Text(
+                  'Nobody in this group right now',
+                  style: AppText.body(),
+                ),
+              ),
+            )
+          else if (tablet)
+            ..._cardPairs()
+          else
+            for (final c in _visible) ...[
+              _customerCard(c),
+              const SizedBox(height: 10),
+            ],
+          const SizedBox(height: 6),
+          _addButton(),
+        ],
+      ),
     );
   }
 
