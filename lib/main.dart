@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'core/design_tokens.dart';
 import 'core/responsive.dart';
+import 'l10n/tr.dart';
+import 'services/first_run.dart';
 import 'services/product_image_store.dart';
 import 'services/product_service.dart';
 import 'services/settings_service.dart';
@@ -14,6 +17,7 @@ import 'screens/pos_screen.dart';
 import 'screens/product_screen.dart';
 import 'screens/restock_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/setup_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,17 +29,38 @@ Future<void> main() async {
   // happens; it costs one query on a store with no photos and must never stop
   // the app opening.
   unawaited(ProductImageStore().rescueStrays(ProductService()).catchError((_) => 0));
-  runApp(const RestockApp());
+  // A store that cannot answer "is this new?" is better opened than locked
+  // behind a welcome screen it may not need.
+  final firstRun = await FirstRun.needed().catchError((_) => false);
+  runApp(RestockApp(firstRun: firstRun));
 }
 
 class RestockApp extends StatelessWidget {
-  const RestockApp({super.key});
+  const RestockApp({super.key, this.firstRun = false});
+
+  /// Opens on the setup steps instead of the till. Decided once, before the
+  /// first frame, so an existing store never flashes a welcome screen.
+  final bool firstRun;
 
   @override
   Widget build(BuildContext context) {
+    return LanguageScope(
+      child: ListenableBuilder(
+        listenable: SettingsService.instance,
+        builder: (context, _) => _app(),
+      ),
+    );
+  }
+
+  Widget _app() {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Restock App',
+      // Material's own text — date pickers, the back tooltip, "Cancel" in a
+      // system dialog — follows the app language too.
+      locale: SettingsService.instance.language.locale,
+      supportedLocales: [for (final l in AppLanguage.values) l.locale],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
@@ -49,7 +74,9 @@ class RestockApp extends StatelessWidget {
           elevation: 0,
         ),
       ),
-      home: const HomeScreen(),
+      home: firstRun
+          ? const FirstRunGate(child: HomeScreen())
+          : const HomeScreen(),
     );
   }
 }
@@ -161,32 +188,46 @@ class _HomeScreenState extends State<HomeScreen>
   late final List<GlobalKey<NavigatorState>> _contentNavKeys =
       List.generate(_tabs.length, (_) => GlobalKey<NavigatorState>());
 
-  void _onTabTap(int index) async {
+  /// Which way the content slides on the next tab change: +1 when moving to a
+  /// tab further right, -1 when moving left.
+  int _slideDir = 1;
+
+  void _goTo(int index) {
+    if (index == _currentIndex) return;
+    setState(() {
+      _slideDir = index > _currentIndex ? 1 : -1;
+      _currentIndex = index;
+    });
+  }
+
+  void _onTabTap(int index) {
     HapticFeedback.selectionClick();
     // Every screen that changes stock lives behind one of these tabs, so a
     // tab change is the moment a badge count can have gone stale.
     unawaited(StockAlerts.instance.refresh());
-    // Animate pressed tab down then back up
-    _scaleControllers[index].reverse();
-    await Future.delayed(const Duration(milliseconds: 100));
-    _scaleControllers[index].forward();
-    setState(() => _currentIndex = index);
+    // Switch on the touch itself; the press bounce plays alongside instead of
+    // holding the tab back. A cashier taps these hundreds of times a day.
+    _goTo(index);
+    final press = _scaleControllers[index];
+    press.reverse().then((_) {
+      if (mounted) press.forward();
+    });
   }
 
-  void _startSale() => setState(() => _currentIndex = _kSell);
+  void _startSale() => _goTo(_kSell);
 
   Widget _getScreen() {
     switch (_currentIndex) {
       case _kHome:
         return DashboardScreen(
           onStartSale: _startSale,
-          onOpenProducts: () => setState(() => _currentIndex = _kProducts),
-          onOpenRestock: () => setState(() => _currentIndex = _kRestock),
+          onOpenProducts: () => _goTo(_kProducts),
+          onOpenRestock: () => _goTo(_kRestock),
         );
       case _kSell:
         return const PosScreen();
       case _kProducts:
-        return ProductsScreen(onRestock: () => setState(() => _currentIndex = _kRestock));
+        return ProductsScreen(onRestock: () => _goTo(_kRestock));
       case _kRestock:
         return const RestockScreen();
       case _kMore:
@@ -198,14 +239,27 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
     final body = AnimatedSwitcher(
-      duration: const Duration(milliseconds: 220),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
-      transitionBuilder: (child, anim) => FadeTransition(
-        opacity: anim,
-        child: child,
-      ),
+      duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 260),
+      reverseDuration: reduceMotion ? Duration.zero : const Duration(milliseconds: 200),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      // The new tab drifts in from the side it sits on in the bar and the old
+      // one drifts out the other way, so the page moves the way the pill does.
+      // This closure is rebuilt every build, which makes AnimatedSwitcher
+      // re-run it for the outgoing child too, with the current direction.
+      transitionBuilder: (child, anim) {
+        final incoming = child.key == ValueKey(_currentIndex);
+        final dx = 0.06 * _slideDir * (incoming ? 1 : -1);
+        return FadeTransition(
+          opacity: anim,
+          child: SlideTransition(
+            position: Tween(begin: Offset(dx, 0), end: Offset.zero).animate(anim),
+            child: child,
+          ),
+        );
+      },
       child: KeyedSubtree(
         key: ValueKey(_currentIndex),
         child: _getScreen(),
@@ -264,6 +318,13 @@ class _HomeScreenState extends State<HomeScreen>
         scaleAnims: _scaleAnims,
         onTap: _onTabTap,
       ),
+      floatingActionButton: _SellDock(
+        tab: _tabs[_kSell],
+        selected: _currentIndex == _kSell,
+        scale: _scaleAnims[_kSell],
+        onTap: () => _onTabTap(_kSell),
+      ),
+      floatingActionButtonLocation: const _SellDockLocation(),
     );
   }
 }
@@ -280,33 +341,57 @@ class _NavRail extends StatelessWidget {
   final List<_TabItem> tabs;
   final ValueChanged<int> onTap;
 
+  static const _width = 96.0;
+  static const _itemWidth = 68.0;
+  static const _itemHeight = 60.0;
+  static const _itemGap = 6.0;
+
+  /// Where the first item starts: top gap, logo, gap below the logo.
+  static const _itemsTop = 18.0 + 44.0 + 22.0;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 96,
+      width: _width,
       decoration: const BoxDecoration(
         color: AppColors.surface,
         border: Border(right: BorderSide(color: AppColors.dividerStrong)),
       ),
       child: SafeArea(
         right: false,
-        child: Column(
+        child: Stack(
           children: [
-            const SizedBox(height: 18),
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.ink,
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: const Icon(Icons.storefront_rounded, color: Colors.white, size: 21),
+            _GlidingPill(
+              index: currentIndex,
+              hidden: tabs[currentIndex].hero,
+              axis: Axis.vertical,
+              startOf: (i) => _itemsTop + i * (_itemHeight + _itemGap),
+              extent: _itemHeight,
+              crossStart: (_width - _itemWidth) / 2,
+              crossExtent: _itemWidth,
+              radius: AppRadius.iconBtn,
             ),
-            const SizedBox(height: 22),
-            for (int i = 0; i < tabs.length; i++) ...[
-              _railItem(i),
-              const SizedBox(height: 6),
-            ],
+            Positioned.fill(
+              child: Column(
+                children: [
+                  const SizedBox(height: 18),
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppColors.ink,
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: const Icon(Icons.storefront_rounded, color: Colors.white, size: 21),
+                  ),
+                  const SizedBox(height: 22),
+                  for (int i = 0; i < tabs.length; i++) ...[
+                    _railItem(i),
+                    const SizedBox(height: _itemGap),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -327,22 +412,24 @@ class _NavRail extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: tab.label,
+      label: tr(tab.label),
       child: GestureDetector(
         onTap: () => onTap(i),
         behavior: HitTestBehavior.opaque,
-        child: Container(
-          width: 68,
-          padding: const EdgeInsets.symmetric(vertical: 9),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: _itemWidth,
+          height: _itemHeight,
+          // Only the hero paints its own fill; the selected tint behind the
+          // other items is the gliding pill underneath.
           decoration: BoxDecoration(
             color: filled
                 ? (selected ? AppColors.primaryPressed : AppColors.primary)
-                : selected
-                    ? AppColors.primaryTint
-                    : Colors.transparent,
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(AppRadius.iconBtn),
           ),
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _Badged(
                 badge: tab.badge,
@@ -354,7 +441,7 @@ class _NavRail extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                tab.label,
+                tr(tab.label),
                 style: TextStyle(
                   color: fg,
                   fontSize: 10,
@@ -384,7 +471,6 @@ class _BottomNav extends StatelessWidget {
   final ValueChanged<int> onTap;
 
   static const _accent    = AppColors.primary;
-  static const _accentBg  = AppColors.primaryTint;
   static const _inkLight  = AppColors.muted;
   static const _navBg     = AppColors.surface;
 
@@ -393,6 +479,12 @@ class _BottomNav extends StatelessWidget {
   static const _height = 70.0;
   static const _heroSize = 56.0;
   static const _heroLift = 22.0;
+
+  /// The selected-tab pill, and where it sits: every regular tab lays out
+  /// from the top at the same offsets, so one pill can glide behind any icon.
+  static const _pillTop = 9.0;
+  static const _pillWidth = 64.0;
+  static const _pillHeight = 34.0;
 
   /// How far the hero button reaches above the bar's top edge.
   static const overhang = _heroLift;
@@ -416,101 +508,111 @@ class _BottomNav extends StatelessWidget {
         top: false,
         child: SizedBox(
           height: _height,
-          child: Row(
-            children: List.generate(tabs.length, (i) {
-              final tab = tabs[i];
-              final selected = i == currentIndex;
-              return Expanded(
-                child: Semantics(
-                  button: true,
-                  selected: selected,
-                  label: tab.label,
-                  child: GestureDetector(
-                    onTap: () => onTap(i),
-                    behavior: HitTestBehavior.opaque,
-                    child: ScaleTransition(
-                      scale: scaleAnims[i],
-                      child: tab.hero ? _heroTab(tab, selected) : _tab(tab, selected),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final slot = constraints.maxWidth / tabs.length;
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  _GlidingPill(
+                    index: currentIndex,
+                    // On Sell the raised button is the indicator; the pill
+                    // fades out as it arrives underneath it.
+                    hidden: tabs[currentIndex].hero,
+                    axis: Axis.horizontal,
+                    startOf: (i) => i * slot + (slot - _pillWidth) / 2,
+                    extent: _pillWidth,
+                    crossStart: _pillTop,
+                    crossExtent: _pillHeight,
+                    radius: AppRadius.chip,
+                  ),
+                  Positioned.fill(
+                    child: Row(
+                      children: List.generate(tabs.length, (i) {
+                        final tab = tabs[i];
+                        final selected = i == currentIndex;
+                        final target = GestureDetector(
+                          onTap: () => onTap(i),
+                          behavior: HitTestBehavior.opaque,
+                          child: ScaleTransition(
+                            scale: scaleAnims[i],
+                            child: tab.hero ? _heroTab(tab, selected) : _tab(tab, selected),
+                          ),
+                        );
+                        return Expanded(
+                          // The Sell circle announces itself, so its slot
+                          // stays silent: one node for the tab, not two.
+                          child: tab.hero
+                              ? ExcludeSemantics(child: target)
+                              : Semantics(
+                                  button: true,
+                                  selected: selected,
+                                  label: tr(tab.label),
+                                  child: target,
+                                ),
+                        );
+                      }),
                     ),
                   ),
-                ),
+                ],
               );
-            }),
+            },
           ),
         ),
       ),
     );
   }
 
-  /// A regular destination: capsule indicator behind the icon, label below.
+  /// A regular destination: icon in the pill's slot, label below. The pill
+  /// itself is drawn once, behind the row, by [_GlidingPill].
   Widget _tab(_TabItem tab, bool selected) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 5),
-          decoration: BoxDecoration(
-            color: selected ? _accentBg : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.chip),
-          ),
-          child: _Badged(
-            badge: tab.badge,
-            child: Icon(
-              selected ? tab.activeIcon : tab.icon,
-              size: 24,
-              color: selected ? _accent : _inkLight,
+    // Align fills the slot so the whole tab stays tappable, while the content
+    // sits at fixed offsets from the top that the pill can line up with.
+    return Align(
+      alignment: Alignment.topCenter,
+      child: Padding(
+        padding: const EdgeInsets.only(top: _pillTop),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: _pillWidth,
+              height: _pillHeight,
+              child: Center(
+                child: _Badged(
+                  badge: tab.badge,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: Icon(
+                      selected ? tab.activeIcon : tab.icon,
+                      key: ValueKey(selected),
+                      size: 24,
+                      color: selected ? _accent : _inkLight,
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
+            const SizedBox(height: 4),
+            _label(tr(tab.label), selected),
+          ],
         ),
-        const SizedBox(height: 4),
-        _label(tab.label, selected),
-      ],
+      ),
     );
   }
 
-  /// The Sell tab: a filled circle raised out of the bar so it is the first
-  /// thing the eye lands on and the easiest target for a thumb.
+  /// The Sell tab's slot in the bar: just its label. The raised circle above
+  /// it is [_SellDock], which the Scaffold floats over this spot so that the
+  /// part poking above the bar can be tapped too; a child of the bar could
+  /// only ever be hit inside the bar's own bounds.
   Widget _heroTab(_TabItem tab, bool selected) {
-    // A Stack rather than a Column so the circle can overhang the top of the
-    // bar without asking the bar for the extra height.
     return Stack(
-      clipBehavior: Clip.none,
       alignment: Alignment.topCenter,
       children: [
         Positioned(
           // Lines up with where a regular tab's label sits.
           bottom: 9,
-          child: _label(tab.label, true),
-        ),
-        Positioned(
-          top: -_heroLift,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            width: _heroSize,
-            height: _heroSize,
-            decoration: BoxDecoration(
-              color: selected ? AppColors.primaryPressed : _accent,
-              shape: BoxShape.circle,
-              // The ring in the bar colour makes the circle look cut out of
-              // the bar rather than pasted on top of it.
-              border: Border.all(color: _navBg, width: 4),
-              boxShadow: [
-                BoxShadow(
-                  color: _accent.withValues(alpha: 0.35),
-                  blurRadius: 14,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Icon(
-              selected ? tab.activeIcon : tab.icon,
-              size: 26,
-              color: Colors.white,
-            ),
-          ),
+          child: _label(tr(tab.label), true),
         ),
       ],
     );
@@ -532,6 +634,301 @@ class _BottomNav extends StatelessWidget {
           letterSpacing: 0.1,
         ),
         child: Text(text),
+      ),
+    );
+  }
+}
+
+// ── Gliding pill ───────────────────────────────────────────────────────────────
+/// The selected-tab tint, drawn once and moved between tabs rather than faded
+/// in and out per tab, so the eye follows where the cashier went.
+///
+/// The two ends travel on offset timings: the leading end sets off first and
+/// the trailing end catches up, so the pill stretches toward its target and
+/// then settles. A tap mid-glide sets off from wherever the pill is now, so
+/// quick taps redirect it instead of queueing up.
+class _GlidingPill extends StatefulWidget {
+  const _GlidingPill({
+    required this.index,
+    required this.hidden,
+    required this.axis,
+    required this.startOf,
+    required this.extent,
+    required this.crossStart,
+    required this.crossExtent,
+    required this.radius,
+  });
+
+  final int index;
+
+  /// Fades the pill out, for tabs that show selection some other way.
+  final bool hidden;
+
+  /// The direction the tabs run in.
+  final Axis axis;
+
+  /// Where the pill starts along [axis] for a tab index.
+  final double Function(int index) startOf;
+  final double extent;
+  final double crossStart;
+  final double crossExtent;
+  final double radius;
+
+  @override
+  State<_GlidingPill> createState() => _GlidingPillState();
+}
+
+class _GlidingPillState extends State<_GlidingPill> with SingleTickerProviderStateMixin {
+  static const _lead = Interval(0.0, 0.7, curve: Curves.easeOutCubic);
+  static const _trail = Interval(0.2, 1.0, curve: Curves.easeOutCubic);
+
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 340),
+    value: 1,
+  );
+
+  late double _fromA, _fromB, _toA, _toB;
+  bool _forward = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _toA = widget.startOf(widget.index);
+    _toB = _toA + widget.extent;
+    _fromA = _toA;
+    _fromB = _toB;
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  double get _a => _lerp(_fromA, _toA, (_forward ? _trail : _lead).transform(_c.value));
+  double get _b => _lerp(_fromB, _toB, (_forward ? _lead : _trail).transform(_c.value));
+
+  static double _lerp(double a, double b, double t) => a + (b - a) * t;
+
+  @override
+  void didUpdateWidget(_GlidingPill old) {
+    super.didUpdateWidget(old);
+    final target = widget.startOf(widget.index);
+    if (target == _toA && widget.extent == old.extent) return;
+
+    // Same tab but a new position means the layout changed (a rotation or a
+    // resize), and coming back from a hidden tab there is nothing on screen
+    // to glide from. Either way, jump rather than travel.
+    final jump = widget.index == old.index ||
+        (old.hidden && !widget.hidden) ||
+        MediaQuery.of(context).disableAnimations;
+
+    final a = _a, b = _b;
+    _toA = target;
+    _toB = target + widget.extent;
+    if (jump) {
+      _fromA = _toA;
+      _fromB = _toB;
+      _c.value = 1;
+    } else {
+      _fromA = a;
+      _fromB = b;
+      _forward = _toA >= _fromA;
+      _c.forward(from: 0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        final a = _a, b = _b;
+        final horizontal = widget.axis == Axis.horizontal;
+        return Positioned(
+          left: horizontal ? a : widget.crossStart,
+          top: horizontal ? widget.crossStart : a,
+          width: horizontal ? b - a : widget.crossExtent,
+          height: horizontal ? widget.crossExtent : b - a,
+          child: child!,
+        );
+      },
+      child: IgnorePointer(
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 160),
+          opacity: widget.hidden ? 0 : 1,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: AppColors.primaryTint,
+              borderRadius: BorderRadius.circular(widget.radius),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Sell dock ──────────────────────────────────────────────────────────────────
+/// The raised Sell circle, floated by the Scaffold over the bar's centre slot.
+///
+/// It lives in the floating-button slot rather than inside the bar because a
+/// widget can only be tapped within its parent's bounds: drawn as part of the
+/// bar, the top of the circle that pokes above it looked tappable but was not.
+class _SellDock extends StatelessWidget {
+  const _SellDock({
+    required this.tab,
+    required this.selected,
+    required this.scale,
+    required this.onTap,
+  });
+
+  final _TabItem tab;
+  final bool selected;
+  final Animation<double> scale;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: tr(tab.label),
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: ScaleTransition(
+          scale: scale,
+          child: _SellButton(
+            selected: selected,
+            icon: selected ? tab.activeIcon : tab.icon,
+            size: _BottomNav._heroSize,
+            ringColor: _BottomNav._navBg,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Pins [_SellDock] to the bar's centre, lifted [_BottomNav.overhang] above
+/// its top edge.
+///
+/// Measured from the bottom of the screen rather than from the Scaffold's
+/// content edge, so the circle stays put under the keyboard like the bar it
+/// belongs to instead of riding up above it.
+class _SellDockLocation extends FloatingActionButtonLocation {
+  const _SellDockLocation();
+
+  @override
+  Offset getOffset(ScaffoldPrelayoutGeometry g) {
+    final barTop = g.scaffoldSize.height - g.minViewPadding.bottom - _BottomNav._height;
+    return Offset(
+      (g.scaffoldSize.width - g.floatingActionButtonSize.width) / 2,
+      barTop - _BottomNav.overhang,
+    );
+  }
+}
+
+// ── Sell button ────────────────────────────────────────────────────────────────
+/// The raised centre button. A ring ripples out from it on every press, from
+/// the moment of touch, so the most-used action answers the thumb at once.
+class _SellButton extends StatefulWidget {
+  const _SellButton({
+    required this.selected,
+    required this.icon,
+    required this.size,
+    required this.ringColor,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final double size;
+
+  /// The bar colour, for the border that makes the circle look cut out of it.
+  final Color ringColor;
+
+  @override
+  State<_SellButton> createState() => _SellButtonState();
+}
+
+class _SellButtonState extends State<_SellButton> with SingleTickerProviderStateMixin {
+  late final AnimationController _ripple = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 520),
+  );
+
+  @override
+  void dispose() {
+    _ripple.dispose();
+    super.dispose();
+  }
+
+  void _onDown(PointerDownEvent _) {
+    if (MediaQuery.of(context).disableAnimations) return;
+    _ripple.forward(from: 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = widget.size;
+    // A Listener, not a gesture detector, so it sees the touch without
+    // competing with the tab's own tap handler for it.
+    return Listener(
+      onPointerDown: _onDown,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            // Behind the circle, so it emerges from under the cut-out border.
+            AnimatedBuilder(
+              animation: _ripple,
+              builder: (context, _) {
+                if (!_ripple.isAnimating) return const SizedBox.shrink();
+                final t = Curves.easeOutCubic.transform(_ripple.value);
+                return Transform.scale(
+                  scale: 1 + 0.55 * t,
+                  child: Container(
+                    width: size,
+                    height: size,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.6 * (1 - t)),
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: widget.selected ? AppColors.primaryPressed : AppColors.primary,
+                shape: BoxShape.circle,
+                // The ring in the bar colour makes the circle look cut out of
+                // the bar rather than pasted on top of it.
+                border: Border.all(color: widget.ringColor, width: 4),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Icon(widget.icon, size: 26, color: Colors.white),
+            ),
+          ],
+        ),
       ),
     );
   }
