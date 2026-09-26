@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
@@ -9,8 +7,9 @@ import '../models/refund_model.dart';
 import '../services/sales_service.dart';
 import '../widgets/discount_audit.dart';
 import '../services/settings_service.dart';
-import '../services/export_service.dart';
+import '../services/backup_share.dart';
 import '../services/utang_service.dart';
+import '../l10n/tr.dart';
 
 /// Reports — what sells, what pays, which category carries the period.
 /// Every figure on this screen is scoped to the selected range.
@@ -93,9 +92,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   double get _netRevenue => (_stats?.revenue ?? 0) - _refundTotal;
 
   String get _rangeLabel => switch (_days) {
-        1 => 'Today',
-        7 => 'Last 7 days',
-        _ => 'Last 30 days',
+        1 => tr('Today'),
+        7 => tr('Last 7 days'),
+        _ => tr('Last 30 days'),
       };
 
   @override
@@ -125,14 +124,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
         const SizedBox(height: AppSpace.gapSection),
         _revenueCard(),
         const SizedBox(height: AppSpace.gapBlock),
-        _section('Top products'),
+        _section(tr('Top products')),
         _topProducts(),
         const SizedBox(height: AppSpace.gapBlock),
-        _section('Payment mix'),
+        _section(tr('Payment mix')),
         _paymentMix(),
         const SizedBox(height: AppSpace.gapBlock),
         if (_discounts.isNotEmpty) ...[
-          _section('Discounts'),
+          _section(tr('Discounts')),
           DiscountAudit(
             discounts: _discounts,
             byReason: _discountReasons,
@@ -140,13 +139,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
           const SizedBox(height: AppSpace.gapBlock),
         ],
-        _section('Returns'),
+        _section(tr('Returns')),
         _returns(),
         const SizedBox(height: AppSpace.gapBlock),
-        _section('Utang'),
+        _section(tr('Credit')),
         _utangBlock(),
         const SizedBox(height: AppSpace.gapBlock),
-        _section('By category'),
+        _section(tr('By category')),
         _byCategory(),
       ],
     );
@@ -177,15 +176,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   children: [
                     Row(
                       children: [
-                        Expanded(child: _statTile('Transactions', '${s.transactions}')),
+                        Expanded(child: _statTile(tr('Transactions'), '${s.transactions}')),
                         const SizedBox(width: 10),
-                        Expanded(child: _statTile('Avg sale', formatPeso(s.avgSale))),
+                        Expanded(child: _statTile(tr('Avg sale'), formatPeso(s.avgSale))),
                         const SizedBox(width: 10),
-                        Expanded(child: _statTile('Items', '${s.itemsSold}')),
+                        Expanded(child: _statTile(tr('Items'), '${s.itemsSold}')),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _section('Payment mix'),
+                    _section(tr('Payment mix')),
                     _paymentMix(),
                   ],
                 ),
@@ -201,7 +200,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _section('Top products'),
+                  _section(tr('Top products')),
                   _topProducts(),
                 ],
               ),
@@ -211,7 +210,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _section('By category'),
+                  _section(tr('By category')),
                   _byCategory(),
                 ],
               ),
@@ -227,7 +226,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (_discounts.isNotEmpty) ...[
-                    _section('Discounts'),
+                    _section(tr('Discounts')),
                     DiscountAudit(
                       discounts: _discounts,
                       byReason: _discountReasons,
@@ -235,7 +234,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                     const SizedBox(height: AppSpace.gapBlock),
                   ],
-                  _section('Returns'),
+                  _section(tr('Returns')),
                   _returns(),
                 ],
               ),
@@ -245,7 +244,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _section('Utang'),
+                  _section(tr('Credit')),
                   _utangBlock(),
                 ],
               ),
@@ -296,7 +295,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Reports', style: AppText.screenTitle().copyWith(fontSize: 22)),
+              Text(tr('Reports'), style: AppText.screenTitle().copyWith(fontSize: 22)),
               Text(_rangeLabel, style: AppText.caption()),
             ],
           ),
@@ -314,7 +313,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               children: [
                 const Icon(Icons.file_download_outlined, size: 15, color: AppColors.primary),
                 const SizedBox(width: 5),
-                Text(_exporting ? 'Exporting…' : 'Export',
+                Text(_exporting ? tr('Exporting…') : tr('Export'),
                     style: AppText.chip(color: AppColors.primary)),
               ],
             ),
@@ -333,23 +332,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
     if (_exporting) return;
     setState(() => _exporting = true);
     try {
-      final path =
-          await ExportService().writeArchive(await getTemporaryDirectory());
-      if (!mounted) return;
-      final result = await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(path)],
-          subject: '${SettingsService.instance.storeName} data',
-          text: 'Sales and stock from ${SettingsService.instance.storeName}.',
-        ),
-      );
-      if (!mounted) return;
-      if (result.status != ShareResultStatus.dismissed) {
-        await SettingsService.instance.markBackedUp();
-      }
+      // The same file a backup is, so it counts as one when it goes out.
+      await shareBackup();
     } catch (e) {
       if (!mounted) return;
-      _toast('Could not export: $e');
+      _toast(tr('Could not export: {error}', {'error': e}));
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -384,14 +371,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
       );
     }
 
-    return Row(
-      children: [
-        chip(1, 'Today'),
-        const SizedBox(width: AppSpace.gapChip),
-        chip(7, '7 days'),
-        const SizedBox(width: AppSpace.gapChip),
-        chip(30, '30 days'),
-      ],
+    // Scrolls rather than clips: Filipino labels run longer than English,
+    // and on a narrow phone the last chip would otherwise be cut off.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          chip(1, tr('Today')),
+          const SizedBox(width: AppSpace.gapChip),
+          chip(7, tr('7 days')),
+          const SizedBox(width: AppSpace.gapChip),
+          chip(30, tr('30 days')),
+        ],
+      ),
     );
   }
 
@@ -433,7 +425,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             // A headline that quietly ignores returns reads as money kept.
             // Naming it only when there were returns keeps the usual case
             // short and the unusual case honest.
-            _refundTotal > 0 ? 'REVENUE BEFORE RETURNS' : 'REVENUE',
+            _refundTotal > 0 ? tr('REVENUE BEFORE RETURNS') : tr('REVENUE'),
             style: AppText.overline(),
           ),
           const SizedBox(height: 6),
@@ -458,8 +450,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
           if (_refundTotal > 0) ...[
             const SizedBox(height: 4),
-            Text('${formatPeso(_netRevenue)} after ${formatPeso(_refundTotal)} '
-                'returned', style: AppText.caption()),
+            Text(tr('{net} after {refunded} returned', {'net': formatPeso(_netRevenue), 'refunded': formatPeso(_refundTotal)}),
+                style: AppText.caption()),
           ],
           const SizedBox(height: 18),
           _BarChart(values: _week),
@@ -468,9 +460,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
           const SizedBox(height: 12),
           Row(
             children: [
-              _footStat('Transactions', '${s.transactions}'),
-              _footStat('Avg sale', formatPeso(s.avgSale)),
-              _footStat('Items', '${s.itemsSold}'),
+              _footStat(tr('Transactions'), '${s.transactions}'),
+              _footStat(tr('Avg sale'), formatPeso(s.avgSale)),
+              _footStat(tr('Items'), '${s.itemsSold}'),
             ],
           ),
           // Only when there is something to say. Money given away belongs next
@@ -488,7 +480,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       Text('-${formatPeso(s.discountGiven)}',
                           style: AppText.statFigure(color: AppColors.warningText)),
                       const SizedBox(height: 2),
-                      Text('Discounts given', style: AppText.caption()),
+                      Text(tr('Discounts given'), style: AppText.caption()),
                     ],
                   ),
                 ),
@@ -498,7 +490,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     children: [
                       Text(formatPeso(s.grossRevenue), style: AppText.statFigure()),
                       const SizedBox(height: 2),
-                      Text('At full price', style: AppText.caption()),
+                      Text(tr('At full price'), style: AppText.caption()),
                     ],
                   ),
                 ),
@@ -531,7 +523,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       );
 
   Widget _topProducts() {
-    if (_top.isEmpty) return _emptyCard('No sales in this range yet');
+    if (_top.isEmpty) return _emptyCard(tr('No sales in this range yet'));
     final max = _top.first.value;
     return _card(
       child: Column(
@@ -541,7 +533,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               label: _top[i].label,
               amount: _top[i].value,
               fraction: max <= 0 ? 0 : _top[i].value / max,
-              trailing: '${_top[i].units} sold',
+              trailing: tr('{n} sold', {'n': _top[i].units}),
               color: AppColors.primary,
             ),
             if (i != _top.length - 1) const SizedBox(height: 14),
@@ -556,7 +548,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     if (u == null) return const SizedBox.shrink();
     if (u.outstanding <= 0 && u.charged <= 0 && u.collected <= 0) {
       return _emptyCard(
-        'Nothing on credit.\nCharge a sale to a customer from checkout to start the book.',
+        tr('Nothing on credit.\nCharge a sale to a customer from checkout to start the book.'),
       );
     }
 
@@ -577,7 +569,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Outstanding', style: AppText.caption()),
+                    Text(tr('Outstanding'), style: AppText.caption()),
                     const SizedBox(height: 2),
                     Text(formatPeso(u.outstanding),
                         maxLines: 1,
@@ -585,7 +577,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         style: AppText.statFigure(size: 20)),
                     const SizedBox(height: 2),
                     Text(
-                      '${u.customerCount} customer${u.customerCount == 1 ? '' : 's'}',
+                      trCount(u.customerCount, '{n} customer', '{n} customers'),
                       style: AppText.caption(),
                     ),
                   ],
@@ -595,7 +587,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Overdue', style: AppText.caption()),
+                    Text(tr('Overdue'), style: AppText.caption()),
                     const SizedBox(height: 2),
                     Text(formatPeso(u.overdue),
                         maxLines: 1,
@@ -611,19 +603,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
           const SizedBox(height: 14),
           const Divider(color: AppColors.divider, height: 1),
           const SizedBox(height: 12),
-          _flowBar('Charged', u.charged, scale, AppColors.warning),
+          _flowBar(tr('Charged'), u.charged, scale, AppColors.warning),
           const SizedBox(height: 10),
-          _flowBar('Collected', u.collected, scale, AppColors.success),
+          _flowBar(tr('Collected'), u.collected, scale, AppColors.success),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: Text(
                   grew
-                      ? 'Book grew by ${formatPeso(u.net.abs())}'
+                      ? tr('Book grew by {amount}', {'amount': formatPeso(u.net.abs())})
                       : (u.net == 0
-                          ? 'Book unchanged'
-                          : 'Book shrank by ${formatPeso(u.net.abs())}'),
+                          ? tr('Book unchanged')
+                          : tr('Book shrank by {amount}', {'amount': formatPeso(u.net.abs())})),
                   style: AppText.caption(
                       color: grew ? AppColors.warningText : AppColors.successText),
                 ),
@@ -660,9 +652,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   static String _statusWord(UtangStatus s) => switch (s) {
-        UtangStatus.overdue => 'Overdue',
-        UtangStatus.dueSoon => 'Due soon',
-        UtangStatus.current => 'Current',
+        UtangStatus.overdue => tr('Overdue'),
+        UtangStatus.dueSoon => tr('Due soon'),
+        UtangStatus.current => tr('Current'),
       };
 
   Widget _flowBar(String label, double value, double scale, Color color) {
@@ -690,7 +682,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _byCategory() {
-    if (_categories.isEmpty) return _emptyCard('No sales in this range yet');
+    if (_categories.isEmpty) return _emptyCard(tr('No sales in this range yet'));
     final total = _categories.fold<double>(0, (s, c) => s + c.value);
     final max = _categories.first.value;
     return _card(
@@ -755,7 +747,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _paymentMix() {
-    if (_payment.isEmpty) return _emptyCard('No payments in this range yet');
+    if (_payment.isEmpty) return _emptyCard(tr('No payments in this range yet'));
     final total = _payment.fold<double>(0, (s, p) => s + p.value);
     return _card(
       child: Column(
@@ -813,22 +805,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
   /// rounding down to a false 0.0%.
   String _refundRateLine() {
     final revenue = _stats?.revenue ?? 0;
-    if (_refundTotal <= 0) return 'No refunds in this range';
+    if (_refundTotal <= 0) return tr('No refunds in this range');
 
     // A refund can be for a sale from an earlier period, so it is not a
     // fraction of anything this window took. Printing the ratio anyway gave
     // figures like "5,555,550% of revenue" — arithmetically true and
     // completely unreadable.
     if (revenue <= 0) {
-      return 'Refunds only in this range — the sales were from earlier';
+      return tr('Refunds only in this range — the sales were from earlier');
     }
     if (_refundTotal > revenue) {
-      return 'More than this range took in — some are returns of earlier sales';
+      return tr('More than this range took in — some are returns of earlier sales');
     }
 
     final pct = _refundTotal / revenue * 100;
-    if (pct < 0.1) return 'Under 0.1% of revenue';
-    return '${pct.toStringAsFixed(1)}% of revenue';
+    if (pct < 0.1) return tr('Under 0.1% of revenue');
+    return tr('{pct}% of revenue', {'pct': pct.toStringAsFixed(1)});
   }
 
   /// A money figure that shrinks rather than truncating.
@@ -848,7 +840,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget _returns() {
     if (_refunds.isEmpty) {
       return _emptyCard(
-        'No returns in this range.\nReturns are recorded from More → Returns & voids.',
+        tr('No returns in this range.\nReturns are recorded from More → Returns & voids.'),
       );
     }
     return _card(
@@ -861,7 +853,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Refunded', style: AppText.caption()),
+                    Text(tr('Refunded'), style: AppText.caption()),
                     const SizedBox(height: 2),
                     _figure('-${formatPeso(_refundTotal)}',
                         color: AppColors.dangerText),
@@ -875,7 +867,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Recorded', style: AppText.caption()),
+                    Text(tr('Recorded'), style: AppText.caption()),
                     const SizedBox(height: 2),
                     _figure('${_refunds.length}'),
                   ],
@@ -886,7 +878,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Net revenue', style: AppText.caption()),
+                    Text(tr('Net revenue'), style: AppText.caption()),
                     const SizedBox(height: 2),
                     _figure(formatPeso(_netRevenue)),
                   ],
@@ -919,8 +911,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           ),
                           if (_refunds[i].isVoid) ...[
                             const SizedBox(width: 6),
-                            const StatusPill(
-                              label: 'Void',
+                            StatusPill(
+                              label: tr('Void'),
                               fg: AppColors.dangerText,
                               bg: AppColors.dangerFill,
                               dot: false,
@@ -929,7 +921,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         ],
                       ),
                       const SizedBox(height: 2),
-                      Text('${_refunds[i].reason} · ${_refunds[i].method}', style: AppText.caption()),
+                      Text('${tr(_refunds[i].reason)} · ${tr(_refunds[i].method)}', style: AppText.caption()),
                     ],
                   ),
                 ),
@@ -961,10 +953,10 @@ extension _UtangBlock on _ReportsScreenState {
   /// period ratio.
   String creditShareLine(UtangFlows u) {
     final revenue = _stats?.revenue ?? 0;
-    if (revenue <= 0 || u.charged <= 0) return 'Nothing put on credit';
+    if (revenue <= 0 || u.charged <= 0) return tr('Nothing put on credit');
     final pct = u.charged / revenue * 100;
-    if (pct < 0.1) return 'Under 0.1% of revenue on credit';
-    return '${pct.toStringAsFixed(1)}% of revenue on credit';
+    if (pct < 0.1) return tr('Under 0.1% of revenue on credit');
+    return tr('{pct}% of revenue on credit', {'pct': pct.toStringAsFixed(1)});
   }
 }
 
@@ -975,7 +967,9 @@ class _BarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    final days = SettingsService.instance.language == AppLanguage.fil
+        ? const ['L', 'M', 'M', 'H', 'B', 'S', 'L']
+        : const ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     if (values.isEmpty) return const SizedBox(height: 96);
     final maxVal = values.reduce((a, b) => a > b ? a : b);
     final now = DateTime.now();
