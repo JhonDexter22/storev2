@@ -9,6 +9,7 @@ import '../services/sales_service.dart';
 import '../widgets/sale_detail_sheet.dart';
 import '../widgets/sale_row.dart';
 import '../widgets/skeleton.dart';
+import '../l10n/tr.dart';
 
 /// Every sale in a period, newest first — what the Transactions tile on
 /// Home opens onto. Tap a row for the receipt.
@@ -48,10 +49,10 @@ class _SalesListScreenState extends State<SalesListScreen> {
   }
 
   String get _title => switch (widget.days) {
-        1 => 'Today\'s sales',
-        7 => 'This week\'s sales',
-        30 => 'This month\'s sales',
-        _ => 'Sales · last ${widget.days} days',
+        1 => tr("Today's sales"),
+        7 => tr("This week's sales"),
+        30 => tr("This month's sales"),
+        _ => tr('Sales · last {n} days', {'n': widget.days}),
       };
 
   double get _total => _list.fold(0, (s, x) => s + x.total);
@@ -59,6 +60,19 @@ class _SalesListScreenState extends State<SalesListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final top = <Widget>[
+      _header(),
+      const SizedBox(height: 16),
+      if (_loading)
+        _skeleton()
+      else if (_list.isEmpty)
+        _empty()
+      else ...[
+        _summary(),
+        const SizedBox(height: 14),
+      ],
+    ];
+    final groups = _loading ? const <MapEntry<String, List<Sale>>>[] : _dayGroups();
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
@@ -67,7 +81,10 @@ class _SalesListScreenState extends State<SalesListScreen> {
           builder: (context, constraints) => RefreshIndicator(
             color: AppColors.primary,
             onRefresh: _load,
-            child: ListView(
+            // Built a day at a time as it scrolls into view. A busy month is
+            // well over a thousand sales, and laying every row out before the
+            // first frame was a visible stall on a budget phone.
+            child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: Breakpoints.pagePadding(
                 context,
@@ -75,19 +92,9 @@ class _SalesListScreenState extends State<SalesListScreen> {
                 top: 12,
                 bottom: 32 + MediaQuery.paddingOf(context).bottom,
               ),
-              children: [
-                _header(),
-                const SizedBox(height: 16),
-                if (_loading)
-                  _skeleton()
-                else if (_list.isEmpty)
-                  _empty()
-                else ...[
-                  _summary(),
-                  const SizedBox(height: 14),
-                  _dayGroups(),
-                ],
-              ],
+              itemCount: top.length + groups.length,
+              itemBuilder: (context, i) =>
+                  i < top.length ? top[i] : _dayGroup(groups[i - top.length]),
             ),
           ),
         ),
@@ -140,73 +147,64 @@ class _SalesListScreenState extends State<SalesListScreen> {
       ),
       child: Row(
         children: [
-          cell('${_list.length}', _list.length == 1 ? 'Sale' : 'Sales'),
+          cell('${_list.length}', _list.length == 1 ? tr('Sale') : tr('Sales')),
           rule(),
-          cell('$_items', 'Items'),
+          cell('$_items', tr('Items')),
           rule(),
-          cell(formatPeso(_total), 'Revenue'),
+          cell(formatPeso(_total), tr('Revenue')),
         ],
       ),
     );
   }
 
   /// Sales grouped under a day heading, so a week's list has landmarks.
-  Widget _dayGroups() {
+  List<MapEntry<String, List<Sale>>> _dayGroups() {
     final groups = <String, List<Sale>>{};
     for (final s in _list) {
       groups.putIfAbsent(_dayLabel(s.createdAtDate), () => []).add(s);
     }
+    return groups.entries.toList();
+  }
+
+  Widget _dayGroup(MapEntry<String, List<Sale>> e) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final e in groups.entries) ...[
-          if (widget.days > 1) ...[
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 8),
-              child: Text(e.key.toUpperCase(), style: AppText.overline(color: AppColors.muted)),
-            ),
-          ],
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: AppColors.hairline),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: [
-                for (int i = 0; i < e.value.length; i++) ...[
-                  SaleRow(
-                    sale: e.value[i],
-                    products: _products,
-                    onTap: () async {
-                      final changed = await showSaleDetail(context, e.value[i]);
-                      if (changed == true) _load();
-                    },
-                  ),
-                  if (i != e.value.length - 1) const Divider(color: AppColors.divider, height: 1),
-                ],
-              ],
-            ),
+        if (widget.days > 1) ...[
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(e.key.toUpperCase(), style: AppText.overline(color: AppColors.muted)),
           ),
-          const SizedBox(height: 16),
         ],
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: AppColors.hairline),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (int i = 0; i < e.value.length; i++) ...[
+                SaleRow(
+                  sale: e.value[i],
+                  products: _products,
+                  onTap: () async {
+                    final changed = await showSaleDetail(context, e.value[i]);
+                    if (changed == true) _load();
+                  },
+                ),
+                if (i != e.value.length - 1) const Divider(color: AppColors.divider, height: 1),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
       ],
     );
   }
 
-  static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-
-  String _dayLabel(DateTime d) {
-    final now = DateTime.now();
-    bool same(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
-    if (same(d, now)) return 'Today';
-    if (same(d, now.subtract(const Duration(days: 1)))) return 'Yesterday';
-    return '${d.day} ${_months[d.month - 1]}';
-  }
+  String _dayLabel(DateTime d) => trRelativeDay(d);
 
   Widget _skeleton() {
     return Column(
@@ -252,7 +250,7 @@ class _SalesListScreenState extends State<SalesListScreen> {
         children: [
           const Icon(Icons.receipt_long_outlined, color: AppColors.faint, size: 28),
           const SizedBox(height: 10),
-          Text('No sales in this period', style: AppText.cardTitle()),
+          Text(tr('No sales in this period'), style: AppText.cardTitle()),
         ],
       ),
     );
