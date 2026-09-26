@@ -16,6 +16,7 @@ import '../widgets/product_card.dart';
 import '../widgets/product_thumb.dart';
 import '../widgets/skeleton.dart';
 import 'barcode_scanner_screen.dart';
+import '../l10n/tr.dart';
 
 enum _View { grid, list }
 
@@ -176,7 +177,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       if (source == ImageSource.camera && mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(_snack('Camera is not available — choose from your gallery instead'));
+          ..showSnackBar(_snack(tr('Camera is not available — choose from your gallery instead')));
       }
       return null;
     }
@@ -192,6 +193,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Future<String?> _choosePhoto({bool hasPhoto = false}) async {
     final choice = await showModalBottomSheet<_PhotoChoice>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         Widget row(IconData icon, String label, _PhotoChoice value,
@@ -240,14 +242,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 ),
               ),
               const SizedBox(height: 14),
-              Text(hasPhoto ? 'Change photo' : 'Add a photo',
+              Text(hasPhoto ? tr('Change photo') : tr('Add a photo'),
                   style: AppText.sectionTitle().copyWith(fontSize: 17)),
               const SizedBox(height: 6),
-              row(Icons.photo_camera_outlined, 'Take photo', _PhotoChoice.camera,
+              row(Icons.photo_camera_outlined, tr('Take photo'), _PhotoChoice.camera,
                   color: AppColors.primary, iconBg: AppColors.primaryTint),
-              row(Icons.photo_library_outlined, 'Choose from gallery', _PhotoChoice.gallery),
+              row(Icons.photo_library_outlined, tr('Choose from gallery'), _PhotoChoice.gallery),
               if (hasPhoto)
-                row(Icons.delete_outline_rounded, 'Remove photo', _PhotoChoice.remove,
+                row(Icons.delete_outline_rounded, tr('Remove photo'), _PhotoChoice.remove,
                     color: AppColors.danger, iconBg: AppColors.dangerFill),
             ],
           ),
@@ -285,7 +287,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(_snack('Photo saved · ${p.name}'));
+      ..showSnackBar(_snack(tr('Photo saved · {name}', {'name': p.name})));
   }
 
   void _setView(_View v) {
@@ -375,12 +377,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Products', style: AppText.screenTitle()),
+                Text(tr('Products'), style: AppText.screenTitle()),
                 const SizedBox(height: 2),
                 Text(
                   _loading
-                      ? 'Loading…'
-                      : '$_totalUnits unit${_totalUnits == 1 ? '' : 's'} · ${formatPeso(_inventoryValue)} on hand',
+                      ? tr('Loading…')
+                      : trCount(_totalUnits, '{n} unit · {value} on hand', '{n} units · {value} on hand', {'value': formatPeso(_inventoryValue)}),
                   style: AppText.caption(color: AppColors.body),
                 ),
               ],
@@ -400,7 +402,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 children: [
                   const Icon(Icons.add_rounded, color: Colors.white, size: 17),
                   const SizedBox(width: 5),
-                  Text('Add', style: AppText.chip(color: Colors.white).copyWith(fontSize: 13)),
+                  Text(tr('Add'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 13)),
                 ],
               ),
             ),
@@ -414,8 +416,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
   /// screen most often needs to know, put where the eye lands first.
   Widget _attentionBanner() {
     final parts = <String>[
-      if (_outCount > 0) '$_outCount out of stock',
-      if (_lowCount > 0) '$_lowCount running low',
+      if (_outCount > 0) tr('{n} out of stock', {'n': _outCount}),
+      if (_lowCount > 0) tr('{n} running low', {'n': _lowCount}),
     ];
     final critical = _outCount > 0;
     final fg = critical ? AppColors.dangerText : AppColors.warningText;
@@ -444,7 +446,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     size: 18, color: fg),
                 const SizedBox(width: 8),
                 Expanded(child: Text(parts.join(', '), style: AppText.chip(color: fg))),
-                Text(onRestock != null ? 'Restock' : 'Show', style: AppText.chip(color: fg)),
+                Text(onRestock != null ? tr('Restock') : tr('Show'), style: AppText.chip(color: fg)),
                 Icon(Icons.chevron_right_rounded, size: 18, color: fg),
               ],
             ),
@@ -492,13 +494,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   border: InputBorder.none,
                   isCollapsed: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                  hintText: 'Search name or SKU',
+                  hintText: tr('Search name or SKU'),
                   hintStyle: AppText.body(color: AppColors.faint),
                   prefixIcon: const Icon(Icons.search_rounded, color: AppColors.muted, size: 20),
                   prefixIconConstraints: const BoxConstraints(minWidth: 42),
                   suffixIcon: _search.isNotEmpty
                       ? IconButton(
-                          tooltip: 'Clear',
+                          tooltip: tr('Clear'),
                           icon: const Icon(Icons.close_rounded, color: AppColors.muted, size: 18),
                           onPressed: () {
                             _searchCtrl.clear();
@@ -506,7 +508,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           },
                         )
                       : IconButton(
-                          tooltip: 'Scan barcode',
+                          tooltip: tr('Scan barcode'),
                           icon: const Icon(Icons.qr_code_scanner_rounded,
                               color: AppColors.primary, size: 20),
                           onPressed: _scanToFind,
@@ -529,7 +531,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final customised = _sort != _Sort.name;
     return Semantics(
       button: true,
-      label: 'Sort and layout',
+      label: tr('Sort and layout'),
       child: GestureDetector(
         onTap: _showSortSheet,
         child: Container(
@@ -563,11 +565,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   Widget _filterChips() {
     final chips = <(_Filter, String, int, Color?, Color?)>[
-      (const _AllFilter(), 'All', _products.length, null, null),
+      (const _AllFilter(), tr('All'), _products.length, null, null),
       if (_lowCount > 0)
-        (const _LowFilter(), 'Low', _lowCount, AppColors.warningFill, AppColors.warningText),
+        (const _LowFilter(), tr('Low'), _lowCount, AppColors.warningFill, AppColors.warningText),
       if (_outCount > 0)
-        (const _OutFilter(), 'Out', _outCount, AppColors.dangerFill, AppColors.dangerText),
+        (const _OutFilter(), tr('Out'), _outCount, AppColors.dangerFill, AppColors.dangerText),
       if (_categories.length > 1)
         for (final c in _categories) (_CategoryFilter(c), c, _categoryCount(c), null, null),
     ];
@@ -616,17 +618,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Widget _resultRow(int count) {
     final what = switch (_filter) {
       _AllFilter() => '',
-      _LowFilter() => ' running low',
-      _OutFilter() => ' out of stock',
-      _CategoryFilter(name: final n) => ' in $n',
+      _LowFilter() => tr(' running low'),
+      _OutFilter() => tr(' out of stock'),
+      _CategoryFilter(name: final n) => tr(' in {category}', {'category': n}),
     };
-    final forQ = _search.isNotEmpty ? ' for "$_search"' : '';
+    final forQ = _search.isNotEmpty ? tr(' for "{q}"', {'q': _search}) : '';
     return Padding(
       padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 2, AppSpace.screenH, 8),
       child: Row(
         children: [
           Expanded(
-            child: Text('$count ${count == 1 ? 'result' : 'results'}$what$forQ',
+            child: Text('${trCount(count, '{n} result', '{n} results')}$what$forQ',
                 style: AppText.body(), maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
           GestureDetector(
@@ -637,7 +639,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 _filter = const _AllFilter();
               });
             },
-            child: Text('Clear', style: AppText.chip(color: AppColors.primary)),
+            child: Text(tr('Clear'), style: AppText.chip(color: AppColors.primary)),
           ),
         ],
       ),
@@ -648,6 +650,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   void _showSortSheet() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) {
@@ -728,14 +731,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                _sectionLabel('Sort by'),
+                _sectionLabel(tr('Sort by')),
                 const SizedBox(height: 4),
-                sortRow(_Sort.name, 'Name A–Z', Icons.sort_by_alpha_rounded),
-                sortRow(_Sort.stockAsc, 'Stock, low first', Icons.trending_down_rounded),
-                sortRow(_Sort.priceDesc, 'Price, high first', Icons.payments_outlined),
-                sortRow(_Sort.recent, 'Recently added', Icons.schedule_rounded),
+                sortRow(_Sort.name, tr('Name A–Z'), Icons.sort_by_alpha_rounded),
+                sortRow(_Sort.stockAsc, tr('Stock, low first'), Icons.trending_down_rounded),
+                sortRow(_Sort.priceDesc, tr('Price, high first'), Icons.payments_outlined),
+                sortRow(_Sort.recent, tr('Recently added'), Icons.schedule_rounded),
                 const SizedBox(height: 16),
-                _sectionLabel('Layout'),
+                _sectionLabel(tr('Layout')),
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.all(1),
@@ -746,8 +749,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   ),
                   child: Row(
                     children: [
-                      layoutHalf(_View.list, Icons.view_list_rounded, 'List'),
-                      layoutHalf(_View.grid, Icons.grid_view_rounded, 'Grid'),
+                      layoutHalf(_View.list, Icons.view_list_rounded, tr('List')),
+                      layoutHalf(_View.grid, Icons.grid_view_rounded, tr('Grid')),
                     ],
                   ),
                 ),
@@ -894,7 +897,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 children: [
                   Text('${p.stock}',
                       style: AppText.statFigure(size: 19, color: attention ? tone : AppColors.ink)),
-                  Text('min ${p.minStock}',
+                  Text(tr('min {n}', {'n': p.minStock}),
                       style: AppText.caption(color: attention ? tone : AppColors.muted)),
                 ],
               ),
@@ -928,7 +931,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
           children: [
             const Icon(Icons.add_box_rounded, color: Colors.white, size: 20),
             const SizedBox(width: 8),
-            Text('Add stock', style: AppText.chip(color: Colors.white)),
+            Text(tr('Add stock'), style: AppText.chip(color: Colors.white)),
           ],
         ),
       ),
@@ -952,11 +955,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   color: AppColors.primary, size: 30),
             ),
             const SizedBox(height: 14),
-            Text(filtering ? 'No products found' : 'No products yet',
+            Text(filtering ? tr('No products found') : tr('No products yet'),
                 style: AppText.cardTitle().copyWith(fontSize: 15)),
             const SizedBox(height: 4),
             Text(
-              filtering ? 'Try a different search or category' : 'Add your first product to start selling',
+              filtering ? tr('Try a different search or category') : tr('Add your first product to start selling'),
               textAlign: TextAlign.center,
               style: AppText.caption(),
             ),
@@ -973,7 +976,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.iconBtn)),
                   ),
                   icon: const Icon(Icons.add_rounded, size: 18),
-                  label: Text('Add product', style: AppText.chip(color: Colors.white)),
+                  label: Text(tr('Add product'), style: AppText.chip(color: Colors.white)),
                 ),
               ),
             ],
@@ -990,6 +993,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
     HapticFeedback.mediumImpact();
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         Widget action(IconData icon, String label, VoidCallback onTap,
@@ -1052,7 +1056,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         Text(p.name,
                             maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.sectionTitle()),
                         const SizedBox(height: 2),
-                        Text('${p.stock} in stock · ${formatPeso(p.price)}', style: AppText.caption()),
+                        Text(tr('{n} in stock · {price}', {'n': p.stock, 'price': formatPeso(p.price)}), style: AppText.caption()),
                       ],
                     ),
                   ),
@@ -1061,16 +1065,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
               const SizedBox(height: 12),
               const Divider(color: AppColors.divider, height: 1),
               const SizedBox(height: 6),
-              action(Icons.add_box_outlined, 'Add stock', () => _showAddStockSheet(p),
+              action(Icons.add_box_outlined, tr('Add stock'), () => _showAddStockSheet(p),
                   color: AppColors.primary, iconBg: AppColors.primaryTint),
-              action(Icons.edit_outlined, 'Edit', () => _showProductSheet(product: p)),
+              action(Icons.edit_outlined, tr('Edit'), () => _showProductSheet(product: p)),
               action(
                 Icons.photo_camera_outlined,
-                (p.imagePath ?? '').isEmpty ? 'Take photo' : 'Retake photo',
+                (p.imagePath ?? '').isEmpty ? tr('Take photo') : tr('Retake photo'),
                 () => _snapPhoto(p),
               ),
-              action(Icons.copy_rounded, 'Duplicate', () => _showProductSheet(template: p)),
-              action(Icons.delete_outline_rounded, 'Delete', () => _deleteWithUndo(p),
+              action(Icons.copy_rounded, tr('Duplicate'), () => _showProductSheet(template: p)),
+              action(Icons.delete_outline_rounded, tr('Delete'), () => _deleteWithUndo(p),
                   color: AppColors.danger, iconBg: AppColors.dangerFill),
             ],
           ),
@@ -1086,7 +1090,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(_snack('Added $added · ${p.name} now ${p.stock + added}'));
+      ..showSnackBar(_snack(tr('Added {n} · {name} now {after}', {'n': added, 'name': p.name, 'after': p.stock + added})));
   }
 
   /// Delete now, offer Undo for a few seconds. The row comes back with the
@@ -1098,9 +1102,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(_snack(
-        'Deleted ${p.name}',
+        tr('Deleted {name}', {'name': p.name}),
         action: SnackBarAction(
-          label: 'Undo',
+          label: tr('Undo'),
           textColor: AppColors.primary,
           onPressed: () async {
             await _productService.insertProduct(p);
@@ -1125,7 +1129,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
         children: [
           Icon(icon, size: 17, color: primary ? Colors.white : AppColors.body),
           const SizedBox(width: 6),
-          Text(label, style: AppText.chip(color: primary ? Colors.white : AppColors.body)),
+          Flexible(
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.chip(color: primary ? Colors.white : AppColors.body)),
+          ),
         ],
       ),
     );
@@ -1206,7 +1215,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(isEdit ? 'Edit product' : (template != null ? 'Duplicate product' : 'New product'),
+                            Text(isEdit ? tr('Edit product') : (template != null ? tr('Duplicate product') : tr('New product')),
                                 style: AppText.sectionTitle().copyWith(fontSize: 18)),
                             if (isEdit)
                               Text(product.name, maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -1231,7 +1240,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _sectionLabel('Product information'),
+                          _sectionLabel(tr('Product information')),
                           const SizedBox(height: 10),
                           Builder(builder: (_) {
                             final hasPhoto = imagePath != null && imagePath!.isNotEmpty;
@@ -1272,7 +1281,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                   const Icon(Icons.photo_camera_outlined,
                                                       size: 14, color: Colors.white),
                                                   const SizedBox(width: 5),
-                                                  Text('Change', style: AppText.chip(color: Colors.white)),
+                                                  Text(tr('Replace'), style: AppText.chip(color: Colors.white)),
                                                 ],
                                               ),
                                             ),
@@ -1282,23 +1291,23 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                     : Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          _photoCta(Icons.photo_camera_outlined, 'Take photo', primary: true),
+                                          Flexible(child: _photoCta(Icons.photo_camera_outlined, tr('Take photo'), primary: true)),
                                           const SizedBox(width: 10),
-                                          _photoCta(Icons.photo_library_outlined, 'Gallery'),
+                                          Flexible(child: _photoCta(Icons.photo_library_outlined, tr('Gallery'))),
                                         ],
                                       ),
                               ),
                             );
                           }),
                           const SizedBox(height: 14),
-                          _fieldLabel('Product name'),
-                          _field(nameCtrl, hint: 'e.g. SkyFlakes',
-                              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+                          _fieldLabel(tr('Product name')),
+                          _field(nameCtrl, hint: tr('e.g. SkyFlakes'),
+                              validator: (v) => (v == null || v.trim().isEmpty) ? tr('Required') : null),
                           const SizedBox(height: 14),
-                          _fieldLabel('SKU / barcode'),
+                          _fieldLabel(tr('SKU / barcode')),
                           Row(
                             children: [
-                              Expanded(child: _field(skuCtrl, hint: 'Optional')),
+                              Expanded(child: _field(skuCtrl, hint: tr('Optional'))),
                               const SizedBox(width: 10),
                               GestureDetector(
                                 onTap: () async {
@@ -1321,31 +1330,31 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             ],
                           ),
                           const SizedBox(height: 14),
-                          _fieldLabel('Category'),
-                          _field(categoryCtrl, hint: 'e.g. Biscuits',
-                              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+                          _fieldLabel(tr('Category')),
+                          _field(categoryCtrl, hint: tr('e.g. Biscuits'),
+                              validator: (v) => (v == null || v.trim().isEmpty) ? tr('Required') : null),
 
                           const SizedBox(height: 20),
                           const Divider(color: AppColors.divider, height: 1),
                           const SizedBox(height: 18),
-                          _sectionLabel('Pricing'),
+                          _sectionLabel(tr('Pricing')),
                           const SizedBox(height: 10),
-                          _fieldLabel('Selling price'),
+                          _fieldLabel(tr('Selling price')),
                           _field(priceCtrl,
                               hint: '0.00',
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
                               prefixText: '₱ ',
                               validator: (v) =>
-                                  (double.tryParse(v ?? '') == null) ? 'Enter a price' : null),
+                                  (double.tryParse(v ?? '') == null) ? tr('Enter a price') : null),
 
                           const SizedBox(height: 20),
                           const Divider(color: AppColors.divider, height: 1),
                           const SizedBox(height: 18),
-                          _sectionLabel('Inventory'),
+                          _sectionLabel(tr('Inventory')),
                           const SizedBox(height: 10),
-                          _stepperRow('Current stock', stock, (v) => setSheet(() => stock = v)),
+                          _stepperRow(tr('Current stock'), stock, (v) => setSheet(() => stock = v)),
                           const SizedBox(height: 10),
-                          _stepperRow('Minimum stock', minStock, (v) => setSheet(() => minStock = v)),
+                          _stepperRow(tr('Minimum stock'), minStock, (v) => setSheet(() => minStock = v)),
                           if (lowNotice) ...[
                             const SizedBox(height: 10),
                             Container(
@@ -1362,7 +1371,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'Stock is at or below the minimum — this product will show in Restock.',
+                                      tr('Stock is at or below the minimum — this product will show in Restock.'),
                                       style: AppText.caption(color: AppColors.warningText),
                                     ),
                                   ),
@@ -1374,7 +1383,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           const SizedBox(height: 20),
                           const Divider(color: AppColors.divider, height: 1),
                           const SizedBox(height: 18),
-                          _sectionLabel('Actions'),
+                          _sectionLabel(tr('Actions')),
                           const SizedBox(height: 10),
                           SizedBox(
                             width: double.infinity,
@@ -1418,7 +1427,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                 if (ctx.mounted) Navigator.pop(ctx);
                                 _load();
                               },
-                              child: Text(isEdit ? 'Save changes' : 'Save product',
+                              child: Text(isEdit ? tr('Save changes') : tr('Save product'),
                                   style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
                             ),
                           ),
@@ -1438,7 +1447,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                   Navigator.pop(ctx);
                                   _deleteWithUndo(product);
                                 },
-                                child: Text('Delete product',
+                                child: Text(tr('Delete product'),
                                     style: AppText.chip(color: AppColors.danger).copyWith(fontSize: 15)),
                               ),
                             ),
@@ -1514,9 +1523,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
         border: Border.all(color: AppColors.hairline),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: AppText.body()),
+          Expanded(child: Text(label, style: AppText.body())),
+          const SizedBox(width: 8),
           QtyStepper(
             value: value,
             figureSize: 18,
@@ -1567,21 +1576,21 @@ class _AddStockPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: 'Add stock',
+      label: tr('Add stock'),
       child: Material(
         color: AppColors.primary,
         borderRadius: BorderRadius.circular(AppRadius.chip),
         child: InkWell(
           borderRadius: BorderRadius.circular(AppRadius.chip),
           onTap: onTap,
-          child: const Padding(
+          child: Padding(
             padding: EdgeInsets.fromLTRB(9, 8, 11, 8),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.add_rounded, size: 16, color: Colors.white),
                 SizedBox(width: 2),
-                Text('Stock',
+                Text(tr('Stock'),
                     style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700)),
               ],
             ),
