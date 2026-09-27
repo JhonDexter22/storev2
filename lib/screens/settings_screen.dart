@@ -13,6 +13,8 @@ import 'returns_screen.dart';
 import 'shift_history_screen.dart';
 import 'store_settings_screen.dart';
 import 'utang_screen.dart';
+import '../l10n/tr.dart';
+import '../widgets/language_switch.dart';
 
 /// The More hub: everything that is not one of the four main tabs.
 ///
@@ -33,11 +35,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-
   late final Future<double> _owed = _loadOwed();
   late final Future<({double total, int count, DateTime openedAt})> _shift =
       ShiftService().currentShiftSales();
@@ -47,10 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return customers.fold<double>(0, (sum, c) => sum + (c.balance > 0 ? c.balance : 0));
   }
 
-  String _todayLabel() {
-    final now = DateTime.now();
-    return '${now.day} ${_months[now.month - 1]}';
-  }
+  String _todayLabel() => trDay(DateTime.now());
 
   void _open(Widget screen) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
@@ -62,16 +56,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Sign out?', style: AppText.sectionTitle()),
+        title: Text(tr('Sign out?'), style: AppText.sectionTitle()),
         content: Text(
-          'You will need to sign in again to continue using this device.',
+          tr('You will need to sign in again to continue using this device.'),
           style: AppText.body(),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+            child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
           ),
           TextButton(
             onPressed: () {
@@ -79,7 +73,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // Signing out means someone has to sign back in to the till.
               _open(const CashierSwitchScreen());
             },
-            child: Text('Sign out', style: AppText.chip(color: AppColors.danger)),
+            child: Text(tr('Sign out'), style: AppText.chip(color: AppColors.danger)),
           ),
         ],
       ),
@@ -99,66 +93,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final sections = <_Section>[
       _Section(
-        title: 'Today',
+        title: tr('Today'),
         tint: AppColors.primaryTint,
         iconColor: AppColors.primary,
         items: [
           _MoreItem(
             icon: Icons.bar_chart_rounded,
-            title: 'Reports',
-            subtitle: 'Revenue, top products, payment mix',
+            title: tr('Reports'),
+            subtitle: tr('Revenue, top products, payment mix'),
             onTap: () => _open(const ReportsScreen()),
           ),
           _MoreItem(
             icon: Icons.payments_outlined,
-            title: 'Cash count',
-            subtitle: 'End of day reconciliation',
+            title: tr('Cash count'),
+            subtitle: tr('End of day reconciliation'),
             trailing: _ShiftMeta(future: _shift),
             onTap: () => _open(const CashCountScreen()),
           ),
           _MoreItem(
             icon: Icons.history_rounded,
-            title: 'Shift history',
-            subtitle: 'Past closes and drawer variance',
+            title: tr('Shift history'),
+            subtitle: tr('Past closes and drawer variance'),
             onTap: () => _open(const ShiftHistoryScreen()),
           ),
         ],
       ),
       _Section(
-        title: 'At the counter',
+        title: tr('At the counter'),
         tint: AppColors.warningFill,
         iconColor: AppColors.warningText,
         items: [
           _MoreItem(
             icon: Icons.assignment_return_outlined,
-            title: 'Returns & voids',
-            subtitle: 'Reverse a line or a whole sale',
+            title: tr('Returns & voids'),
+            subtitle: tr('Reverse a line or a whole sale'),
             onTap: () => _open(const ReturnsScreen()),
           ),
           _MoreItem(
             icon: Icons.receipt_long_outlined,
-            title: 'Utang',
-            subtitle: 'Who owes what, aged oldest first',
+            title: tr('Credit'),
+            subtitle: tr('Who owes what, aged oldest first'),
             trailing: _OwedMeta(future: _owed),
             onTap: () => _open(UtangScreen(onCharge: widget.onStartSale)),
           ),
         ],
       ),
       _Section(
-        title: 'Store',
+        title: tr('Store'),
         tint: AppColors.divider,
         iconColor: AppColors.body,
         items: [
           _MoreItem(
             icon: Icons.inventory_2_outlined,
-            title: 'Products',
-            subtitle: 'Full inventory list',
+            title: tr('Products'),
+            subtitle: tr('Full inventory list'),
             onTap: () => _open(const ProductsScreen()),
           ),
           _MoreItem(
             icon: Icons.settings_outlined,
-            title: 'Settings',
-            subtitle: 'Receipts, alerts, backup',
+            title: tr('Settings'),
+            subtitle: tr('Receipts, alerts, backup'),
             onTap: () => _open(const StoreSettingsScreen()),
           ),
         ],
@@ -180,7 +174,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               phoneSide: 24,
             ),
             children: [
-              Text('More', style: AppText.screenTitle()),
+              Row(
+                children: [
+                  Expanded(child: Text(tr('More'), style: AppText.screenTitle())),
+                  const LanguageSwitch(compact: true),
+                ],
+              ),
               const SizedBox(height: 16),
 
               _CashierCard(
@@ -250,7 +249,7 @@ class _CashierCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Signed in as', style: AppText.caption()),
+                Text(tr('Signed in as'), style: AppText.caption()),
                 const SizedBox(height: 2),
                 Text(name, style: AppText.sectionTitle(), maxLines: 1, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 2),
@@ -275,7 +274,7 @@ class _SwitchButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: 'Switch cashier',
+      label: tr('Switch cashier'),
       child: Material(
         color: AppColors.primaryTint,
         borderRadius: BorderRadius.circular(AppRadius.chip),
@@ -289,7 +288,7 @@ class _SwitchButton extends StatelessWidget {
               children: [
                 const Icon(Icons.swap_horiz_rounded, size: 18, color: AppColors.primary),
                 const SizedBox(width: 6),
-                Text('Switch', style: AppText.chip(color: AppColors.primary)),
+                Text(tr('Switch'), style: AppText.chip(color: AppColors.primary)),
               ],
             ),
           ),
@@ -535,7 +534,7 @@ class _SignOutRow extends StatelessWidget {
             children: [
               const Icon(Icons.logout_rounded, size: 18, color: AppColors.dangerText),
               const SizedBox(width: 8),
-              Text('Sign out', style: AppText.chip(color: AppColors.dangerText).copyWith(fontSize: 14)),
+              Text(tr('Sign out'), style: AppText.chip(color: AppColors.dangerText).copyWith(fontSize: 14)),
             ],
           ),
         ),
