@@ -4,6 +4,8 @@ import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../models/sale_model.dart';
+import '../models/backup_status.dart';
+import '../services/backup_share.dart';
 import '../services/export_service.dart';
 import '../services/product_service.dart';
 import '../services/sales_service.dart';
@@ -18,7 +20,7 @@ import '../services/stock_alerts.dart';
 import 'cash_count_screen.dart';
 import 'reports_screen.dart';
 import 'sales_list_screen.dart';
-import 'store_settings_screen.dart';
+import '../l10n/tr.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
@@ -64,6 +66,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Sale> _recentSales = [];
   PeriodStats? _stats;
   List<double> _chartDays = [];
+
+  /// True while the reminder's own backup is being written and shared.
+  bool _backingUp = false;
 
   /// Sales since the last close — what a Close day would sum up.
   ({double total, int count, DateTime openedAt})? _openShift;
@@ -212,12 +217,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _statGrid(),
         const SizedBox(height: AppSpace.gapBlock),
         if (_needsAttention.isNotEmpty) ...[
-          _sectionTitle('Needs attention'),
+          _sectionTitle(tr('Needs attention')),
           const SizedBox(height: 10),
           _attentionList(),
           const SizedBox(height: AppSpace.gapBlock),
         ],
-        _sectionTitle('Recent sales'),
+        _sectionTitle(tr('Recent sales')),
         const SizedBox(height: 10),
         _recentSalesList(),
         const SizedBox(height: AppSpace.gapBlock),
@@ -264,14 +269,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                   const SizedBox(height: AppSpace.gapGrid),
                   _statRow([
-                    _statCard('Transactions', '${stats.transactions}',
+                    _statCard(tr('Transactions'), '${stats.transactions}',
                         Icons.receipt_long_outlined, AppColors.primary),
-                    _statCard('Items sold', '${stats.itemsSold}',
+                    _statCard(tr('Items sold'), '${stats.itemsSold}',
                         Icons.shopping_bag_outlined, AppColors.primary),
                   ]),
                   const SizedBox(height: AppSpace.gapGrid),
                   _statRow([
-                    _statCard('Inventory', '$_totalUnits units',
+                    _statCard(tr('Inventory'), tr('{n} units', {'n': _totalUnits}),
                         Icons.inventory_2_outlined, AppColors.body),
                     _stockAlertsCard(),
                   ]),
@@ -288,7 +293,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionTitle('Needs attention'),
+                  _sectionTitle(tr('Needs attention')),
                   const SizedBox(height: 10),
                   if (_needsAttention.isEmpty) _nothingToRestockCard() else _attentionList(),
                 ],
@@ -299,7 +304,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionTitle('Recent sales'),
+                  _sectionTitle(tr('Recent sales')),
                   const SizedBox(height: 10),
                   _recentSalesList(),
                 ],
@@ -340,7 +345,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.circular(AppRadius.card),
         border: Border.all(color: AppColors.hairline),
       ),
-      child: Text('Everything is stocked', style: AppText.body()),
+      child: Text(tr('Everything is stocked'), style: AppText.body()),
     );
   }
 
@@ -517,12 +522,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: AppColors.danger, size: 30),
             ),
             const SizedBox(height: 16),
-            Text("Could not load today's sales",
+            Text(tr("Could not load today's sales"),
                 textAlign: TextAlign.center,
                 style: AppText.sectionTitle().copyWith(fontSize: 17)),
             const SizedBox(height: 6),
             Text(
-              'Nothing was lost — your products and sales are still saved on this device.',
+              tr('Nothing was lost — your products and sales are still saved on this device.'),
               textAlign: TextAlign.center,
               style: AppText.body(),
             ),
@@ -549,7 +554,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.cta)),
                 ),
-                child: Text('Try again',
+                child: Text(tr('Try again'),
                     style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
               ),
             ),
@@ -565,7 +570,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.cta)),
                 ),
-                child: Text('Continue to POS',
+                child: Text(tr('Continue to POS'),
                     style: AppText.chip(color: AppColors.body).copyWith(fontSize: 15)),
               ),
             ),
@@ -575,13 +580,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  /// True when the shopkeeper asked to be reminded and the last export is
-  /// over a week old — or never happened.
+  /// True when reminders are on and the last export is a week old or more —
+  /// or never happened.
+  ///
+  /// The same line the till header's pill draws, so Home and Sell never
+  /// disagree about whether a backup is due. A store with nothing in it yet
+  /// has nothing to lose, and is not nagged on its first morning.
   bool get _backupIsStale {
     final settings = SettingsService.instance;
     if (!settings.autoBackup) return false;
-    final since = ExportService.sinceLastBackup(settings.lastBackup);
-    return since == null || since > const Duration(days: 7);
+    if (_products.isEmpty && _recentSales.isEmpty) return false;
+    final raw = settings.lastBackup;
+    final status = BackupStatus.from(raw == null ? null : DateTime.tryParse(raw));
+    return status.level != BackupLevel.fresh;
+  }
+
+  /// Backs up from the reminder itself rather than sending the shopkeeper to
+  /// find the button in Settings — the tap that reads the warning is the one
+  /// that should fix it.
+  Future<void> _backUpNow() async {
+    if (_backingUp) return;
+    setState(() => _backingUp = true);
+    String message;
+    try {
+      final file = await shareBackup();
+      message = file == null
+          ? tr('Backup cancelled — nothing was sent')
+          : tr('Backed up to {file}', {'file': file});
+    } catch (e) {
+      message = tr('Could not export: {error}', {'error': e});
+    }
+    if (!mounted) return;
+    setState(() => _backingUp = false);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// The whole store lives in one file on this phone. This is the only thing
@@ -589,16 +622,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _backupNudge() {
     final since = ExportService.sinceLastBackup(SettingsService.instance.lastBackup);
     final how = since == null
-        ? 'You have never exported a backup.'
-        : 'Your last backup was ${since.inDays} days ago.';
+        ? tr('You have never exported a backup.')
+        : tr('Your last backup was {n} days ago.', {'n': since.inDays});
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const StoreSettingsScreen()),
-        ),
+        onTap: _backingUp ? null : _backUpNow,
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -614,17 +644,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Back up your store',
+                    Text(_backingUp ? tr('Backing up…') : tr('Back up your store'),
                         style: AppText.cardTitle(color: AppColors.warningText)
                             .copyWith(fontSize: 13)),
                     const SizedBox(height: 2),
-                    Text('$how Everything is on this phone only.',
+                    Text('$how ${tr('Everything is on this phone only.')}',
                         style: AppText.caption(color: AppColors.warningText)),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded,
-                  size: 18, color: AppColors.warningText),
+              Text(tr('Back up now'),
+                  style: AppText.chip(color: AppColors.warningText)),
             ],
           ),
         ),
@@ -634,7 +664,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _greetingHeader() {
     final hour = DateTime.now().hour;
-    final greeting = hour < 12 ? 'Good morning' : (hour < 18 ? 'Good afternoon' : 'Good evening');
+    final greeting = hour < 12 ? tr('Good morning') : (hour < 18 ? tr('Good afternoon') : tr('Good evening'));
     return Row(
       children: [
         Expanded(
@@ -643,7 +673,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               Text(greeting, style: AppText.caption()),
               const SizedBox(height: 2),
-              Text('Store Overview', style: AppText.screenTitle()),
+              Text(tr('Store Overview'), style: AppText.screenTitle()),
             ],
           ),
         ),
@@ -700,14 +730,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    return Row(
-      children: [
-        chip(_Period.today, 'Today'),
-        const SizedBox(width: AppSpace.gapChip),
-        chip(_Period.week, '7 days'),
-        const SizedBox(width: AppSpace.gapChip),
-        chip(_Period.month, '30 days'),
-      ],
+    // Scrolls rather than clips: Filipino labels run longer than English,
+    // and on a narrow phone the last chip would otherwise be cut off.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          chip(_Period.today, tr('Today')),
+          const SizedBox(width: AppSpace.gapChip),
+          chip(_Period.week, tr('7 days')),
+          const SizedBox(width: AppSpace.gapChip),
+          chip(_Period.month, tr('30 days')),
+        ],
+      ),
     );
   }
 
@@ -730,7 +765,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('SALES ${_period == _Period.today ? 'TODAY' : (_period == _Period.week ? 'THIS WEEK' : 'THIS MONTH')}',
+          Text(switch (_period) {
+            _Period.today => tr('SALES TODAY'),
+            _Period.week => tr('SALES THIS WEEK'),
+            _Period.month => tr('SALES THIS MONTH'),
+          },
               style: AppText.overline()),
           const SizedBox(height: 6),
           Row(
@@ -756,9 +795,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 12),
           Row(
             children: [
-              _footerStat('Transactions', '${stats.transactions}'),
-              _footerStat('Avg sale', formatPeso(stats.avgSale)),
-              _footerStat('Items', '${stats.itemsSold}'),
+              _footerStat(tr('Transactions'), '${stats.transactions}'),
+              _footerStat(tr('Avg sale'), formatPeso(stats.avgSale)),
+              _footerStat(tr('Items'), '${stats.itemsSold}'),
             ],
           ),
         ],
@@ -768,9 +807,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _noSalesCard() {
     final label = switch (_period) {
-      _Period.today => 'No sales yet today',
-      _Period.week => 'No sales in the last 7 days',
-      _Period.month => 'No sales in the last 30 days',
+      _Period.today => tr('No sales yet today'),
+      _Period.week => tr('No sales in the last 7 days'),
+      _Period.month => tr('No sales in the last 30 days'),
     };
     return Container(
       width: double.infinity,
@@ -796,7 +835,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Text(label, style: AppText.sectionTitle().copyWith(fontSize: 16)),
           const SizedBox(height: 4),
           Text(
-            'Sales you ring up will show here, with the total and a breakdown of the week.',
+            tr('Sales you ring up will show here, with the total and a breakdown of the week.'),
             textAlign: TextAlign.center,
             style: AppText.caption(),
           ),
@@ -813,7 +852,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.cta)),
               ),
-              child: Text('Start a sale',
+              child: Text(tr('Start a sale'),
                   style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
             ),
           ),
@@ -836,7 +875,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _barChart() {
-    const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    // Monday first, like the chart. Lunes, Martes, Miyerkules, Huwebes,
+    // Biyernes, Sabado, Linggo.
+    final days = SettingsService.instance.language == AppLanguage.fil
+        ? const ['L', 'M', 'M', 'H', 'B', 'S', 'L']
+        : const ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     final maxVal = (_chartDays.isEmpty ? 1.0 : _chartDays.reduce((a, b) => a > b ? a : b)).clamp(1, double.infinity);
     final now = DateTime.now();
     return SizedBox(
@@ -883,22 +926,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
       childAspectRatio: 1.7,
       children: [
         _statCard(
-          'Transactions',
+          tr('Transactions'),
           '${stats.transactions}',
           Icons.receipt_long_outlined,
           AppColors.primary,
           onTap: () => _push(SalesListScreen(days: _periodDays)),
         ),
         _statCard(
-          'Items sold',
+          tr('Items sold'),
           '${stats.itemsSold}',
           Icons.shopping_bag_outlined,
           AppColors.primary,
           onTap: () => _push(const ReportsScreen()),
         ),
         _statCard(
-          'Inventory',
-          '$_totalUnits units',
+          tr('Inventory'),
+          tr('{n} units', {'n': _totalUnits}),
           Icons.inventory_2_outlined,
           AppColors.body,
           onTap: widget.onOpenProducts,
@@ -973,17 +1016,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final calm = _lowCount == 0 && _outCount == 0;
     if (calm) {
       return _statCard(
-        'Stock alerts',
-        'All stocked',
+        tr('Stock alerts'),
+        tr('All stocked'),
         Icons.check_circle_outline_rounded,
         AppColors.success,
         onTap: widget.onOpenRestock,
-        figure: Text('All stocked', style: AppText.statFigure(color: AppColors.successText, size: 20)),
+        figure: Text(tr('All stocked'), style: AppText.statFigure(color: AppColors.successText, size: 20)),
       );
     }
     final critical = _outCount > 0;
     return _statCard(
-      'Stock alerts',
+      tr('Stock alerts'),
       '',
       Icons.warning_amber_rounded,
       critical ? AppColors.danger : AppColors.warning,
@@ -994,12 +1037,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           if (_outCount > 0) ...[
             Text('$_outCount', style: AppText.statFigure(color: AppColors.dangerText, size: 20)),
-            Text(' out', style: AppText.caption(color: AppColors.dangerText)),
+            Text(tr(' out'), style: AppText.caption(color: AppColors.dangerText)),
           ],
           if (_outCount > 0 && _lowCount > 0) const SizedBox(width: 8),
           if (_lowCount > 0) ...[
             Text('$_lowCount', style: AppText.statFigure(color: AppColors.warningText, size: 20)),
-            Text(' low', style: AppText.caption(color: AppColors.warningText)),
+            Text(tr(' low'), style: AppText.caption(color: AppColors.warningText)),
           ],
         ],
       ),
@@ -1057,7 +1100,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
-                        p.stock <= 0 ? 'Out of stock · min ${p.minStock}' : '${p.stock} left · min ${p.minStock}',
+                        p.stock <= 0
+                            ? tr('Out of stock · min {min}', {'min': p.minStock})
+                            : tr('{n} left · min {min}', {'n': p.stock, 'min': p.minStock}),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppText.caption(color: tone),
@@ -1071,21 +1116,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(width: 10),
           Semantics(
             button: true,
-            label: 'Add stock',
+            label: tr('Add stock'),
             child: Material(
               color: AppColors.primary,
               borderRadius: BorderRadius.circular(AppRadius.chip),
               child: InkWell(
                 borderRadius: BorderRadius.circular(AppRadius.chip),
                 onTap: () => _addStock(p),
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.fromLTRB(9, 8, 11, 8),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.add_rounded, size: 16, color: Colors.white),
                       SizedBox(width: 2),
-                      Text('Stock',
+                      Text(tr('Stock'),
                           style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700)),
                     ],
                   ),
@@ -1105,7 +1150,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text('Added $added · ${p.name} now ${p.stock + added}')));
+      ..showSnackBar(SnackBar(content: Text(tr('Added {n} · {name} now {after}', {'n': added, 'name': p.name, 'after': p.stock + added}))));
   }
 
   Widget _recentSalesList() {
@@ -1118,7 +1163,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           borderRadius: BorderRadius.circular(AppRadius.card),
           border: Border.all(color: AppColors.hairline),
         ),
-        child: Text('No sales yet today', style: AppText.body()),
+        child: Text(tr('No sales yet today'), style: AppText.body()),
       );
     }
     return Container(
@@ -1180,10 +1225,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Close day', style: AppText.cardTitle()),
+                    Text(tr('Close day'), style: AppText.cardTitle()),
                     const SizedBox(height: 2),
                     Text(
-                      '${formatPeso(shift.total)} · ${shift.count} sale${shift.count == 1 ? '' : 's'} since $since',
+                      trCount(shift.count, '{total} · {n} sale since {since}', '{total} · {n} sales since {since}', {'total': formatPeso(shift.total), 'since': since}),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.caption(),
@@ -1223,8 +1268,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Start a new sale', style: AppText.cardTitle(color: Colors.white).copyWith(fontSize: 15)),
-                  Text('Open the register', style: AppText.caption(color: Colors.white70)),
+                  Text(tr('Start a new sale'), style: AppText.cardTitle(color: Colors.white).copyWith(fontSize: 15)),
+                  Text(tr('Open the register'), style: AppText.caption(color: Colors.white70)),
                 ],
               ),
             ),
