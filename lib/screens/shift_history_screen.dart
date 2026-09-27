@@ -9,6 +9,7 @@ import '../services/settings_service.dart';
 import '../services/shift_summary.dart';
 import '../widgets/day_close_view.dart';
 import '../services/shift_service.dart';
+import '../l10n/tr.dart';
 
 /// Shift history — find a short drawer without opening a report.
 class ShiftHistoryScreen extends StatefulWidget {
@@ -22,12 +23,6 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
   final ShiftService _shifts = ShiftService();
   List<Shift> _list = [];
   bool _loading = true;
-
-  static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
 
   @override
   void initState() {
@@ -58,12 +53,12 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
   }
 
   static String _varianceWord(double v) {
-    if (v.abs() < 0.005) return 'Exact';
-    return v < 0 ? 'Short' : 'Over';
+    if (v.abs() < 0.005) return tr('Exact');
+    return v < 0 ? tr('Short') : tr('Over');
   }
 
-  String _dateLabel(DateTime d) => '${d.day} ${_months[d.month - 1]}';
-  String _weekday(DateTime d) => _weekdays[d.weekday - 1];
+  String _dateLabel(DateTime d) => trDay(d);
+  String _weekday(DateTime d) => trWeekday(d.weekday);
 
   String _hours(Shift s) {
     final open = s.openedAtDate;
@@ -131,11 +126,11 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Shift history', style: AppText.screenTitle().copyWith(fontSize: 20)),
+                Text(tr('Shift history'), style: AppText.screenTitle().copyWith(fontSize: 20)),
                 Text(
                   _loading
-                      ? 'Loading…'
-                      : '${_list.length} close${_list.length == 1 ? '' : 's'} recorded',
+                      ? tr('Loading…')
+                      : trCount(_list.length, '{n} close recorded', '{n} closes recorded'),
                   style: AppText.caption(),
                 ),
               ],
@@ -149,11 +144,11 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
   Widget _statTiles() {
     return Row(
       children: [
-        Expanded(child: _tile('Sales', formatPeso(_totalSales), AppColors.ink, AppColors.surface)),
+        Expanded(child: _tile(tr('Sales'), formatPeso(_totalSales), AppColors.ink, AppColors.surface)),
         const SizedBox(width: 10),
         Expanded(
           child: _tile(
-            'Net variance',
+            tr('Net variance'),
             '${_netVariance > 0 ? '+' : ''}${formatPeso(_netVariance)}',
             _varianceColor(_netVariance),
             _netVariance.abs() < 0.005 ? AppColors.surface : _varianceFill(_netVariance),
@@ -237,13 +232,13 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                         children: [
                           Expanded(
                             child: Text(
-                              '${formatPeso(s.totalSales)} · ${s.saleCount} sale${s.saleCount == 1 ? '' : 's'}',
+                              trCount(s.saleCount, '{total} · {n} sale', '{total} · {n} sales', {'total': formatPeso(s.totalSales)}),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: AppText.body(),
                             ),
                           ),
-                          Text('View count', style: AppText.chip(color: AppColors.primary)),
+                          Text(tr('View count'), style: AppText.chip(color: AppColors.primary)),
                           const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.primary),
                         ],
                       ),
@@ -296,13 +291,13 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Sales', style: AppText.body()),
-                Text('${formatPeso(s.totalSales)} · ${s.saleCount} sale${s.saleCount == 1 ? '' : 's'}',
+                Text(tr('Sales'), style: AppText.body()),
+                Text(trCount(s.saleCount, '{total} · {n} sale', '{total} · {n} sales', {'total': formatPeso(s.totalSales)}),
                     style: AppText.cardTitle()),
               ],
             ),
             const SizedBox(height: 16),
-            Text('THE DRAWER AS COUNTED', style: AppText.overline(color: AppColors.muted)),
+            Text(tr('THE DRAWER AS COUNTED'), style: AppText.overline(color: AppColors.muted)),
             const SizedBox(height: 8),
             Flexible(
               child: SingleChildScrollView(
@@ -311,7 +306,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                     if (denoms.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Text('No denominations recorded for this close.',
+                        child: Text(tr('No denominations recorded for this close.'),
                             style: AppText.caption()),
                       ),
                     // Stored per denomination, so this always sums to counted.
@@ -329,20 +324,20 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                     const SizedBox(height: 10),
                     const Divider(color: AppColors.divider, height: 1),
                     const SizedBox(height: 10),
-                    _detailRow('Opening float', formatPeso(s.openingFloat)),
+                    _detailRow(tr('Opening float'), formatPeso(s.openingFloat)),
                     const SizedBox(height: 8),
-                    _detailRow('Cash sales', formatPeso(s.cashSales)),
+                    _detailRow(tr('Cash sales'), formatPeso(s.cashSales)),
                     const SizedBox(height: 8),
-                    _detailRow('Expected', formatPeso(s.expected)),
+                    _detailRow(tr('Expected'), formatPeso(s.expected)),
                     const SizedBox(height: 8),
-                    _detailRow('Counted', formatPeso(s.counted)),
+                    _detailRow(tr('Counted'), formatPeso(s.counted)),
                     const SizedBox(height: 10),
                     const Divider(color: AppColors.divider, height: 1),
                     const SizedBox(height: 10),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Variance', style: AppText.body()),
+                        Text(tr('Variance'), style: AppText.body()),
                         Text('${s.variance > 0 ? '+' : ''}${formatPeso(s.variance)}',
                             style: AppText.largeFigure(color: color).copyWith(fontSize: 24)),
                       ],
@@ -367,7 +362,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
                 ),
                 icon: const Icon(Icons.summarize_outlined, size: 16),
-                label: Text('Full day report', style: AppText.chip(color: Colors.white)),
+                label: Text(tr('Full day report'), style: AppText.chip(color: Colors.white)),
               ),
             ),
             const SizedBox(height: 8),
@@ -385,7 +380,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
                 ),
                 icon: const Icon(Icons.print_outlined, size: 16),
-                label: Text('Print this summary', style: AppText.chip(color: AppColors.body)),
+                label: Text(tr('Print this summary'), style: AppText.chip(color: AppColors.body)),
               ),
             ),
           ],
@@ -404,7 +399,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
       MaterialPageRoute(
         builder: (ctx) => DayCloseView(
           summary: summary,
-          title: 'Shift report',
+          title: tr('Shift report'),
           onDone: () => Navigator.pop(ctx),
         ),
       ),
@@ -452,9 +447,9 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
               child: const Icon(Icons.history_rounded, color: AppColors.primary, size: 30),
             ),
             const SizedBox(height: 14),
-            Text('No shifts closed yet', style: AppText.cardTitle().copyWith(fontSize: 15)),
+            Text(tr('No shifts closed yet'), style: AppText.cardTitle().copyWith(fontSize: 15)),
             const SizedBox(height: 4),
-            Text('Close a drawer from Cash count and it will show up here.',
+            Text(tr('Close a drawer from Cash count and it will show up here.'),
                 textAlign: TextAlign.center, style: AppText.caption()),
           ],
         ),
