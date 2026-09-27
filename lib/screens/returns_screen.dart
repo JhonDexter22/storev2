@@ -7,6 +7,7 @@ import '../models/refund_model.dart';
 import '../models/sale_model.dart';
 import '../services/sales_service.dart';
 import '../services/settings_service.dart';
+import '../l10n/tr.dart';
 
 /// Returns & voids — reverse part or all of a completed sale.
 ///
@@ -170,7 +171,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                   Text(sale.summary(), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
                   const SizedBox(height: 2),
                   Text(
-                    '${t.format(context)} · ${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'} · ${sale.paymentMethod} · ${sale.shortRef}',
+                    '${t.format(context)} · ${trCount(sale.itemCount, '{n} item', '{n} items')} · ${sale.paymentMethod} · ${sale.shortRef}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppText.caption(),
@@ -202,10 +203,10 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                   color: AppColors.primary, size: 30),
             ),
             const SizedBox(height: 14),
-            Text('Pick a sale to return',
+            Text(tr('Pick a sale to return'),
                 style: AppText.cardTitle().copyWith(fontSize: 15)),
             const SizedBox(height: 4),
-            Text('Choose one on the left and build the refund here.',
+            Text(tr('Choose one on the left and build the refund here.'),
                 textAlign: TextAlign.center, style: AppText.caption()),
           ],
         ),
@@ -236,8 +237,8 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Returns & voids', style: AppText.screenTitle().copyWith(fontSize: 20)),
-                Text('Recent sales', style: AppText.caption()),
+                Text(tr('Returns & voids'), style: AppText.screenTitle().copyWith(fontSize: 20)),
+                Text(tr('Recent sales'), style: AppText.caption()),
               ],
             ),
           ),
@@ -259,7 +260,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'A void is a full return, so both leave the same trail in Reports.',
+              tr('A void is a full return, so both leave the same trail in Reports.'),
               style: AppText.caption(color: AppColors.primary),
             ),
           ),
@@ -289,7 +290,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                     Text(sale.summary(), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
                     const SizedBox(height: 2),
                     Text(
-                      '${t.format(context)} · ${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'} · ${sale.paymentMethod} · ${sale.shortRef}',
+                      '${t.format(context)} · ${trCount(sale.itemCount, '{n} item', '{n} items')} · ${sale.paymentMethod} · ${sale.shortRef}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.caption(),
@@ -314,7 +315,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: Text('Return items', style: AppText.chip(color: AppColors.primary)),
+                    child: Text(tr('Return items'), style: AppText.chip(color: AppColors.primary)),
                   ),
                 ),
               ),
@@ -329,7 +330,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                       side: const BorderSide(color: AppColors.dangerBorder),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: Text('Void whole sale', style: AppText.chip(color: AppColors.danger)),
+                    child: Text(tr('Void whole sale'), style: AppText.chip(color: AppColors.danger)),
                   ),
                 ),
               ),
@@ -354,9 +355,9 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
               child: const Icon(Icons.receipt_long_outlined, color: AppColors.primary, size: 30),
             ),
             const SizedBox(height: 14),
-            Text('No sales to return', style: AppText.cardTitle().copyWith(fontSize: 15)),
+            Text(tr('No sales to return'), style: AppText.cardTitle().copyWith(fontSize: 15)),
             const SizedBox(height: 4),
-            Text('Completed sales show up here so you can reverse them.',
+            Text(tr('Completed sales show up here so you can reverse them.'),
                 textAlign: TextAlign.center, style: AppText.caption()),
           ],
         ),
@@ -460,23 +461,23 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(isVoid ? 'Void this whole sale?' : 'Confirm this return?',
+        title: Text(isVoid ? tr('Void this whole sale?') : tr('Confirm this return?'),
             style: AppText.sectionTitle().copyWith(fontSize: 17)),
         content: Text(
           isVoid
-              ? 'Every line on ${widget.sale.reference} will be reversed and ${formatPeso(_refundDue)} refunded by $_method.'
-              : '${formatPeso(_refundDue)} will be refunded by $_method and recorded against ${widget.sale.reference}.',
+              ? tr('Every line on {ref} will be reversed and {amount} refunded by {method}.', {'ref': widget.sale.reference, 'amount': formatPeso(_refundDue), 'method': tr(_method)})
+              : tr('{amount} will be refunded by {method} and recorded against {ref}.', {'ref': widget.sale.reference, 'amount': formatPeso(_refundDue), 'method': tr(_method)}),
           style: AppText.body(),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Keep the sale', style: AppText.chip(color: AppColors.body)),
+            child: Text(tr('Keep the sale'), style: AppText.chip(color: AppColors.body)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(isVoid ? 'Void sale' : 'Confirm return',
+            child: Text(isVoid ? tr('Void sale') : tr('Confirm return'),
                 style: AppText.chip(color: AppColors.danger)),
           ),
         ],
@@ -529,8 +530,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                                 size: 40, color: AppColors.muted),
                             const SizedBox(height: 12),
                             Text(
-                                'Every line on this sale has already been '
-                                'returned.',
+                                tr('Every line on this sale has already been returned.'),
                                 textAlign: TextAlign.center,
                                 style: AppText.body()),
                             const SizedBox(height: 20),
@@ -548,7 +548,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                                       borderRadius: BorderRadius.circular(
                                           AppRadius.cta)),
                                 ),
-                                child: Text('Back to recent sales',
+                                child: Text(tr('Back to recent sales'),
                                     style: AppText.chip(color: AppColors.body)),
                               ),
                             ),
@@ -561,11 +561,11 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                       children: [
                         _linesCard(),
                         const SizedBox(height: AppSpace.gapSection),
-                        Text('Reason', style: AppText.sectionTitle()),
+                        Text(tr('Reason'), style: AppText.sectionTitle()),
                         const SizedBox(height: 10),
                         _chips(_reasons, _reason, (v) => setState(() => _reason = v)),
                         const SizedBox(height: AppSpace.gapSection),
-                        Text('Refund method', style: AppText.sectionTitle()),
+                        Text(tr('Refund method'), style: AppText.sectionTitle()),
                         const SizedBox(height: 10),
                         _chips(_methods, _method, (v) => setState(() => _method = v)),
                         const SizedBox(height: AppSpace.gapSection),
@@ -611,7 +611,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Return items', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                Text(tr('Return items'), style: AppText.sectionTitle().copyWith(fontSize: 18)),
                 Text(widget.sale.reference, style: AppText.caption()),
               ],
             ),
@@ -632,7 +632,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                   borderRadius: BorderRadius.circular(11),
                   border: Border.all(color: AppColors.hairline),
                 ),
-                child: Text(_isWholeSale ? 'Clear' : 'Void all', style: AppText.chip(color: AppColors.body)),
+                child: Text(_isWholeSale ? tr('Clear') : tr('Void all'), style: AppText.chip(color: AppColors.body)),
               ),
             ),
         ],
@@ -679,8 +679,8 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                 const SizedBox(height: 2),
                 Text(
                   exhausted
-                      ? 'Already returned'
-                      : '${formatPeso(line.item.netUnitPrice)} · ${line.returnable} of ${line.item.qty} returnable',
+                      ? tr('Already returned')
+                      : tr('{price} · {n} of {total} returnable', {'price': formatPeso(line.item.netUnitPrice), 'n': line.returnable, 'total': line.item.qty}),
                   style: AppText.caption(),
                 ),
               ],
@@ -727,7 +727,9 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
               borderRadius: BorderRadius.circular(AppRadius.chip),
               border: Border.all(color: selected ? AppColors.ink : AppColors.hairline),
             ),
-            child: Text(o, style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
+            // Reasons and methods are stored in English; only the label is
+            // translated.
+            child: Text(tr(o), style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
           ),
         );
       }).toList(),
@@ -748,13 +750,13 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Return to stock', style: AppText.cardTitle()),
+                Text(tr('Return to stock'), style: AppText.cardTitle()),
                 const SizedBox(height: 2),
                 // The caption states the consequence either way.
                 Text(
                   _returnToStock
-                      ? 'Units go back on the shelf and count as sellable again.'
-                      : 'Units are written off — stock stays as it is.',
+                      ? tr('Units go back on the shelf and count as sellable again.')
+                      : tr('Units are written off — stock stays as it is.'),
                   style: AppText.caption(),
                 ),
               ],
@@ -781,7 +783,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Every line is selected — this will be recorded as a full void.',
+              tr('Every line is selected — this will be recorded as a full void.'),
               style: AppText.caption(color: AppColors.dangerText),
             ),
           ),
@@ -807,7 +809,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Refund due', style: AppText.body()),
+              Text(tr('Refund due'), style: AppText.body()),
               Flexible(
                 child: Text(formatPeso(_refundDue),
                     maxLines: 1,
@@ -834,7 +836,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                   ? const SizedBox(
                       width: 20, height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : Text('Review refund', style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+                  : Text(tr('Review refund'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
             ),
           ),
         ],
@@ -857,7 +859,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                 child: const Icon(Icons.check_rounded, color: AppColors.success, size: 44),
               ),
               const SizedBox(height: 18),
-              Text(refund.isVoid ? 'Sale voided' : 'Return recorded',
+              Text(refund.isVoid ? tr('Sale voided') : tr('Return recorded'),
                   style: AppText.sectionTitle().copyWith(fontSize: 19)),
               const SizedBox(height: 4),
               Text(refund.saleReference, style: AppText.caption()),
@@ -888,18 +890,18 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                       ],
                     const Divider(color: AppColors.divider, height: 1),
                     const SizedBox(height: 10),
-                    _resultRow('Reason', refund.reason),
+                    _resultRow(tr('Reason'), refund.reason),
                     const SizedBox(height: 8),
-                    _resultRow('Refund method', refund.method),
+                    _resultRow(tr('Refund method'), refund.method),
                     const SizedBox(height: 8),
-                    _resultRow('Stock effect', refund.restocked ? 'Returned to stock' : 'Written off'),
+                    _resultRow(tr('Stock effect'), refund.restocked ? tr('Returned to stock') : tr('Written off')),
                     const SizedBox(height: 10),
                     const Divider(color: AppColors.divider, height: 1),
                     const SizedBox(height: 10),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Refunded', style: AppText.body()),
+                        Text(tr('Refunded'), style: AppText.body()),
                         Flexible(
                           child: Text(formatPeso(refund.amount),
                               maxLines: 1,
@@ -925,7 +927,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                     elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
                   ),
-                  child: Text('Done', style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+                  child: Text(tr('Done'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
                 ),
               ),
             ],
