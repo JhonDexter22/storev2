@@ -6,6 +6,7 @@ import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
 import '../widgets/product_thumb.dart';
+import '../l10n/tr.dart';
 
 class RestockScreen extends StatefulWidget {
   const RestockScreen({super.key});
@@ -128,7 +129,7 @@ class _RestockScreenState extends State<RestockScreen> {
                                 overflow: TextOverflow.ellipsis,
                                 style: AppText.sectionTitle().copyWith(fontSize: 18)),
                             const SizedBox(height: 2),
-                            Text('${product.category} · min ${product.minStock}',
+                            Text('${product.category} · ${tr('min {n}', {'n': product.minStock})}',
                                 style: AppText.caption()),
                           ],
                         ),
@@ -143,18 +144,18 @@ class _RestockScreenState extends State<RestockScreen> {
                   const SizedBox(height: 18),
                   Row(
                     children: [
-                      Expanded(child: _stockTile('Current stock', '${product.stock}', AppColors.ink)),
+                      Expanded(child: _stockTile(tr('Current stock'), '${product.stock}', AppColors.ink)),
                       const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 6),
                         child: Icon(Icons.arrow_forward_rounded, size: 18, color: AppColors.faint),
                       ),
                       Expanded(
-                          child: _stockTile('After restock', '$newStock', AppColors.primary,
+                          child: _stockTile(tr('After restock'), '$newStock', AppColors.primary,
                               tint: true)),
                     ],
                   ),
                   const SizedBox(height: 18),
-                  Text('Add quantity', style: AppText.body()),
+                  Text(tr('Add quantity'), style: AppText.body()),
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(6),
@@ -195,7 +196,7 @@ class _RestockScreenState extends State<RestockScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _quickChip('Suggested +$suggested', addQty == suggested,
+                      _quickChip(tr('Suggested +{n}', {'n': suggested}), addQty == suggested,
                           () => setQty(suggested)),
                       for (final n in const [5, 10, 12, 24])
                         _quickChip('+$n', false, () => setQty(addQty + n)),
@@ -225,7 +226,7 @@ class _RestockScreenState extends State<RestockScreen> {
                               _load();
                             },
                       child: Text(
-                        canSave ? 'Add $addQty to stock' : 'Enter a quantity',
+                        canSave ? tr('Add {n} to stock', {'n': addQty}) : tr('Enter a quantity'),
                         style: AppText.chip(color: canSave ? Colors.white : AppColors.muted)
                             .copyWith(fontSize: 15),
                       ),
@@ -237,7 +238,7 @@ class _RestockScreenState extends State<RestockScreen> {
                     height: 44,
                     child: TextButton(
                       onPressed: () => Navigator.pop(ctx),
-                      child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+                      child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
                     ),
                   ),
                 ],
@@ -322,14 +323,14 @@ class _RestockScreenState extends State<RestockScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Restock center', style: AppText.screenTitle()),
+        Text(tr('Restock center'), style: AppText.screenTitle()),
         const SizedBox(height: 4),
         Text(
           n == 0
-              ? 'Every product is above its minimum'
+              ? tr('Every product is above its minimum')
               : n == 1
-                  ? '1 product needs attention'
-                  : '$n products need attention',
+                  ? tr('1 product needs attention')
+                  : tr('{n} products need attention', {'n': n}),
           style: AppText.body(),
         ),
       ],
@@ -359,13 +360,13 @@ class _RestockScreenState extends State<RestockScreen> {
       ),
       child: Row(
         children: [
-          cell('${_critical.length}', 'Out of stock',
+          cell('${_critical.length}', tr('Out of stock'),
               _critical.isEmpty ? AppColors.ink : AppColors.dangerText),
           rule(),
-          cell('${_low.length}', 'Running low',
+          cell('${_low.length}', tr('Running low'),
               _low.isEmpty ? AppColors.ink : AppColors.warningText),
           rule(),
-          cell('+$_suggestedTotal', 'Units to order', AppColors.primary),
+          cell('+$_suggestedTotal', tr('Units to order'), AppColors.primary),
         ],
       ),
     );
@@ -401,7 +402,7 @@ class _RestockScreenState extends State<RestockScreen> {
           _allClearCard(),
           if (_watch.isNotEmpty) ...[
             const SizedBox(height: AppSpace.gapBlock),
-            _groupHeading('Closest to minimum', AppColors.success, _watch.length),
+            _groupHeading(tr('Closest to minimum'), AppColors.success, _watch.length),
             const SizedBox(height: 10),
             _watchCard(),
           ],
@@ -410,7 +411,7 @@ class _RestockScreenState extends State<RestockScreen> {
           _statRow(),
           const SizedBox(height: AppSpace.gapBlock),
           if (_critical.isNotEmpty) ...[
-            _groupHeading('Critical', AppColors.danger, _critical.length),
+            _groupHeading(tr('Critical'), AppColors.danger, _critical.length),
             const SizedBox(height: 10),
             for (final p in _critical) ...[
               _criticalCard(p),
@@ -419,7 +420,7 @@ class _RestockScreenState extends State<RestockScreen> {
             const SizedBox(height: AppSpace.gapSection),
           ],
           if (_low.isNotEmpty) ...[
-            _groupHeading('Low stock', AppColors.warning, _low.length),
+            _groupHeading(tr('Low stock'), AppColors.warning, _low.length),
             const SizedBox(height: 10),
             _lowStockCard(),
           ],
@@ -442,7 +443,7 @@ class _RestockScreenState extends State<RestockScreen> {
           _allClearCard(),
           if (_watch.isNotEmpty) ...[
             const SizedBox(height: AppSpace.gapBlock),
-            _groupHeading('Closest to minimum', AppColors.success, _watch.length),
+            _groupHeading(tr('Closest to minimum'), AppColors.success, _watch.length),
             const SizedBox(height: 10),
             _watchCard(),
           ],
@@ -464,10 +465,10 @@ class _RestockScreenState extends State<RestockScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _groupHeading('Critical', AppColors.danger, _critical.length),
+                  _groupHeading(tr('Critical'), AppColors.danger, _critical.length),
                   const SizedBox(height: 10),
                   if (_critical.isEmpty)
-                    _columnEmpty('Nothing is out of stock')
+                    _columnEmpty(tr('Nothing is out of stock'))
                   else
                     for (final p in _critical) ...[
                       _criticalCard(p),
@@ -482,10 +483,10 @@ class _RestockScreenState extends State<RestockScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _groupHeading('Low stock', AppColors.warning, _low.length),
+                  _groupHeading(tr('Low stock'), AppColors.warning, _low.length),
                   const SizedBox(height: 10),
                   if (_low.isEmpty)
-                    _columnEmpty('Nothing is running low')
+                    _columnEmpty(tr('Nothing is running low'))
                   else
                     _lowStockCard(),
                 ],
@@ -559,7 +560,7 @@ class _RestockScreenState extends State<RestockScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              const StatusPill(label: 'Out of stock', fg: AppColors.dangerText, bg: AppColors.dangerFill),
+              StatusPill(label: tr('Out of stock'), fg: AppColors.dangerText, bg: AppColors.dangerFill),
             ],
           ),
           const SizedBox(height: 12),
@@ -570,9 +571,9 @@ class _RestockScreenState extends State<RestockScreen> {
             ),
             child: Row(
               children: [
-                _ruleStat('Current', '${p.stock}', AppColors.dangerText),
-                _ruleStat('Minimum', '${p.minStock}', AppColors.ink),
-                _ruleStat('Suggested', '+${_suggested(p)}', AppColors.primary),
+                _ruleStat(tr('Current'), '${p.stock}', AppColors.dangerText),
+                _ruleStat(tr('Minimum'), '${p.minStock}', AppColors.ink),
+                _ruleStat(tr('Suggested'), '+${_suggested(p)}', AppColors.primary),
               ],
             ),
           ),
@@ -588,7 +589,7 @@ class _RestockScreenState extends State<RestockScreen> {
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: Text('Restock now', style: AppText.chip(color: Colors.white)),
+              child: Text(tr('Restock now'), style: AppText.chip(color: Colors.white)),
             ),
           ),
         ],
@@ -630,8 +631,8 @@ class _RestockScreenState extends State<RestockScreen> {
                     const SizedBox(height: 3),
                     Row(
                       children: [
-                        Text('${p.stock} left', style: AppText.caption(color: AppColors.warningText)),
-                        Text(' · min ${p.minStock}', style: AppText.caption()),
+                        Text(tr('{n} left', {'n': p.stock}), style: AppText.caption(color: AppColors.warningText)),
+                        Text(' · ${tr('min {n}', {'n': p.minStock})}', style: AppText.caption()),
                       ],
                     ),
                     const SizedBox(height: 7),
@@ -697,13 +698,13 @@ class _RestockScreenState extends State<RestockScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(noProducts ? 'No products yet' : 'Nothing needs restocking',
+                Text(noProducts ? tr('No products yet') : tr('Nothing needs restocking'),
                     style: AppText.cardTitle()),
                 const SizedBox(height: 2),
                 Text(
                   noProducts
-                      ? 'Add products in the Products tab and set a minimum stock for each.'
-                      : 'All ${_all.length} products are above their minimum.',
+                      ? tr('Add products in the Products tab and set a minimum stock for each.')
+                      : tr('All {n} products are above their minimum.', {'n': _all.length}),
                   style: AppText.caption(color: noProducts ? AppColors.muted : AppColors.successText),
                 ),
               ],
@@ -757,8 +758,8 @@ class _RestockScreenState extends State<RestockScreen> {
                     const SizedBox(height: 3),
                     Row(
                       children: [
-                        Text('${p.stock} left', style: AppText.caption(color: AppColors.successText)),
-                        Text(' · min ${p.minStock}', style: AppText.caption()),
+                        Text(tr('{n} left', {'n': p.stock}), style: AppText.caption(color: AppColors.successText)),
+                        Text(' · ${tr('min {n}', {'n': p.minStock})}', style: AppText.caption()),
                       ],
                     ),
                     const SizedBox(height: 7),
@@ -777,7 +778,7 @@ class _RestockScreenState extends State<RestockScreen> {
                 ),
               ),
               const SizedBox(width: 12),
-              Text('+$headroom above min', style: AppText.caption()),
+              Text(tr('+{n} above min', {'n': headroom}), style: AppText.caption()),
             ],
           ),
         ),
