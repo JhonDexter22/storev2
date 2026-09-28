@@ -1,3 +1,5 @@
+import '../l10n/tr.dart';
+
 /// How the till header describes where this store's data actually is.
 ///
 /// It replaced a green "Synced" pill, which was simply untrue: nothing syncs
@@ -29,15 +31,15 @@ class BackupStatus {
   static const staleAfter = Duration(days: 7);
 
   static BackupStatus from(DateTime? lastBackup, {DateTime? now}) {
-    if (lastBackup == null) return const BackupStatus('No backup', BackupLevel.none);
+    if (lastBackup == null) return BackupStatus(tr('No backup'), BackupLevel.none);
 
     final at = now ?? DateTime.now();
     // A backup stamped in the future is a clock that was wrong, not a backup
     // from tomorrow; treat it as just done rather than showing "-3d".
     final days = at.difference(lastBackup).inDays;
-    if (days <= 0) return const BackupStatus('Backed up', BackupLevel.fresh);
+    if (days <= 0) return BackupStatus(tr('Backed up'), BackupLevel.fresh);
     return BackupStatus(
-      'Backup · ${days}d',
+      tr('Backup · {n}d', {'n': days}),
       days >= staleAfter.inDays ? BackupLevel.stale : BackupLevel.fresh,
     );
   }
