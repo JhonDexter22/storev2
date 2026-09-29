@@ -6,6 +6,8 @@ import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../widgets/product_thumb.dart';
 import '../services/product_service.dart';
+import '../services/scan_feedback.dart';
+import '../l10n/tr.dart';
 
 /// What the scanner hands back when it closes.
 ///
@@ -96,6 +98,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
 
     if (!widget.forSale) {
       _busy = true;
+      ScanFeedback.found();
       Navigator.pop(context, ScanCapture(code));
       return;
     }
@@ -103,6 +106,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
     _busy = true;
     final product = await _productService.findBySku(code);
     if (!mounted) return;
+    product == null ? ScanFeedback.unknown() : ScanFeedback.found();
     setState(() {
       _busy = false;
       if (product == null) {
@@ -139,13 +143,13 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: Text('Enter code manually', style: AppText.sectionTitle()),
+        title: Text(tr('Enter code manually'), style: AppText.sectionTitle()),
         content: TextField(
           controller: ctrl,
           autofocus: true,
           style: AppText.body(color: AppColors.ink),
           decoration: InputDecoration(
-            hintText: 'Barcode / SKU',
+            hintText: tr('Barcode / SKU'),
             hintStyle: AppText.body(color: AppColors.faint),
             filled: true,
             fillColor: AppColors.canvas,
@@ -156,11 +160,11 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+            child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: Text('Look up', style: AppText.chip(color: AppColors.primary)),
+            child: Text(tr('Look up'), style: AppText.chip(color: AppColors.primary)),
           ),
         ],
       ),
@@ -251,11 +255,11 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Scan barcode', style: AppText.sectionTitle(color: Colors.white).copyWith(fontSize: 16)),
+                Text(tr('Scan barcode'), style: AppText.sectionTitle(color: Colors.white).copyWith(fontSize: 16)),
                 Text(
                   widget.forSale
-                      ? (count == 0 ? 'Continuous scan is on' : '$count added to this sale')
-                      : 'Point at a barcode',
+                      ? (count == 0 ? tr('Continuous scan is on') : tr('{n} added to this sale', {'n': count}))
+                      : tr('Point at a barcode'),
                   style: AppText.caption(color: AppColors.faint),
                 ),
               ],
@@ -354,7 +358,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
       child: GestureDetector(
         onTap: _enterManually,
         child: Text(
-          'Enter code manually',
+          tr('Enter code manually'),
           style: AppText.chip(color: Colors.white).copyWith(
             decoration: TextDecoration.underline,
             decorationColor: Colors.white54,
@@ -404,7 +408,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
                   Text(p.name, style: AppText.cardTitle().copyWith(fontSize: 15),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 2),
-                  Text('${p.category} · ${p.stock} in stock', style: AppText.caption()),
+                  Text('${p.category} · ${tr('{n} in stock', {'n': p.stock})}', style: AppText.caption()),
                 ],
               ),
             ),
@@ -415,7 +419,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Quantity', style: AppText.body()),
+            Text(tr('Quantity'), style: AppText.body()),
             QtyStepper(
               value: _matchQty,
               canIncrement: !atStockCeiling,
@@ -428,7 +432,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
         ),
         if (atStockCeiling) ...[
           const SizedBox(height: 8),
-          Text('Only ${p.stock} in stock', style: AppText.caption(color: AppColors.warningText)),
+          Text(tr('Only {n} in stock', {'n': p.stock}), style: AppText.caption(color: AppColors.warningText)),
         ],
         const SizedBox(height: 16),
         SizedBox(
@@ -445,7 +449,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
             ),
             child: Text(
-              p.stock <= 0 ? 'Out of stock' : 'Add to sale · ${formatPeso(p.price * _matchQty)}',
+              p.stock <= 0 ? tr('Out of stock') : tr('Add to sale · {amount}', {'amount': formatPeso(p.price * _matchQty)}),
               style: AppText.chip(color: Colors.white).copyWith(fontSize: 15),
             ),
           ),
@@ -456,7 +460,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
           height: 46,
           child: TextButton(
             onPressed: _resumeScanning,
-            child: Text('Keep scanning', style: AppText.chip(color: AppColors.body)),
+            child: Text(tr('Keep scanning'), style: AppText.chip(color: AppColors.body)),
           ),
         ),
       ],
@@ -482,7 +486,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('No product matches this code',
+                    Text(tr('No product matches this code'),
                         style: AppText.caption(color: AppColors.dangerText)),
                     const SizedBox(height: 2),
                     Text(_unknownCode ?? '', style: AppText.mono(color: AppColors.dangerText, size: 11)),
@@ -507,7 +511,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
               elevation: 0,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
             ),
-            child: Text('Add as new product', style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+            child: Text(tr('Add as new product'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
           ),
         ),
         const SizedBox(height: 6),
@@ -516,7 +520,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
           height: 46,
           child: TextButton(
             onPressed: _resumeScanning,
-            child: Text('Scan again', style: AppText.chip(color: AppColors.body)),
+            child: Text(tr('Scan again'), style: AppText.chip(color: AppColors.body)),
           ),
         ),
       ],

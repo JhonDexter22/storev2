@@ -68,10 +68,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              // Signing out means someone has to sign back in to the till.
-              _open(const CashierSwitchScreen());
+              // Was only a shortcut to the switch screen, which Back left
+              // with the same person still signed in. Now the till is locked
+              // until someone enters their code — across a restart too.
+              await SettingsService.instance.signOut();
+              if (!mounted) return;
+              await CashierSwitchScreen.showSignedOut(context);
             },
             child: Text(tr('Sign out'), style: AppText.chip(color: AppColors.danger)),
           ),

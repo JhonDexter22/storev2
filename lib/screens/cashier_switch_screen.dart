@@ -8,6 +8,7 @@ import '../services/settings_service.dart';
 import '../services/staff_service.dart';
 import '../widgets/change_pin_flow.dart';
 import '../widgets/pin_sheet.dart';
+import '../l10n/tr.dart';
 
 /// Cashier switch — record who is on the till, and who may close it.
 ///
@@ -19,6 +20,17 @@ class CashierSwitchScreen extends StatefulWidget {
 
   /// Injectable so tests can drive the roster without a database.
   final StaffService? staffService;
+
+  /// Shows the screen as the lock after Sign out: no way back to the till
+  /// until someone signs in with their code — even the person who signed
+  /// out. Pops by itself once someone has.
+  static Future<void> showSignedOut(BuildContext context, {StaffService? staffService}) =>
+      // The root navigator, over everything: on a tablet each tab has its own
+      // navigator, and a lock pushed inside one would leave the rail usable.
+      Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => CashierSwitchScreen(staffService: staffService),
+      ));
 
   @override
   State<CashierSwitchScreen> createState() => _CashierSwitchScreenState();
@@ -59,21 +71,29 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
   }
 
   Future<void> _pick(Staff person) async {
-    if (person.name == _settings.cashier) return;
+    final signedOut = _settings.signedOut;
+    // Tapping whoever is already signed in does nothing — unless the till is
+    // signed out, when they need their code like anyone else.
+    if (!signedOut && person.name == _settings.cashier) return;
     final ok = await PinSheet.show(
       context,
       verify: (pin) => _staff.verifyPin(person.id!, pin),
       title: person.name,
-      hint: 'Enter ${person.name}\'s code to sign in.',
-      confirmLabel: 'Sign in',
+      hint: tr("Enter {name}'s code to sign in.", {'name': person.name}),
+      confirmLabel: tr('Sign in'),
       avatarInitials: person.initials,
-      subtitle: 'Enter ${person.name}\'s code to sign in.',
+      subtitle: tr("Enter {name}'s code to sign in.", {'name': person.name}),
     );
     if (!ok || !mounted) return;
     await _settings.setCashier(person.name);
     if (!mounted) return;
+    if (signedOut) {
+      // Back to the till, now unlocked.
+      Navigator.pop(context);
+      return;
+    }
     setState(() {});
-    _toast('${person.name} is signed in');
+    _toast(tr('{name} is signed in', {'name': person.name}));
   }
 
   /// Adding someone who can then ring up sales is a manager's decision, so it
@@ -82,8 +102,8 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
     final authorised = await authoriseAsManager(
       context,
       staff: _staff,
-      hint: 'Enter a manager PIN to add someone to the roster.',
-      confirmLabel: 'Continue',
+      hint: tr('Enter a manager PIN to add someone to the roster.'),
+      confirmLabel: tr('Continue'),
     );
     if (!authorised || !mounted) return;
     await _load();
@@ -111,7 +131,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
     }
     await _load();
     if (!mounted) return;
-    _toast('${draft.name} was added to the roster');
+    _toast(tr('{name} was added to the roster', {'name': draft.name}));
   }
 
   /// Rotates someone off their current code.
@@ -152,7 +172,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              Text('Manage staff',
+              Text(tr('Manage staff'),
                   style: AppText.sectionTitle().copyWith(fontSize: 18)),
               const SizedBox(height: 12),
               for (final person in _roster)
@@ -167,7 +187,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                   title: Text(person.name, style: AppText.cardTitle()),
                   subtitle: Text(
                     person.onStartingPin
-                        ? '${person.role} · still on the starting code'
+                        ? '${tr(person.role)} · ${tr('still on the starting code')}'
                         : person.role,
                     style: AppText.caption(
                         color: person.onStartingPin
@@ -183,7 +203,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                 height: 46,
                 child: TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+                  child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
                 ),
               ),
             ],
@@ -231,7 +251,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
               onTap: () => Navigator.pop(ctx, 'pin'),
               leading: const Icon(Icons.password_rounded,
                   size: 20, color: AppColors.body),
-              title: Text('Change PIN', style: AppText.cardTitle()),
+              title: Text(tr('Change PIN'), style: AppText.cardTitle()),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -240,13 +260,13 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
               leading: Icon(Icons.person_remove_alt_1_rounded,
                   size: 20,
                   color: signedIn ? AppColors.faint : AppColors.dangerText),
-              title: Text('Remove from roster',
+              title: Text(tr('Remove from roster'),
                   style: AppText.cardTitle(
                       color: signedIn ? AppColors.faint : AppColors.dangerText)),
               subtitle: Text(
                 signedIn
-                    ? 'Sign in as someone else first.'
-                    : 'They keep their place in past sales and shifts.',
+                    ? tr('Sign in as someone else first.')
+                    : tr('They keep their place in past sales and shifts.'),
                 style: AppText.caption(),
               ),
             ),
@@ -256,7 +276,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
               height: 46,
               child: TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
               ),
             ),
           ],
@@ -278,8 +298,8 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
     final authorised = await authoriseAsManager(
       context,
       staff: _staff,
-      hint: 'Enter a manager PIN to remove ${person.name}.',
-      confirmLabel: 'Continue',
+      hint: tr('Enter a manager PIN to remove {name}.', {'name': person.name}),
+      confirmLabel: tr('Continue'),
     );
     if (!authorised || !mounted) return;
 
@@ -288,22 +308,21 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Remove ${person.name}?',
+        title: Text(tr('Remove {name}?', {'name': person.name}),
             style: AppText.sectionTitle().copyWith(fontSize: 17)),
         content: Text(
-          '${person.name} will no longer be able to sign in or ring up sales. '
-          'Their past sales and shifts are kept.',
+          tr('{name} will no longer be able to sign in or ring up sales. Their past sales and shifts are kept.', {'name': person.name}),
           style: AppText.body(),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Keep them', style: AppText.chip(color: AppColors.body)),
+            child: Text(tr('Keep them'), style: AppText.chip(color: AppColors.body)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Remove', style: AppText.chip(color: AppColors.danger)),
+            child: Text(tr('Remove'), style: AppText.chip(color: AppColors.danger)),
           ),
         ],
       ),
@@ -319,13 +338,17 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
     }
     await _load();
     if (!mounted) return;
-    _toast('${person.name} was removed from the roster');
+    _toast(tr('{name} was removed from the roster', {'name': person.name}));
   }
 
   @override
   Widget build(BuildContext context) {
-    final active = _settings.cashier;
-    return Scaffold(
+    final signedOut = _settings.signedOut;
+    // Nobody is highlighted as signed in while the till is signed out.
+    final active = signedOut ? '' : _settings.cashier;
+    return PopScope(
+      canPop: !signedOut,
+      child: Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
         bottom: false,
@@ -333,24 +356,27 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
           builder: (context, constraints) => ListView(
             padding: Breakpoints.pagePadding(context, constraints.maxWidth),
             children: [
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(11),
-                        border: Border.all(color: AppColors.hairline),
+              if (signedOut)
+                const SizedBox(height: 38)
+              else
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(11),
+                          border: Border.all(color: AppColors.hairline),
+                        ),
+                        child: const Icon(Icons.arrow_back_ios_new_rounded,
+                            color: AppColors.body, size: 16),
                       ),
-                      child: const Icon(Icons.arrow_back_ios_new_rounded,
-                          color: AppColors.body, size: 16),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
               const SizedBox(height: 18),
               Center(
                 child: Container(
@@ -365,10 +391,18 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
               ),
               const SizedBox(height: 14),
               Center(
-                  child: Text('Sign in to the till',
+                  child: Text(tr('Sign in to the till'),
                       style: AppText.screenTitle().copyWith(fontSize: 22))),
               const SizedBox(height: 4),
-              Center(child: Text('$active is signed in', style: AppText.caption())),
+              Center(
+                child: Text(
+                  signedOut
+                      ? tr('Signed out — pick who is at the till and enter their code.')
+                      : tr('{name} is signed in', {'name': active}),
+                  style: AppText.caption(),
+                  textAlign: TextAlign.center,
+                ),
+              ),
               const SizedBox(height: AppSpace.gapBlock),
               if (_loading)
                 const Padding(
@@ -399,7 +433,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                         borderRadius: BorderRadius.circular(AppRadius.cta)),
                   ),
                   icon: const Icon(Icons.manage_accounts_rounded, size: 17),
-                  label: Text('Manage staff', style: AppText.chip(color: AppColors.body)),
+                  label: Text(tr('Manage staff'), style: AppText.chip(color: AppColors.body)),
                 ),
               ),
               const SizedBox(height: 10),
@@ -415,12 +449,13 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                         borderRadius: BorderRadius.circular(AppRadius.cta)),
                   ),
                   icon: const Icon(Icons.person_add_alt_rounded, size: 17),
-                  label: Text('Add a cashier', style: AppText.chip(color: AppColors.body)),
+                  label: Text(tr('Add a cashier'), style: AppText.chip(color: AppColors.body)),
                 ),
               ),
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -473,7 +508,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    active ? '${person.role} · Signed in' : person.role,
+                    active ? '${tr(person.role)} · ${tr('Signed in')}' : tr(person.role),
                     style: AppText.caption(color: active ? AppColors.primary : AppColors.muted),
                   ),
                 ],
@@ -498,8 +533,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
     final names = _onStartingPin.map((p) => p.name).toList();
     final who = names.length == 1
         ? names.single
-        : '${names.take(names.length - 1).join(', ')} and ${names.last}';
-    final verb = names.length == 1 ? 'is' : 'are';
+        : tr('{names} and {last}', {'names': names.take(names.length - 1).join(', '), 'last': names.last});
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -516,13 +550,15 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('$who $verb still on the starting PIN',
+                Text(
+                    names.length == 1
+                        ? tr('{who} is still on the starting PIN', {'who': who})
+                        : tr('{who} are still on the starting PIN', {'who': who}),
                     style: AppText.cardTitle(color: AppColors.warningText)
                         .copyWith(fontSize: 13)),
                 const SizedBox(height: 2),
                 Text(
-                  'Those codes ship with the app, so anyone who has seen it '
-                  'knows them. Change them below.',
+                  tr('Those codes ship with the app, so anyone who has seen it knows them. Change them below.'),
                   style: AppText.caption(color: AppColors.warningText),
                 ),
               ],
@@ -547,7 +583,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Sales, voids and closes are recorded against whoever is signed in.',
+              tr('Sales, voids and closes are recorded against whoever is signed in.'),
               style: AppText.caption(),
             ),
           ),
@@ -591,17 +627,17 @@ class _AddCashierSheetState extends State<_AddCashierSheet> {
   void _submit() {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      setState(() => _error = 'Enter a name.');
+      setState(() => _error = tr('Enter a name.'));
       return;
     }
     if (!PinHasher.isWellFormed(_pinCtrl.text)) {
-      setState(() => _error = 'The PIN has to be four digits.');
+      setState(() => _error = tr('The PIN has to be four digits.'));
       return;
     }
     // Caught here rather than after saving: a mistyped PIN that is only found
     // out at the next sign-in means nobody can get in.
     if (_pinCtrl.text != _confirmCtrl.text) {
-      setState(() => _error = 'The two PINs do not match.');
+      setState(() => _error = tr('The two PINs do not match.'));
       return;
     }
     Navigator.pop(
@@ -637,27 +673,27 @@ class _AddCashierSheetState extends State<_AddCashierSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            Text('Add a cashier', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+            Text(tr('Add a cashier'), style: AppText.sectionTitle().copyWith(fontSize: 18)),
             const SizedBox(height: 2),
-            Text('They will be able to ring up sales under their own name.',
+            Text(tr('They will be able to ring up sales under their own name.'),
                 style: AppText.caption()),
             const SizedBox(height: 18),
-            _label('Name'),
-            _field(_nameCtrl, hint: 'e.g. Ana', keyboard: TextInputType.name),
+            _label(tr('Name')),
+            _field(_nameCtrl, hint: tr('e.g. Ana'), keyboard: TextInputType.name),
             const SizedBox(height: 14),
-            _label('PIN'),
-            _field(_pinCtrl, hint: '4 digits', obscure: true, maxLength: 4),
+            _label(tr('PIN')),
+            _field(_pinCtrl, hint: tr('4 digits'), obscure: true, maxLength: 4),
             const SizedBox(height: 14),
-            _label('Confirm PIN'),
-            _field(_confirmCtrl, hint: 'Repeat it', obscure: true, maxLength: 4),
+            _label(tr('Confirm PIN')),
+            _field(_confirmCtrl, hint: tr('Repeat it'), obscure: true, maxLength: 4),
             const SizedBox(height: 14),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               value: _isManager,
               activeThumbColor: AppColors.primary,
               onChanged: (v) => setState(() => _isManager = v),
-              title: Text('Can close a shift', style: AppText.body()),
-              subtitle: Text('Managers authorise closes and roster changes.',
+              title: Text(tr('Can close a shift'), style: AppText.body()),
+              subtitle: Text(tr('Managers authorise closes and roster changes.'),
                   style: AppText.caption()),
             ),
             if (_error != null) ...[
@@ -677,7 +713,7 @@ class _AddCashierSheetState extends State<_AddCashierSheet> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.cta)),
                 ),
-                child: Text('Add to roster',
+                child: Text(tr('Add to roster'),
                     style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
               ),
             ),
@@ -686,7 +722,7 @@ class _AddCashierSheetState extends State<_AddCashierSheet> {
               height: 46,
               child: TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
               ),
             ),
           ],
