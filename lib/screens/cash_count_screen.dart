@@ -10,6 +10,7 @@ import '../services/staff_service.dart';
 import '../services/shift_summary.dart';
 import '../widgets/change_pin_flow.dart';
 import '../widgets/day_close_view.dart';
+import '../l10n/tr.dart';
 
 /// Cash count / end of day — reconcile the drawer and close the shift.
 ///
@@ -84,8 +85,8 @@ class _CashCountScreenState extends State<CashCountScreen> {
   }
 
   String get _varianceLabel {
-    if (_variance.abs() < 0.005) return 'Drawer balances';
-    return _variance < 0 ? 'Short' : 'Over';
+    if (_variance.abs() < 0.005) return tr('Drawer balances');
+    return _variance < 0 ? tr('Short') : tr('Over');
   }
 
   /// Fills a drawer that balances exactly, greedily from the largest note.
@@ -110,8 +111,8 @@ class _CashCountScreenState extends State<CashCountScreen> {
     final passed = await authoriseAsManager(
       context,
       staff: _staff,
-      hint: 'Enter the manager PIN to close this shift.',
-      confirmLabel: 'Confirm close',
+      hint: tr('Enter the manager PIN to close this shift.'),
+      confirmLabel: tr('Confirm close'),
     );
     if (!passed || !mounted) return;
 
@@ -168,7 +169,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
                 children: [
                   _expectedBlock(),
                   const SizedBox(height: AppSpace.gapBlock),
-                  Text('Count the drawer', style: AppText.sectionTitle()),
+                  Text(tr('Count the drawer'), style: AppText.sectionTitle()),
                   const SizedBox(height: 10),
                   _denominationList(),
                 ],
@@ -206,7 +207,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Count the drawer', style: AppText.sectionTitle()),
+                          Text(tr('Count the drawer'), style: AppText.sectionTitle()),
                           const SizedBox(height: 10),
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -265,7 +266,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Counted', style: AppText.body()),
+                Text(tr('Counted'), style: AppText.body()),
                 Flexible(
                   child: Text(formatPeso(_counted),
                       maxLines: 1,
@@ -283,7 +284,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: AppColors.hairline),
                 ),
-                child: Text('Count the drawer to see the variance.',
+                child: Text(tr('Count the drawer to see the variance.'),
                     textAlign: TextAlign.center, style: AppText.caption()),
               )
             else
@@ -317,12 +318,12 @@ class _CashCountScreenState extends State<CashCountScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.cta)),
                 ),
-                child: Text('Close shift',
+                child: Text(tr('Close shift'),
                     style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
               ),
             ),
             const SizedBox(height: 6),
-            Text('Requires a manager PIN',
+            Text(tr('Requires a manager PIN'),
                 textAlign: TextAlign.center, style: AppText.caption()),
           ],
         ),
@@ -353,7 +354,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Cash count', style: AppText.screenTitle().copyWith(fontSize: 20)),
+                Text(tr('Cash count'), style: AppText.screenTitle().copyWith(fontSize: 20)),
                 Text('$_terminal · $_cashier', style: AppText.caption()),
               ],
             ),
@@ -366,7 +367,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
                 color: AppColors.primaryTint,
                 borderRadius: BorderRadius.circular(11),
               ),
-              child: Text('Count exact', style: AppText.chip(color: AppColors.primary)),
+              child: Text(tr('Count exact'), style: AppText.chip(color: AppColors.primary)),
             ),
           ),
         ],
@@ -385,16 +386,16 @@ class _CashCountScreenState extends State<CashCountScreen> {
       ),
       child: Column(
         children: [
-          _row('Opening float', formatPeso(_openingFloat)),
+          _row(tr('Opening float'), formatPeso(_openingFloat)),
           const SizedBox(height: 8),
-          _row('Cash sales', formatPeso(_cashSales)),
+          _row(tr('Cash sales'), formatPeso(_cashSales)),
           const SizedBox(height: 10),
           const Divider(color: AppColors.divider, height: 1),
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Expected in drawer', style: AppText.sectionTitle()),
+              Text(tr('Expected in drawer'), style: AppText.sectionTitle()),
               Flexible(
                 child: Text(formatPeso(_expected),
                     maxLines: 1,
@@ -409,9 +410,11 @@ class _CashCountScreenState extends State<CashCountScreen> {
   }
 
   Widget _row(String label, String value) => Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: AppText.body()),
+          Expanded(
+            child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.body()),
+          ),
+          const SizedBox(width: 8),
           Text(value, style: AppText.cardTitle()),
         ],
       );
@@ -502,7 +505,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Counted', style: AppText.body()),
+              Text(tr('Counted'), style: AppText.body()),
               Flexible(
                 child: Text(formatPeso(_counted),
                     maxLines: 1,
@@ -523,7 +526,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
                 border: Border.all(color: AppColors.hairline),
               ),
               child: Text(
-                'Count the drawer to see the variance.',
+                tr('Count the drawer to see the variance.'),
                 textAlign: TextAlign.center,
                 style: AppText.caption(),
               ),
@@ -562,11 +565,11 @@ class _CashCountScreenState extends State<CashCountScreen> {
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
               ),
-              child: Text('Close shift', style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+              child: Text(tr('Close shift'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
             ),
           ),
           const SizedBox(height: 6),
-          Text('Requires a manager PIN', style: AppText.caption()),
+          Text(tr('Requires a manager PIN'), style: AppText.caption()),
         ],
       ),
     );

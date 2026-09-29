@@ -18,6 +18,7 @@ import '../widgets/product_thumb.dart';
 import 'barcode_scanner_screen.dart';
 import 'checkout_screen.dart';
 import 'product_screen.dart';
+import '../l10n/tr.dart';
 
 class PosScreen extends StatefulWidget {
   const PosScreen({super.key});
@@ -291,8 +292,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                 maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.sectionTitle()),
                             const SizedBox(height: 2),
                             Text(
-                              '${formatPeso(product.price)} each · $room available'
-                              '${inCart > 0 ? ' · $inCart in cart' : ''}',
+                              tr('{price} each · {room} available', {'price': formatPeso(product.price), 'room': room}) +
+                                  (inCart > 0 ? tr(' · {n} in cart', {'n': inCart}) : ''),
                               style: AppText.caption(),
                             ),
                           ],
@@ -328,7 +329,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                   ),
                   if (overRoom) ...[
                     const SizedBox(height: 6),
-                    Text('Only $room left — adding $capped',
+                    Text(tr('Only {room} left — adding {n}', {'room': room, 'n': capped}),
                         style: AppText.caption(color: AppColors.dangerText)),
                   ],
                   const SizedBox(height: 10),
@@ -358,7 +359,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                             borderRadius: BorderRadius.circular(AppRadius.cta)),
                       ),
                       child: Text(
-                        capped > 0 ? 'Add $capped · ${formatPeso(product.price * capped)}' : 'Add to sale',
+                        capped > 0 ? tr('Add {n} · {amount}', {'n': capped, 'amount': formatPeso(product.price * capped)}) : tr('Add to sale'),
                         style: AppText.chip(color: Colors.white).copyWith(fontSize: 15),
                       ),
                     ),
@@ -400,7 +401,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     if (skipped > 0) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(_snack('$skipped item${skipped == 1 ? '' : 's'} skipped — out of stock'));
+        ..showSnackBar(_snack(trCount(skipped, '{n} item skipped — out of stock', '{n} items skipped — out of stock')));
     }
   }
 
@@ -410,13 +411,13 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     _settleFlights();
     final label = _cartLines.take(2).map((l) => l.qty > 1 ? '${l.product.name} ×${l.qty}' : l.product.name).join(', ');
     final more = _cartLines.length - 2;
-    await HeldSales.instance.hold(_cart, label: more > 0 ? '$label +$more more' : label);
+    await HeldSales.instance.hold(_cart, label: more > 0 ? '$label +$more' : label);
     if (!mounted) return;
     setState(_cart.clear);
     HapticFeedback.mediumImpact();
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(_snack('Sale held — tap Held to bring it back'));
+      ..showSnackBar(_snack(tr('Sale held — tap Held to bring it back')));
   }
 
   /// Brings a held sale back. A running sale is held in its place rather
@@ -441,6 +442,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   void _showHeldSheet() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => ListenableBuilder(
         listenable: HeldSales.instance,
@@ -471,9 +473,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text('Held sales', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                Text(tr('Held sales'), style: AppText.sectionTitle().copyWith(fontSize: 18)),
                 const SizedBox(height: 2),
-                Text('Tap one to bring it back to the register.', style: AppText.caption()),
+                Text(tr('Tap one to bring it back to the register.'), style: AppText.caption()),
                 const SizedBox(height: 12),
                 for (final h in held) _heldRow(ctx, h),
               ],
@@ -511,17 +513,17 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(h.label.isEmpty ? '${h.itemCount} items' : h.label,
+                      Text(h.label.isEmpty ? trCount(h.itemCount, '{n} item', '{n} items') : h.label,
                           maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
                       const SizedBox(height: 2),
-                      Text('${h.itemCount} item${h.itemCount == 1 ? '' : 's'} · held $t', style: AppText.caption()),
+                      Text(trCount(h.itemCount, '{n} item · held {t}', '{n} items · held {t}', {'t': t}), style: AppText.caption()),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
                 Text(formatPeso(total), style: AppText.cardTitle()),
                 IconButton(
-                  tooltip: 'Discard',
+                  tooltip: tr('Discard'),
                   icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.muted),
                   onPressed: () => HeldSales.instance.remove(h.id),
                 ),
@@ -664,7 +666,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                 Row(
                   children: [
                     Expanded(
-                      child: Text('Current sale', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                      child: Text(tr('Current sale'), style: AppText.sectionTitle().copyWith(fontSize: 18)),
                     ),
                     GestureDetector(
                       onTap: () {
@@ -675,7 +677,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                         children: [
                           const Icon(Icons.pause_rounded, size: 16, color: AppColors.primary),
                           const SizedBox(width: 2),
-                          Text('Hold', style: AppText.chip(color: AppColors.primary)),
+                          Text(tr('Hold'), style: AppText.chip(color: AppColors.primary)),
                         ],
                       ),
                     ),
@@ -686,12 +688,12 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                         setState(_cart.clear);
                         Navigator.pop(ctx);
                       },
-                      child: Text('Clear all', style: AppText.chip(color: AppColors.danger)),
+                      child: Text(tr('Clear all'), style: AppText.chip(color: AppColors.danger)),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
-                Text('Swipe a line to remove it', style: AppText.caption(color: AppColors.faint)),
+                Text(tr('Swipe a line to remove it'), style: AppText.caption(color: AppColors.faint)),
                 const SizedBox(height: 14),
                 Flexible(
                   child: ListView.separated(
@@ -754,7 +756,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Total', style: AppText.sectionTitle()),
+                    Text(tr('Total'), style: AppText.sectionTitle()),
                     Text(formatPeso(_cartTotal), style: AppText.largeFigure().copyWith(fontSize: 22)),
                   ],
                 ),
@@ -773,7 +775,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
                     ),
-                    child: Text('Checkout', style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+                    child: Text(tr('Checkout'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
                   ),
                 ),
               ],
@@ -867,7 +869,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
               children: [
                 Text(SettingsService.instance.storeName, style: AppText.cardTitle()),
                 const SizedBox(height: 1),
-                Text('Cashier · ${SettingsService.instance.cashier}', style: AppText.caption()),
+                Text(tr('Cashier · {name}', {'name': SettingsService.instance.cashier}), style: AppText.caption()),
               ],
             ),
           ),
@@ -919,7 +921,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                   border: InputBorder.none,
                   isCollapsed: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                  hintText: 'Search products',
+                  hintText: tr('Search products'),
                   hintStyle: AppText.body(color: AppColors.faint),
                   prefixIcon: const Icon(Icons.search_rounded, color: AppColors.muted, size: 20),
                   prefixIconConstraints: const BoxConstraints(minWidth: 42),
@@ -959,13 +961,13 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
             child: Row(
               children: [
                 Expanded(
-                  child: Text('Current sale',
+                  child: Text(tr('Current sale'),
                       style: AppText.sectionTitle().copyWith(fontSize: 17)),
                 ),
                 if (HeldSales.instance.count > 0) ...[
                   _QuickPill(
                     icon: Icons.pause_circle_outline_rounded,
-                    label: 'Held',
+                    label: tr('Held'),
                     badge: HeldSales.instance.count,
                     onTap: _showHeldSheet,
                     tint: true,
@@ -976,7 +978,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                 if (lines.isNotEmpty) ...[
                   GestureDetector(
                     onTap: _holdSale,
-                    child: Text('Hold', style: AppText.chip(color: AppColors.primary)),
+                    child: Text(tr('Hold'), style: AppText.chip(color: AppColors.primary)),
                   ),
                   const SizedBox(width: 14),
                   GestureDetector(
@@ -984,7 +986,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                       _settleFlights();
                       setState(_cart.clear);
                     },
-                    child: Text('Clear', style: AppText.chip(color: AppColors.danger)),
+                    child: Text(tr('Clear'), style: AppText.chip(color: AppColors.danger)),
                   ),
                 ],
               ],
@@ -1010,9 +1012,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                 color: AppColors.muted, size: 24),
                           ),
                           const SizedBox(height: 12),
-                          Text('No items yet', style: AppText.cardTitle()),
+                          Text(tr('No items yet'), style: AppText.cardTitle()),
                           const SizedBox(height: 4),
-                          Text('Tap a product to add it, or hold to choose a quantity.',
+                          Text(tr('Tap a product to add it, or hold to choose a quantity.'),
                               textAlign: TextAlign.center, style: AppText.caption()),
                         ],
                       ),
@@ -1091,7 +1093,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Subtotal', style: AppText.body()),
+              Text(tr('Subtotal'), style: AppText.body()),
               Text(formatPeso(_cartTotal), style: AppText.cardTitle()),
             ],
           ),
@@ -1099,7 +1101,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Items', style: AppText.body()),
+              Text(tr('Items'), style: AppText.body()),
               Text('$_cartCount', style: AppText.cardTitle()),
             ],
           ),
@@ -1109,7 +1111,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Total', style: AppText.sectionTitle()),
+              Text(tr('Total'), style: AppText.sectionTitle()),
               Flexible(
                 child: Text(formatPeso(_cartTotal),
                     maxLines: 1,
@@ -1131,7 +1133,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.cta)),
               ),
-              child: Text('Charge · ${formatPeso(_cartTotal)}',
+              child: Text(tr('Charge · {amount}', {'amount': formatPeso(_cartTotal)}),
                   style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
             ),
           ),
@@ -1157,7 +1159,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
             Expanded(
               child: _QuickPill(
                 icon: Icons.replay_rounded,
-                label: 'Repeat last sale',
+                label: tr('Repeat last sale'),
                 detail: last.summary(),
                 onTap: _repeatLastSale,
               ),
@@ -1166,7 +1168,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           if (heldCount > 0)
             _QuickPill(
               icon: Icons.pause_circle_outline_rounded,
-              label: 'Held',
+              label: tr('Held'),
               badge: heldCount,
               onTap: _showHeldSheet,
               tint: true,
@@ -1205,7 +1207,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                     Icon(Icons.bolt_rounded, size: 15, color: selected ? Colors.white : AppColors.primary),
                     const SizedBox(width: 3),
                   ],
-                  Text(c, style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
+                  // Categories are the shopkeeper's own words; only 'All' and
+                  // 'Popular' have a translation, and tr() leaves the rest alone.
+                  Text(tr(c), style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
                 ],
               ),
             ),
@@ -1219,7 +1223,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     final items = _filtered;
     if (items.isEmpty) {
       return Center(
-        child: Text('No products found', style: AppText.body()),
+        child: Text(tr('No products found'), style: AppText.body()),
       );
     }
     return GridView.builder(

@@ -4,6 +4,7 @@ import '../core/design_tokens.dart';
 import '../models/product_model.dart';
 import '../models/sale_model.dart';
 import 'product_thumb.dart';
+import '../l10n/tr.dart';
 
 /// One sale in a list: what was bought, how it was paid and when, the total,
 /// and the receipt number small on the right. Shared by Home's recent sales
@@ -42,7 +43,7 @@ class SaleRow extends StatelessWidget {
                     Text(
                       // "1 item" says nothing the title has not; the count
                       // only earns its place once there is more than one.
-                      '${count > 1 ? '$count items · ' : ''}${s.paymentMethod} · ${t.format(context)}',
+                      '${count > 1 ? '${tr('{n} items', {'n': count})} · ' : ''}${s.paymentMethod} · ${t.format(context)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.caption(),

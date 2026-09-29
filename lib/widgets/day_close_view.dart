@@ -6,6 +6,7 @@ import '../services/printer_service.dart';
 import '../services/receipt_document.dart';
 import '../services/settings_service.dart';
 import '../services/shift_summary.dart';
+import '../l10n/tr.dart';
 
 /// The end-of-day report on screen: what the owner would ask about if they
 /// were standing at the counter, then the ways to hand it to them when they
@@ -16,7 +17,7 @@ class DayCloseView extends StatefulWidget {
     required this.summary,
     required this.onDone,
     this.onRecount,
-    this.title = 'Day closed',
+    this.title,
   });
 
   final ShiftSummary summary;
@@ -24,7 +25,8 @@ class DayCloseView extends StatefulWidget {
 
   /// Only offered right after a close, while the drawer is still open.
   final VoidCallback? onRecount;
-  final String title;
+  /// Defaults to 'Day closed'.
+  final String? title;
 
   @override
   State<DayCloseView> createState() => _DayCloseViewState();
@@ -94,7 +96,7 @@ class _DayCloseViewState extends State<DayCloseView> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  Center(child: Text(widget.title, style: AppText.sectionTitle().copyWith(fontSize: 19))),
+                  Center(child: Text(widget.title ?? tr('Day closed'), style: AppText.sectionTitle().copyWith(fontSize: 19))),
                   const SizedBox(height: 4),
                   Center(
                     child: Text(
@@ -110,17 +112,17 @@ class _DayCloseViewState extends State<DayCloseView> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('SALES', style: AppText.overline(color: AppColors.muted)),
+                        Text(tr('SALES'), style: AppText.overline(color: AppColors.muted)),
                         const SizedBox(height: 4),
                         Text(formatPeso(sum.revenue), style: AppText.heroFigure()),
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            _stat('${sum.transactions}', sum.transactions == 1 ? 'sale' : 'sales'),
+                            _stat('${sum.transactions}', sum.transactions == 1 ? tr('sale') : tr('sales')),
                             _rule(),
                             _stat('${sum.items}', 'items'),
                             _rule(),
-                            _stat(formatPeso(sum.averageSale), 'avg sale'),
+                            _stat(formatPeso(sum.averageSale), tr('avg sale')),
                           ],
                         ),
                       ],
@@ -134,7 +136,7 @@ class _DayCloseViewState extends State<DayCloseView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('PAID BY', style: AppText.overline(color: AppColors.muted)),
+                          Text(tr('PAID BY'), style: AppText.overline(color: AppColors.muted)),
                           const SizedBox(height: 8),
                           for (final m in sum.byMethod) ...[
                             _row('${m.label} · ${m.units}', formatPeso(m.value)),
@@ -144,7 +146,7 @@ class _DayCloseViewState extends State<DayCloseView> {
                           ],
                           if (sum.utangCharged > 0)
                             Text(
-                              '${formatPeso(sum.utangCharged)} of this is on tab — owed, not in the drawer.',
+                              tr('{amount} of this is on tab — owed, not in the drawer.', {'amount': formatPeso(sum.utangCharged)}),
                               style: AppText.caption(color: AppColors.warningText),
                             ),
                         ],
@@ -159,7 +161,7 @@ class _DayCloseViewState extends State<DayCloseView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('TOP SELLERS', style: AppText.overline(color: AppColors.muted)),
+                          Text(tr('TOP SELLERS'), style: AppText.overline(color: AppColors.muted)),
                           const SizedBox(height: 6),
                           for (final t in sum.topProducts)
                             Padding(
@@ -197,17 +199,17 @@ class _DayCloseViewState extends State<DayCloseView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('OUT', style: AppText.overline(color: AppColors.muted)),
+                          Text(tr('OUT'), style: AppText.overline(color: AppColors.muted)),
                           const SizedBox(height: 8),
                           if (sum.discounts > 0)
-                            _row('Discounts given', '−${formatPeso(sum.discounts)}', color: AppColors.warningText),
+                            _row(tr('Discounts given'), '−${formatPeso(sum.discounts)}', color: AppColors.warningText),
                           if (sum.refunds > 0)
-                            _row('Refunds · ${sum.refundCount}', '−${formatPeso(sum.refunds)}',
+                            _row(tr('Refunds · {n}', {'n': sum.refundCount}), '−${formatPeso(sum.refunds)}',
                                 color: AppColors.dangerText),
                           const SizedBox(height: 6),
                           const Divider(color: AppColors.divider, height: 1),
                           const SizedBox(height: 8),
-                          _row('Net sales', formatPeso(sum.net), strong: true),
+                          _row(tr('Net sales'), formatPeso(sum.net), strong: true),
                         ],
                       ),
                     ),
@@ -222,19 +224,19 @@ class _DayCloseViewState extends State<DayCloseView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('CASH DRAWER', style: AppText.overline(color: tone)),
+                          Text(tr('CASH DRAWER'), style: AppText.overline(color: tone)),
                           const SizedBox(height: 8),
-                          _row('Opening float', formatPeso(shift.openingFloat)),
-                          _row('Cash sales', formatPeso(shift.cashSales)),
-                          _row('Expected', formatPeso(shift.expected)),
-                          _row('Counted', formatPeso(shift.counted)),
+                          _row(tr('Opening float'), formatPeso(shift.openingFloat)),
+                          _row(tr('Cash sales'), formatPeso(shift.cashSales)),
+                          _row(tr('Expected'), formatPeso(shift.expected)),
+                          _row(tr('Counted'), formatPeso(shift.counted)),
                           const SizedBox(height: 6),
                           Divider(color: tone.withValues(alpha: 0.2), height: 1),
                           const SizedBox(height: 8),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(balanced ? 'Balanced' : (variance < 0 ? 'Short' : 'Over'),
+                              Text(balanced ? tr('Balanced') : (variance < 0 ? tr('Short') : tr('Over')),
                                   style: AppText.cardTitle(color: tone)),
                               Text(
                                 '${variance > 0 ? '+' : ''}${formatPeso(variance)}',
@@ -262,12 +264,12 @@ class _DayCloseViewState extends State<DayCloseView> {
                   Row(
                     children: [
                       Expanded(
-                        child: _action(Icons.ios_share_rounded, 'Send to owner', _share, primary: true),
+                        child: _action(Icons.ios_share_rounded, tr('Send to owner'), _share, primary: true),
                       ),
                       if (hasPrinter) ...[
                         const SizedBox(width: 8),
                         Expanded(
-                          child: _action(Icons.print_outlined, _printing ? 'Printing…' : 'Print',
+                          child: _action(Icons.print_outlined, _printing ? tr('Printing…') : tr('Print'),
                               _printing ? null : _print),
                         ),
                       ],
@@ -277,10 +279,10 @@ class _DayCloseViewState extends State<DayCloseView> {
                   Row(
                     children: [
                       if (widget.onRecount != null) ...[
-                        Expanded(child: _action(Icons.replay_rounded, 'Recount', widget.onRecount)),
+                        Expanded(child: _action(Icons.replay_rounded, tr('Recount'), widget.onRecount)),
                         const SizedBox(width: 8),
                       ],
-                      Expanded(child: _action(Icons.check_rounded, 'Done', widget.onDone)),
+                      Expanded(child: _action(Icons.check_rounded, tr('Done'), widget.onDone)),
                     ],
                   ),
                 ],

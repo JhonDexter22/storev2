@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../l10n/tr.dart';
 
 
 
@@ -254,9 +255,9 @@ class StockStatus {
   }
 
   static String label(int stock, int minStock) {
-    if (stock <= 0) return 'Out of stock';
-    if (stock <= minStock) return 'Low stock';
-    return 'In stock';
+    if (stock <= 0) return tr('Out of stock');
+    if (stock <= minStock) return tr('Low stock');
+    return tr('In stock');
   }
 }
 

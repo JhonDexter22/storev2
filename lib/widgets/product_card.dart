@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/design_tokens.dart';
 import '../models/product_model.dart';
 import 'product_thumb.dart';
+import '../l10n/tr.dart';
 
 /// Grid tile shared by the till and the catalog: photo across the full top
 /// edge, stock state floating on the photo, then name / category / price.
@@ -92,7 +93,7 @@ class ProductCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          outOfStock ? '0 left' : '${product.stock} left',
+                          tr('{n} left', {'n': outOfStock ? 0 : product.stock}),
                           style: AppText.caption(
                               color: StockStatus.text(product.stock, product.minStock)),
                         ),

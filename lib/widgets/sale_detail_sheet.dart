@@ -7,6 +7,7 @@ import '../screens/returns_screen.dart';
 import '../services/printer_service.dart';
 import '../services/receipt_document.dart';
 import '../services/settings_service.dart';
+import '../l10n/tr.dart';
 
 /// A receipt, opened from a list of sales: every line, how it was paid, who
 /// rang it up, and the three things a shopkeeper does with an old receipt —
@@ -36,23 +37,7 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
 
   Sale get sale => widget.sale;
 
-  static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-
-  String _when(BuildContext context) {
-    final d = sale.createdAtDate;
-    final now = DateTime.now();
-    final t = TimeOfDay.fromDateTime(d).format(context);
-    final sameDay = d.year == now.year && d.month == now.month && d.day == now.day;
-    if (sameDay) return 'Today · $t';
-    final yesterday = now.subtract(const Duration(days: 1));
-    if (d.year == yesterday.year && d.month == yesterday.month && d.day == yesterday.day) {
-      return 'Yesterday · $t';
-    }
-    return '${d.day} ${_months[d.month - 1]} · $t';
-  }
+  String _when(BuildContext context) => trWhen(context, sale.createdAtDate);
 
   IconData get _payIcon {
     final types = SettingsService.instance.paymentTypes;
@@ -183,7 +168,7 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
                 if (items.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text('${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'}',
+                    child: Text(trCount(sale.itemCount, '{n} item', '{n} items'),
                         style: AppText.body()),
                   ),
                 for (final i in items) _line(i),
@@ -191,18 +176,18 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
                 const Divider(color: AppColors.divider, height: 1),
                 const SizedBox(height: 10),
                 if (sale.discount > 0) ...[
-                  _total('Subtotal', formatPeso(sale.subtotal)),
+                  _total(tr('Subtotal'), formatPeso(sale.subtotal)),
                   _total(
-                    sale.discountReason.isEmpty ? 'Discount' : sale.discountReason,
+                    sale.discountReason.isEmpty ? tr('Discount') : sale.discountReason,
                     '−${formatPeso(sale.discount)}',
                     color: AppColors.successText,
                   ),
                 ],
-                _total('Total', formatPeso(sale.total), strong: true),
+                _total(tr('Total'), formatPeso(sale.total), strong: true),
                 if (sale.cashReceived > 0) ...[
                   const SizedBox(height: 6),
-                  _total('Cash received', formatPeso(sale.cashReceived), muted: true),
-                  _total('Change', formatPeso(sale.changeAmount), muted: true),
+                  _total(tr('Cash received'), formatPeso(sale.cashReceived), muted: true),
+                  _total(tr('Change'), formatPeso(sale.changeAmount), muted: true),
                 ],
               ],
             ),
@@ -218,20 +203,20 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
                   Expanded(
                     child: _ActionButton(
                       icon: Icons.print_outlined,
-                      label: _printing ? 'Printing…' : 'Reprint',
+                      label: _printing ? tr('Printing…') : tr('Reprint'),
                       onTap: _printing ? null : _print,
                     ),
                   ),
                   const SizedBox(width: 8),
                 ],
                 Expanded(
-                  child: _ActionButton(icon: Icons.ios_share_rounded, label: 'Share', onTap: _share),
+                  child: _ActionButton(icon: Icons.ios_share_rounded, label: tr('Share'), onTap: _share),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _ActionButton(
                     icon: Icons.assignment_return_outlined,
-                    label: 'Return',
+                    label: tr('Return'),
                     onTap: _returnItems,
                     tone: AppColors.dangerText,
                     fill: AppColors.dangerFill,
@@ -271,7 +256,7 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
               children: [
                 Text(i.name, style: AppText.cardTitle(), maxLines: 2, overflow: TextOverflow.ellipsis),
                 if (i.qty > 1)
-                  Text('@ ${formatPeso(i.unitPrice)} each', style: AppText.caption()),
+                  Text(tr('@ {price} each', {'price': formatPeso(i.unitPrice)}), style: AppText.caption()),
               ],
             ),
           ),

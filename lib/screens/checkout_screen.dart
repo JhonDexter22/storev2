@@ -14,6 +14,7 @@ import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../services/utang_service.dart';
 import '../widgets/discount_sheet.dart';
+import '../l10n/tr.dart';
 
 /// How the cashier left checkout. Both outcomes clear the cart; only
 /// [completed] means stock moved and needs re-reading.
@@ -163,12 +164,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// it. Shared by both layouts so the two never drift apart.
   List<Widget> _paymentSection() {
     return [
-      Text('Payment method', style: AppText.sectionTitle()),
+      Text(tr('Payment method'), style: AppText.sectionTitle()),
       const SizedBox(height: 10),
       _paymentMethodRow(),
       if (_method.kind == PaymentKind.utang) ...[
         const SizedBox(height: AppSpace.gapSection),
-        Text('Charge to', style: AppText.sectionTitle()),
+        Text(tr('Charge to'), style: AppText.sectionTitle()),
         const SizedBox(height: 10),
         _customerPicker(),
       ],
@@ -178,7 +179,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         if (_received > 0 && _received < _due) ...[
           const SizedBox(height: 10),
           _notice(
-            'Cash received is less than the amount due.',
+            tr('Cash received is less than the amount due.'),
             AppColors.warning,
             AppColors.warningFill,
             AppColors.warningBorder,
@@ -273,11 +274,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Checkout',
+                  tr('Checkout'),
                   style: AppText.sectionTitle().copyWith(fontSize: 18),
                 ),
                 Text(
-                  '${widget.lines.fold<int>(0, (s, l) => s + l.qty)} item${widget.lines.length == 1 ? '' : 's'}',
+                  trCount(widget.lines.fold<int>(0, (s, l) => s + l.qty), '{n} item', '{n} items'),
                   style: AppText.caption(),
                 ),
               ],
@@ -293,7 +294,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 border: Border.all(color: AppColors.dangerBorder),
               ),
               child: Text(
-                'Void sale',
+                tr('Void sale'),
                 style: AppText.chip(color: AppColors.dangerText),
               ),
             ),
@@ -312,11 +313,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
-          'Void this sale?',
+          tr('Void this sale?'),
           style: AppText.sectionTitle().copyWith(fontSize: 17),
         ),
         content: Text(
-          'The items in this sale will be cleared and you will go back to the register. Nothing is charged.',
+          tr('The items in this sale will be cleared and you will go back to the register. Nothing is charged.'),
           style: AppText.body(),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -324,14 +325,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(
-              'Keep the sale',
+              tr('Keep the sale'),
               style: AppText.chip(color: AppColors.body),
             ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(
-              'Void sale',
+              tr('Void sale'),
               style: AppText.chip(color: AppColors.danger),
             ),
           ),
@@ -401,7 +402,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Subtotal', style: AppText.body()),
+                Text(tr('Subtotal'), style: AppText.body()),
                 Text(formatPeso(_subtotal), style: AppText.body()),
               ],
             ),
@@ -429,7 +430,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Amount due', style: AppText.sectionTitle()),
+              Text(tr('Amount due'), style: AppText.sectionTitle()),
               Text(
                 formatPeso(_due),
                 style: AppText.largeFigure().copyWith(fontSize: 21),
@@ -460,7 +461,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  has ? 'Discount applied' : 'Add a discount',
+                  has ? tr('Discount applied') : tr('Add a discount'),
                   style: AppText.body(
                       color: has ? AppColors.successText : AppColors.body),
                 ),
@@ -470,7 +471,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   onTap: () => setState(() => _discount = Discount.none),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    child: Text('Remove',
+                    child: Text(tr('Remove'),
                         style: AppText.chip(color: AppColors.dangerText)),
                   ),
                 )
@@ -570,10 +571,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ),
         child: Column(
           children: [
-            Text('No customers on credit yet', style: AppText.cardTitle()),
+            Text(tr('No customers on credit yet'), style: AppText.cardTitle()),
             const SizedBox(height: 4),
             Text(
-              'Add one from More → Utang before charging a sale.',
+              tr('Add one from More → Utang before charging a sale.'),
               textAlign: TextAlign.center,
               style: AppText.caption(),
             ),
@@ -642,7 +643,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Owes ${formatPeso(c.balance)} · Becomes ${formatPeso(becomes)}',
+                      tr('Owes {owes} · Becomes {becomes}', {'owes': formatPeso(c.balance), 'becomes': formatPeso(becomes)}),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.caption(),
@@ -652,8 +653,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
               if (overCeiling) ...[
                 const SizedBox(width: 8),
-                const StatusPill(
-                  label: 'Over limit',
+                StatusPill(
+                  label: tr('Over limit'),
                   fg: AppColors.warningText,
                   bg: AppColors.warningFill,
                   dot: false,
@@ -678,7 +679,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Cash received', style: AppText.body()),
+          Text(tr('Cash received'), style: AppText.body()),
           const SizedBox(height: 8),
           TextField(
             controller: _receivedCtrl,
@@ -709,7 +710,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
                 const SizedBox(width: 8),
               ],
-              _quickAmountChip('Exact', () => _setReceived(_due)),
+              _quickAmountChip(tr('Exact'), () => _setReceived(_due)),
             ],
           ),
         ],
@@ -766,7 +767,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text('Change', style: AppText.body(color: AppColors.successText)),
+          Text(tr('Change'), style: AppText.body(color: AppColors.successText)),
           Text(
             formatPeso(_change),
             style: AppText.largeFigure(
@@ -781,8 +782,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Widget _ctaBar() {
     final onCredit = _method.kind == PaymentKind.utang;
     final label = onCredit
-        ? 'Charge to utang · ${formatPeso(_due)}'
-        : 'Complete sale · ${formatPeso(_due)}';
+        ? tr('Charge to utang · {amount}', {'amount': formatPeso(_due)})
+        : tr('Complete sale · {amount}', {'amount': formatPeso(_due)});
 
     return Container(
       padding: EdgeInsets.fromLTRB(
@@ -1021,13 +1022,13 @@ class _SuccessViewState extends State<_SuccessView> {
               Text(
                 // Nothing was paid on the credit path — saying "payment
                 // successful" there would misreport what happened.
-                done.onCredit ? 'Charged to utang' : 'Payment successful',
+                done.onCredit ? tr('Charged to utang') : tr('Payment successful'),
                 style: AppText.sectionTitle().copyWith(fontSize: 19),
               ),
               const SizedBox(height: 4),
               Text(
                 done.onCredit
-                    ? "On ${done.chargedTo}'s tab · ${done.reference} · ${TimeOfDay.fromDateTime(done.time).format(context)}"
+                    ? tr("On {name}'s tab · {ref} · {time}", {'name': done.chargedTo, 'ref': done.reference, 'time': TimeOfDay.fromDateTime(done.time).format(context)})
                     : '${done.method} · ${done.reference} · ${TimeOfDay.fromDateTime(done.time).format(context)}',
                 textAlign: TextAlign.center,
                 style: AppText.caption(),
@@ -1044,7 +1045,7 @@ class _SuccessViewState extends State<_SuccessView> {
                 child: Column(
                   children: [
                     if (done.hasDiscount) ...[
-                      _receiptRow('Subtotal', formatPeso(done.subtotal)),
+                      _receiptRow(tr('Subtotal'), formatPeso(done.subtotal)),
                       const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1065,19 +1066,19 @@ class _SuccessViewState extends State<_SuccessView> {
                       const SizedBox(height: 8),
                     ],
                     _receiptRow(
-                      done.onCredit ? 'Added to tab' : 'Amount due',
+                      done.onCredit ? tr('Added to tab') : tr('Amount due'),
                       formatPeso(due),
                     ),
                     if (done.method == 'Cash') ...[
                       const SizedBox(height: 8),
-                      _receiptRow('Received', formatPeso(received)),
+                      _receiptRow(tr('Received'), formatPeso(received)),
                       const SizedBox(height: 8),
                       const Divider(color: AppColors.divider, height: 1),
                       const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Change', style: AppText.body()),
+                          Text(tr('Change'), style: AppText.body()),
                           Text(
                             formatPeso(change),
                             style: AppText.largeFigure().copyWith(fontSize: 30),
@@ -1104,7 +1105,7 @@ class _SuccessViewState extends State<_SuccessView> {
                     ),
                   ),
                   child: Text(
-                    'New sale',
+                    tr('New sale'),
                     style: AppText.chip(
                       color: Colors.white,
                     ).copyWith(fontSize: 15),
@@ -1116,7 +1117,7 @@ class _SuccessViewState extends State<_SuccessView> {
                 children: [
                   Expanded(
                     child: _secondaryBtn(
-                      _printing ? 'Printing…' : 'Print receipt',
+                      _printing ? tr('Printing…') : tr('Print receipt'),
                       Icons.print_outlined,
                       _printing ? null : _print,
                     ),
@@ -1124,7 +1125,7 @@ class _SuccessViewState extends State<_SuccessView> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: _secondaryBtn(
-                      'Share',
+                      tr('Share'),
                       Icons.ios_share_rounded,
                       () => SharePlus.instance.share(
                         ShareParams(

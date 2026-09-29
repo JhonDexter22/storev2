@@ -7,6 +7,7 @@ import '../models/customer.dart';
 import '../services/utang_service.dart';
 import '../widgets/customer_ledger_sheet.dart';
 import '../widgets/utang_remind_sheet.dart';
+import '../l10n/tr.dart';
 
 enum _Filter { all, dueSoon, overdue }
 
@@ -78,9 +79,9 @@ class _UtangScreenState extends State<UtangScreen> {
   };
 
   static String _statusLabel(UtangStatus s) => switch (s) {
-    UtangStatus.overdue => 'Overdue',
-    UtangStatus.dueSoon => 'Due soon',
-    UtangStatus.current => 'Current',
+    UtangStatus.overdue => tr('Overdue'),
+    UtangStatus.dueSoon => tr('Due soon'),
+    UtangStatus.current => tr('Current'),
   };
 
   Future<void> _addCustomer() async {
@@ -114,7 +115,7 @@ class _UtangScreenState extends State<UtangScreen> {
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
-          existing == null ? 'Add a customer' : 'Edit customer',
+          existing == null ? tr('Add a customer') : tr('Edit customer'),
           style: AppText.sectionTitle().copyWith(fontSize: 17),
         ),
         content: Column(
@@ -125,20 +126,20 @@ class _UtangScreenState extends State<UtangScreen> {
               autofocus: existing == null,
               textCapitalization: TextCapitalization.words,
               style: AppText.body(color: AppColors.ink),
-              decoration: deco('Name'),
+              decoration: deco(tr('Name')),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: phoneCtrl,
               keyboardType: TextInputType.phone,
               style: AppText.body(color: AppColors.ink),
-              decoration: deco('Mobile number (optional)'),
+              decoration: deco(tr('Mobile number (optional)')),
             ),
             const SizedBox(height: 6),
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'A number lets you send reminders by SMS.',
+                tr('A number lets you send reminders by SMS.'),
                 style: AppText.caption(color: AppColors.faint),
               ),
             ),
@@ -147,12 +148,12 @@ class _UtangScreenState extends State<UtangScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+            child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(
-              existing == null ? 'Add' : 'Save',
+              existing == null ? tr('Add') : tr('Save'),
               style: AppText.chip(color: AppColors.primary),
             ),
           ),
@@ -182,7 +183,7 @@ class _UtangScreenState extends State<UtangScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('Reminder sent to ${c.name}')));
+          ..showSnackBar(SnackBar(content: Text(tr('Reminder sent to {name}', {'name': c.name}))));
       }
       return true;
     }
@@ -241,16 +242,16 @@ class _UtangScreenState extends State<UtangScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Record payment',
+                  tr('Record payment'),
                   style: AppText.sectionTitle().copyWith(fontSize: 18),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${c.name} owes ${formatPeso(c.balance)}',
+                  tr('{name} owes {amount}', {'name': c.name, 'amount': formatPeso(c.balance)}),
                   style: AppText.caption(),
                 ),
                 const SizedBox(height: 18),
-                Text('Amount', style: AppText.body()),
+                Text(tr('Amount'), style: AppText.body()),
                 const SizedBox(height: 8),
                 TextField(
                   controller: ctrl,
@@ -268,7 +269,7 @@ class _UtangScreenState extends State<UtangScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text('Method', style: AppText.body()),
+                Text(tr('Method'), style: AppText.body()),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -323,7 +324,7 @@ class _UtangScreenState extends State<UtangScreen> {
                       ),
                     ),
                     child: Text(
-                      'Record payment',
+                      tr('Record payment'),
                       style: AppText.chip(
                         color: Colors.white,
                       ).copyWith(fontSize: 15),
@@ -399,7 +400,7 @@ class _UtangScreenState extends State<UtangScreen> {
               padding: const EdgeInsets.symmetric(vertical: 32),
               child: Center(
                 child: Text(
-                  'Nobody in this group right now',
+                  tr('Nobody in this group right now'),
                   style: AppText.body(),
                 ),
               ),
@@ -480,13 +481,13 @@ class _UtangScreenState extends State<UtangScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Utang',
+                  tr('Credit'),
                   style: AppText.screenTitle().copyWith(fontSize: 20),
                 ),
                 Text(
                   _loading
-                      ? 'Loading…'
-                      : '${_owing.length} customer${_owing.length == 1 ? '' : 's'} owing',
+                      ? tr('Loading…')
+                      : trCount(_owing.length, '{n} customer owing', '{n} customers owing'),
                   style: AppText.caption(),
                 ),
               ],
@@ -507,7 +508,7 @@ class _UtangScreenState extends State<UtangScreen> {
                   color: AppColors.primary,
                   borderRadius: BorderRadius.circular(11),
                 ),
-                child: Text('Charge', style: AppText.chip(color: Colors.white)),
+                child: Text(tr('Charge'), style: AppText.chip(color: Colors.white)),
               ),
             ),
         ],
@@ -526,7 +527,7 @@ class _UtangScreenState extends State<UtangScreen> {
           children: [
             Expanded(
               child: _tile(
-                'Total owed',
+                tr('Total owed'),
                 formatPeso(_totalOwed),
                 AppColors.ink,
                 AppColors.surface,
@@ -535,7 +536,7 @@ class _UtangScreenState extends State<UtangScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _tile(
-                'Overdue',
+                tr('Overdue'),
                 formatPeso(_overdue),
                 _overdue > 0 ? AppColors.dangerText : AppColors.ink,
                 _overdue > 0 ? AppColors.dangerFill : AppColors.surface,
@@ -544,7 +545,7 @@ class _UtangScreenState extends State<UtangScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _tile(
-                'Collected today',
+                tr('Collected today'),
                 formatPeso(_collected.amount),
                 _collected.amount > 0 ? AppColors.successText : AppColors.ink,
                 _collected.amount > 0
@@ -578,12 +579,12 @@ class _UtangScreenState extends State<UtangScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '$overdueToRemind overdue not yet reminded today',
+                        tr('{n} overdue not yet reminded today', {'n': overdueToRemind}),
                         style: AppText.chip(color: AppColors.dangerText),
                       ),
                     ),
                     Text(
-                      'Remind all',
+                      tr('Remind all'),
                       style: AppText.chip(color: AppColors.dangerText),
                     ),
                     const Icon(
@@ -653,19 +654,24 @@ class _UtangScreenState extends State<UtangScreen> {
       );
     }
 
-    return Row(
-      children: [
-        chip(_Filter.all, 'All'),
-        chip(_Filter.dueSoon, 'Due soon'),
-        chip(_Filter.overdue, 'Overdue'),
-      ],
+    // Scrolls rather than clips: Filipino labels run longer than English,
+    // and on a narrow phone the last chip would otherwise be cut off.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          chip(_Filter.all, tr('All')),
+          chip(_Filter.dueSoon, tr('Due soon')),
+          chip(_Filter.overdue, tr('Overdue')),
+        ],
+      ),
     );
   }
 
   String _activityLabel(Customer c) {
     final amount = c.lastActivityAmount;
-    if (amount == null) return 'No activity yet';
-    return '${c.lastActivityIsCharge ? 'Charged' : 'Paid'} ${formatPeso(amount)}';
+    if (amount == null) return tr('No activity yet');
+    return tr(c.lastActivityIsCharge ? 'Charged {amount}' : 'Paid {amount}', {'amount': formatPeso(amount)});
   }
 
   Widget _customerCard(Customer c) {
@@ -717,7 +723,7 @@ class _UtangScreenState extends State<UtangScreen> {
                           const SizedBox(height: 2),
                           Text(
                             c.remindedToday
-                                ? '${c.ageLabel} · reminded today'
+                                ? '${c.ageLabel} · ${tr('reminded today')}'
                                 : c.hasPhone
                                 ? '${c.ageLabel} · ${c.phone}'
                                 : c.ageLabel,
@@ -749,8 +755,8 @@ class _UtangScreenState extends State<UtangScreen> {
                             dot: false,
                           )
                         else
-                          const StatusPill(
-                            label: 'Settled',
+                          StatusPill(
+                            label: tr('Settled'),
                             fg: AppColors.successText,
                             bg: AppColors.successFill,
                             dot: false,
@@ -783,14 +789,14 @@ class _UtangScreenState extends State<UtangScreen> {
                         c.remindedToday
                             ? Icons.notifications_off_outlined
                             : Icons.notifications_none_rounded,
-                        'Remind',
+                        tr('Remind'),
                         () => _remind(c),
                         muted: c.remindedToday,
                       ),
                       const SizedBox(width: 6),
                       _pill(
                         Icons.payments_outlined,
-                        'Payment',
+                        tr('Payment'),
                         () => _recordPayment(c),
                         primary: true,
                       ),
@@ -853,7 +859,7 @@ class _UtangScreenState extends State<UtangScreen> {
         ),
         icon: const Icon(Icons.person_add_alt_rounded, size: 17),
         label: Text(
-          'Add a customer',
+          tr('Add a customer'),
           style: AppText.chip(color: AppColors.body),
         ),
       ),
@@ -882,12 +888,12 @@ class _UtangScreenState extends State<UtangScreen> {
             ),
             const SizedBox(height: 14),
             Text(
-              'No customers on credit',
+              tr('No customers on credit'),
               style: AppText.cardTitle().copyWith(fontSize: 15),
             ),
             const SizedBox(height: 4),
             Text(
-              'Add a customer, then charge a sale to their tab from checkout.',
+              tr('Add a customer, then charge a sale to their tab from checkout.'),
               textAlign: TextAlign.center,
               style: AppText.caption(),
             ),

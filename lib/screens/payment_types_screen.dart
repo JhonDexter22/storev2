@@ -4,6 +4,7 @@ import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/payment_type.dart';
 import '../services/settings_service.dart';
+import '../l10n/tr.dart';
 
 /// Which ways a customer can pay.
 ///
@@ -40,10 +41,10 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Add a payment type',
+              Text(tr('Add a payment type'),
                   style: AppText.sectionTitle().copyWith(fontSize: 18)),
               const SizedBox(height: 2),
-              Text('Maya, a bank transfer — whatever you actually take.',
+              Text(tr('Maya, a bank transfer — whatever you actually take.'),
                   style: AppText.caption()),
               const SizedBox(height: 16),
               TextField(
@@ -52,7 +53,7 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
                 textCapitalization: TextCapitalization.words,
                 style: AppText.body(color: AppColors.ink),
                 decoration: InputDecoration(
-                  hintText: 'e.g. Maya',
+                  hintText: tr('e.g. Maya'),
                   hintStyle: AppText.caption(),
                   filled: true,
                   fillColor: AppColors.canvas,
@@ -86,7 +87,7 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.cta)),
                   ),
-                  child: Text('Add',
+                  child: Text(tr('Add'),
                       style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
                 ),
               ),
@@ -100,7 +101,7 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
     final added = await _settings.addPaymentType(name);
     if (!mounted) return;
     setState(() {});
-    if (!added) _toast('That name is already in the list.');
+    if (!added) _toast(tr('That name is already in the list.'));
   }
 
   Future<void> _remove(PaymentType type) async {
@@ -108,7 +109,7 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
     if (!mounted) return;
     setState(() {});
     // Past sales keep the name, so this is a change to the till, not the books.
-    _toast('${type.name} removed. Sales already taken keep it.');
+    _toast(tr('{name} removed. Sales already taken keep it.', {'name': type.name}));
   }
 
   void _toast(String message) {
@@ -148,12 +149,12 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Text('Payment types',
+                  Text(tr('Payment types'),
                       style: AppText.screenTitle().copyWith(fontSize: 22)),
                 ],
               ),
               const SizedBox(height: 4),
-              Text('These are the buttons a cashier sees at checkout.',
+              Text(tr('These are the buttons a cashier sees at checkout.'),
                   style: AppText.body()),
               const SizedBox(height: AppSpace.gapBlock),
               Container(
@@ -186,7 +187,7 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
                         borderRadius: BorderRadius.circular(AppRadius.cta)),
                   ),
                   icon: const Icon(Icons.add_rounded, size: 18),
-                  label: Text('Add a payment type',
+                  label: Text(tr('Add a payment type'),
                       style: AppText.chip(color: AppColors.body)),
                 ),
               ),
@@ -216,12 +217,12 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
                     style: AppText.cardTitle(
                         color: enabled ? AppColors.ink : AppColors.faint)),
                 if (!type.canBeDisabled)
-                  Text('Always available', style: AppText.caption())
+                  Text(tr('Always available'), style: AppText.caption())
                 else if (type.kind == PaymentKind.utang)
-                  Text('Puts the sale on a customer\'s tab',
+                  Text(tr('Puts the sale on a customer\'s tab'),
                       style: AppText.caption())
                 else if (!type.builtIn)
-                  Text('Added by you', style: AppText.caption()),
+                  Text(tr('Added by you'), style: AppText.caption()),
               ],
             ),
           ),
@@ -230,7 +231,7 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
               onPressed: () => _remove(type),
               icon: const Icon(Icons.delete_outline_rounded,
                   size: 20, color: AppColors.dangerText),
-              tooltip: 'Remove ${type.name}',
+              tooltip: tr('Remove {name}', {'name': type.name}),
             ),
           // Cash gets a label, not a disabled switch. A greyed-out switch
           // reads as "off" at a glance, which is the opposite of the truth.
@@ -238,7 +239,7 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: StatusPill(
-                label: 'On',
+                label: tr('On'),
                 fg: AppColors.successText,
                 bg: AppColors.successFill,
                 dot: false,
@@ -272,8 +273,7 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Switching one off only changes what the cashier is offered. '
-              'Sales already taken keep their payment type and still refund.',
+              tr('Switching one off only changes what the cashier is offered. Sales already taken keep their payment type and still refund.'),
               style: AppText.caption(),
             ),
           ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
+import '../l10n/tr.dart';
 
 /// Lets the owning screen poke the [CartBar] from outside its build: ask
 /// where the bag icon is (so a product can be flown into it) and trigger the
@@ -188,7 +189,7 @@ class _CartBarState extends State<CartBar> with TickerProviderStateMixin {
                         _Rolling<int>(
                           value: widget.count,
                           builder: (n) => Text(
-                            '$n item${n == 1 ? '' : 's'}',
+                            trCount(n, '{n} item', '{n} items'),
                             style: AppText.caption(color: AppColors.faint),
                           ),
                         ),
@@ -210,7 +211,7 @@ class _CartBarState extends State<CartBar> with TickerProviderStateMixin {
                         color: AppColors.primary,
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: Text('Checkout',
+                      child: Text(tr('Checkout'),
                           style: AppText.chip(color: Colors.white).copyWith(fontSize: 13)),
                     ),
                   ),

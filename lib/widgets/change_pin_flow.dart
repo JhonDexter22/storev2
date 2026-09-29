@@ -4,6 +4,7 @@ import '../core/design_tokens.dart';
 import '../models/staff.dart';
 import '../services/staff_service.dart';
 import 'pin_sheet.dart';
+import '../l10n/tr.dart';
 
 /// Why the change is being asked for, which decides whether it can be refused.
 enum ChangePinReason {
@@ -34,7 +35,7 @@ Future<bool> runChangePinFlow(
       verify: (pin) => staff.verifyPinOrManager(person.id!, pin),
       title: "Change ${person.name}'s PIN",
       hint: "Enter ${person.name}'s current PIN, or a manager PIN.",
-      confirmLabel: 'Continue',
+      confirmLabel: tr('Continue'),
       avatarInitials: person.initials,
     );
     if (!ok || !context.mounted) return false;
@@ -47,24 +48,24 @@ Future<bool> runChangePinFlow(
 
   final fresh = await PinSheet.capture(
     context,
-    title: 'New PIN',
-    hint: 'Choose four digits for ${person.name}.',
-    confirmLabel: 'Continue',
+    title: tr('New PIN'),
+    hint: tr('Choose four digits for {name}.', {'name': person.name}),
+    confirmLabel: tr('Continue'),
     avatarInitials: person.initials,
   );
   if (fresh == null || !context.mounted) return false;
 
   final again = await PinSheet.capture(
     context,
-    title: 'Repeat the PIN',
-    hint: 'Enter it once more to be sure.',
-    confirmLabel: 'Save PIN',
+    title: tr('Repeat the PIN'),
+    hint: tr('Enter it once more to be sure.'),
+    confirmLabel: tr('Save PIN'),
     avatarInitials: person.initials,
   );
   if (again == null || !context.mounted) return false;
 
   if (fresh != again) {
-    _toast(context, 'Those two PINs did not match. Nothing was changed.');
+    _toast(context, tr('Those two PINs did not match. Nothing was changed.'));
     return false;
   }
 
@@ -87,23 +88,21 @@ Future<bool> _explainWhy(BuildContext context, Staff person) async {
     builder: (ctx) => AlertDialog(
       backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text('Change this PIN first',
+      title: Text(tr('Change this PIN first'),
           style: AppText.sectionTitle().copyWith(fontSize: 17)),
       content: Text(
-        '${person.name} is still using the code the app shipped with. That code '
-        'is public — anyone who has seen this app knows it. Pick a new one '
-        'before authorising anything with it.',
+        tr('{name} is still using the code the app shipped with. That code is public — anyone who has seen this app knows it. Pick a new one before authorising anything with it.', {'name': person.name}),
         style: AppText.body(),
       ),
       actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
-          child: Text('Not now', style: AppText.chip(color: AppColors.body)),
+          child: Text(tr('Not now'), style: AppText.chip(color: AppColors.body)),
         ),
         TextButton(
           onPressed: () => Navigator.pop(ctx, true),
-          child: Text('Choose a PIN', style: AppText.chip(color: AppColors.primary)),
+          child: Text(tr('Choose a PIN'), style: AppText.chip(color: AppColors.primary)),
         ),
       ],
     ),
@@ -136,7 +135,7 @@ Future<bool> authoriseAsManager(
   final manager = await PinSheet.authorise(
     context,
     verify: staff.verifyManagerPin,
-    title: 'Manager PIN',
+    title: tr('Manager PIN'),
     hint: hint,
     confirmLabel: confirmLabel,
   );

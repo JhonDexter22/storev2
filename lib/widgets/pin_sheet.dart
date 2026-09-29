@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/design_tokens.dart';
 import '../models/staff.dart';
 import '../services/staff_service.dart';
+import '../l10n/tr.dart';
 
 /// A four-digit PIN gate, used both for the manager check before a shift close
 /// and for per-cashier sign-in.
@@ -218,14 +219,14 @@ class _PinSheetState extends State<PinSheet> {
     final lock = _lockLeft;
     if (lock != null) {
       final s = lock.inSeconds;
-      return 'Too many wrong codes. Try again in ${s}s.';
+      return tr('Too many wrong codes. Try again in {s}s.', {'s': s});
     }
-    if (!_wrong) return widget.subtitle ?? widget.hint;
+    if (!_wrong) return tr(widget.subtitle ?? widget.hint);
     final left = _attemptsLeft;
-    if (left == null) return 'That PIN was not recognised. Try again.';
+    if (left == null) return tr('That PIN was not recognised. Try again.');
     return left == 1
-        ? 'That PIN was not recognised. 1 try left.'
-        : 'That PIN was not recognised. $left tries left.';
+        ? tr('That PIN was not recognised. 1 try left.')
+        : tr('That PIN was not recognised. {n} tries left.', {'n': left});
   }
 
   @override
@@ -266,7 +267,7 @@ class _PinSheetState extends State<PinSheet> {
             ),
             const SizedBox(height: 12),
           ],
-          Text(widget.title, style: AppText.sectionTitle().copyWith(fontSize: 18)),
+          Text(tr(widget.title), style: AppText.sectionTitle().copyWith(fontSize: 18)),
           const SizedBox(height: 4),
           Text(
             _message,
@@ -297,7 +298,7 @@ class _PinSheetState extends State<PinSheet> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
-                  : Text(widget.confirmLabel,
+                  : Text(tr(widget.confirmLabel),
                       style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
             ),
           ),
@@ -309,7 +310,7 @@ class _PinSheetState extends State<PinSheet> {
               onPressed: _checking
                   ? null
                   : () => Navigator.pop(context, widget.verify == null ? null : false),
-              child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+              child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
             ),
           ),
         ],

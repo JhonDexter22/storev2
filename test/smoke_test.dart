@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:storev2/database/database_helper.dart';
+import 'package:storev2/l10n/tr.dart';
 import 'package:storev2/main.dart';
 import 'package:storev2/models/cart_line.dart';
 import 'package:storev2/models/product_model.dart';
@@ -30,7 +31,9 @@ void main() {
     await DatabaseHelper.instance.clearAllData();
   });
 
-  Future<void> smoke(WidgetTester tester, Size size) async {
+  Future<void> smoke(WidgetTester tester, Size size, {AppLanguage lang = AppLanguage.en}) async {
+    await SettingsService.instance.setLanguage(lang);
+    addTearDown(() => SettingsService.instance.setLanguage(AppLanguage.en));
     final svc = ProductService();
     final products = <Product>[];
     for (final (n, stock) in [('SkyFlakes', 40), ('Kopiko', 2), ('Coke', 0), ('Piattos', 12), ('Eggs', 30), ('Bear Brand', 9)]) {
@@ -63,14 +66,14 @@ void main() {
       expect(tester.takeException(), isNull, reason: 'tab $label');
     }
 
-    await tab('Home');
-    await tab('Sell');
-    await tab('Restock');
-    await tab('Products');
-    await tab('More');
+    await tab(tr('Home'));
+    await tab(tr('Sell'));
+    await tab(tr('Restock'));
+    await tab(tr('Products'));
+    await tab(tr('More'));
 
     // Every hub destination opens and comes back.
-    for (final item in ['Reports', 'Cash count', 'Shift history', 'Returns & voids', 'Utang', 'Settings']) {
+    for (final item in [for (final k in ['Reports', 'Cash count', 'Shift history', 'Returns & voids', 'Credit', 'Settings']) tr(k)]) {
       await tester.ensureVisible(find.text(item).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text(item).first);
@@ -87,11 +90,15 @@ void main() {
     }
     await tester.drag(find.byType(Scrollable).first, const Offset(0, 1200));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Switch'));
+    await tester.tap(find.text(tr('Switch')));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull, reason: 'switch cashier');
   }
 
   testWidgets('phone: every tab and hub screen renders', (tester) => smoke(tester, const Size(390, 812)));
   testWidgets('tablet: every tab and hub screen renders', (tester) => smoke(tester, const Size(1180, 800)));
+  // Filipino runs longer than English; this is where a label overflows.
+  testWidgets('phone, in Filipino', (tester) => smoke(tester, const Size(390, 812), lang: AppLanguage.fil));
+  testWidgets('tablet, in Filipino', (tester) => smoke(tester, const Size(1180, 800), lang: AppLanguage.fil));
+  testWidgets('small phone, in Filipino', (tester) => smoke(tester, const Size(360, 690), lang: AppLanguage.fil));
 }

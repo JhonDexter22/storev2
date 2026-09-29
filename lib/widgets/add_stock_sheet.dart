@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../core/design_tokens.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
+import '../l10n/tr.dart';
 
 /// A number pad and a Save: what restocking off a delivery actually needs.
 ///
@@ -78,12 +79,12 @@ Future<int?> showAddStockSheet(BuildContext context, Product p) {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Add stock',
+                  tr('Add stock'),
                   style: AppText.sectionTitle().copyWith(fontSize: 18),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${p.name} · ${p.stock} on hand',
+                  tr('{name} · {n} on hand', {'name': p.name, 'n': p.stock}),
                   style: AppText.caption(),
                 ),
                 const SizedBox(height: 16),
@@ -128,7 +129,7 @@ Future<int?> showAddStockSheet(BuildContext context, Product p) {
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    Text('After', style: AppText.body()),
+                    Text(tr('After'), style: AppText.body()),
                     const Spacer(),
                     Text(
                       '$after',
@@ -137,7 +138,7 @@ Future<int?> showAddStockSheet(BuildContext context, Product p) {
                         color: AppColors.primary,
                       ),
                     ),
-                    Text(' units', style: AppText.caption()),
+                    Text(' ${tr('units')}', style: AppText.caption()),
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -156,7 +157,7 @@ Future<int?> showAddStockSheet(BuildContext context, Product p) {
                       ),
                     ),
                     child: Text(
-                      amount > 0 ? 'Add $amount' : 'Add stock',
+                      amount > 0 ? tr('Add {n}', {'n': amount}) : tr('Add stock'),
                       style: AppText.chip(
                         color: Colors.white,
                       ).copyWith(fontSize: 15),

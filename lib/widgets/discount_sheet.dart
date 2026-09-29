@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
 import '../models/discount.dart';
+import '../l10n/tr.dart';
 
 /// Picks a discount. Presets first because they are what actually gets used,
 /// with a custom amount underneath for the cases they do not cover.
@@ -57,17 +58,17 @@ class _DiscountSheetState extends State<DiscountSheet> {
 
   void _apply(Discount discount) {
     if (discount.isZero) {
-      setState(() => _error = 'Enter how much to take off.');
+      setState(() => _error = tr('Enter how much to take off.'));
       return;
     }
     if (discount.kind == DiscountKind.percent && discount.value > 100) {
-      setState(() => _error = 'A discount cannot be more than 100%.');
+      setState(() => _error = tr('A discount cannot be more than 100%.'));
       return;
     }
     // The reason is what makes a discount auditable afterwards, so it is
     // required rather than a nicety.
     if (discount.reason.isEmpty) {
-      setState(() => _error = 'Say what the discount is for.');
+      setState(() => _error = tr('Say what the discount is for.'));
       return;
     }
     Navigator.pop(context, discount);
@@ -103,17 +104,17 @@ class _DiscountSheetState extends State<DiscountSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            Text('Add a discount',
+            Text(tr('Add a discount'),
                 style: AppText.sectionTitle().copyWith(fontSize: 18)),
             const SizedBox(height: 2),
-            Text('Subtotal ${formatPeso(widget.subtotal)}', style: AppText.caption()),
+            Text(tr('Subtotal {amount}', {'amount': formatPeso(widget.subtotal)}), style: AppText.caption()),
             const SizedBox(height: 16),
             for (final preset in Discount.presets) ...[
               _presetRow(preset.label, preset.kind, preset.value),
               const SizedBox(height: 8),
             ],
             const SizedBox(height: 6),
-            Text('Or set your own', style: AppText.body()),
+            Text(tr('Or set your own'), style: AppText.body()),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -129,12 +130,11 @@ class _DiscountSheetState extends State<DiscountSheet> {
               ],
             ),
             const SizedBox(height: 10),
-            _field(_reasonCtrl, hint: 'Reason (e.g. damaged packaging)'),
+            _field(_reasonCtrl, hint: tr('Reason (e.g. damaged packaging)')),
             if (!draft.isZero) ...[
               const SizedBox(height: 10),
               Text(
-                'Takes off ${formatPeso(off)} · '
-                'new total ${formatPeso(widget.subtotal - off)}',
+                tr('Takes off {off} · new total {total}', {'off': formatPeso(off), 'total': formatPeso(widget.subtotal - off)}),
                 style: AppText.caption(color: AppColors.successText),
               ),
             ],
@@ -155,7 +155,7 @@ class _DiscountSheetState extends State<DiscountSheet> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.cta)),
                 ),
-                child: Text('Apply discount',
+                child: Text(tr('Apply discount'),
                     style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
               ),
             ),
@@ -164,7 +164,7 @@ class _DiscountSheetState extends State<DiscountSheet> {
               height: 46,
               child: TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: Text('Cancel', style: AppText.chip(color: AppColors.body)),
+                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
               ),
             ),
           ],
@@ -190,7 +190,9 @@ class _DiscountSheetState extends State<DiscountSheet> {
           ),
           child: Row(
             children: [
-              Expanded(child: Text(label, style: AppText.cardTitle())),
+              // The preset's English name is what the sale records as the
+              // reason; only the label on the button is translated.
+              Expanded(child: Text(tr(label), style: AppText.cardTitle())),
               Text('${value.toStringAsFixed(0)}% · -${formatPeso(off)}',
                   style: AppText.caption(color: AppColors.successText)),
             ],

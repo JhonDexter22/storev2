@@ -1,3 +1,5 @@
+import '../l10n/tr.dart';
+
 class SaleItem {
   final int? id;
   final int? saleId;
@@ -117,7 +119,7 @@ class Sale {
     if (items.isEmpty) return reference;
     final shown = items.take(max).map((i) => i.qty > 1 ? '${i.name} ×${i.qty}' : i.name);
     final rest = items.length - max;
-    return rest > 0 ? '${shown.join(', ')} +$rest more' : shown.join(', ');
+    return rest > 0 ? '${shown.join(', ')} ${tr('+{n} more', {'n': rest})}' : shown.join(', ');
   }
 
   /// The short tail of the reference — enough to match against a slip.

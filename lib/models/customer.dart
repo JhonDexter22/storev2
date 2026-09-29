@@ -1,3 +1,5 @@
+import '../l10n/tr.dart';
+
 /// How overdue a balance is. Thresholds are in days since the oldest
 /// unsettled charge.
 enum UtangStatus { current, dueSoon, overdue }
@@ -79,11 +81,10 @@ class Customer {
   }
 
   String get ageLabel {
-    if (balance <= 0) return 'Settled';
+    if (balance <= 0) return tr('Settled');
     final age = ageInDays;
-    if (age <= 0) return 'Since today';
-    if (age == 1) return '1 day old';
-    return '$age days old';
+    if (age <= 0) return tr('Since today');
+    return trCount(age, '{n} day old', '{n} days old');
   }
 
   Customer copyWith({
