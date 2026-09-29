@@ -21,6 +21,15 @@ import 'cash_count_screen.dart';
 import 'reports_screen.dart';
 import 'sales_list_screen.dart';
 import '../l10n/tr.dart';
+import '../services/error_log.dart';
+import '../models/customer.dart';
+import '../models/staff.dart';
+import '../models/store_alerts.dart';
+import '../services/utang_service.dart';
+import 'cashier_switch_screen.dart';
+import 'error_log_screen.dart';
+import 'restock_screen.dart';
+import 'utang_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
@@ -31,6 +40,7 @@ class DashboardScreen extends StatefulWidget {
     this.productService,
     this.salesService,
     this.shiftService,
+    this.utangService,
   });
 
   final VoidCallback? onStartSale;
@@ -44,6 +54,7 @@ class DashboardScreen extends StatefulWidget {
   final ProductService? productService;
   final SalesService? salesService;
   final ShiftService? shiftService;
+  final UtangService? utangService;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -104,8 +115,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _loading = false;
       });
       _loadOpenShift();
-    } catch (e) {
+      _loadOverdue();
+    } catch (e, st) {
       // Without this the spinner would run forever on a read failure.
+      ErrorLog.caught(e, st, 'Home: loading (${_errorCode(e)})');
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -130,9 +143,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _chartDays = chart.dailyRevenue;
       });
       _loadOpenShift();
+      _loadOverdue();
       // Stock added from Home changes the nav badges too.
       StockAlerts.instance.refresh();
-    } catch (e) {
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'Home: refreshing (${_errorCode(e)})');
       if (!mounted) return;
       setState(() => _error = (code: _errorCode(e), at: DateTime.now()));
     }
@@ -146,9 +161,193 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final shift = await (widget.shiftService ?? ShiftService()).currentShiftSales();
       if (!mounted) return;
       setState(() => _openShift = shift);
-    } catch (_) {
+    } catch (e, st) {
       // Card simply stays hidden.
+      ErrorLog.caught(e, st, 'Home: close-day card');
     }
+  }
+
+  /// Customers whose current balance is past the overdue line, for the bell.
+  ({int count, double amount}) _overdue = (count: 0, amount: 0.0);
+
+  /// Fetched after the screen has its data, like the Close day card: it walks
+  /// every customer's ledger, and the bell can wait a moment for it.
+  Future<void> _loadOverdue() async {
+    try {
+      final customers = await (widget.utangService ?? UtangService()).getCustomers();
+      final overdue = customers.where((c) => c.status == UtangStatus.overdue).toList();
+      if (!mounted) return;
+      setState(() => _overdue = (
+            count: overdue.length,
+            amount: overdue.fold(0.0, (s, c) => s + c.balance),
+          ));
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'Home: utang alerts');
+    }
+  }
+
+  StoreAlerts get _alerts {
+    final settings = SettingsService.instance;
+    final raw = settings.lastBackup;
+    return StoreAlerts.from(
+      products: _products,
+      overdueUtang: _overdue,
+      backup: BackupStatus.from(raw == null ? null : DateTime.tryParse(raw)),
+      remindBackup: settings.autoBackup,
+      storeHasData: _products.isNotEmpty || _recentSales.isNotEmpty,
+      lowStockAlerts: settings.lowStockAlerts,
+      newErrors: ErrorLog.instance.newerThan(settings.errorsSeenAt),
+    );
+  }
+
+  void _openRestock() {
+    final jump = widget.onOpenRestock;
+    if (jump != null) {
+      jump();
+    } else {
+      _push(const RestockScreen());
+    }
+  }
+
+  /// Everything the bell knows about, each row opening where it is fixed.
+  Future<void> _showAlerts() async {
+    final alerts = _alerts;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheet) {
+        void go(VoidCallback action) {
+          Navigator.pop(sheet);
+          action();
+        }
+
+        Widget row(StoreAlert a) {
+          final since = ExportService.sinceLastBackup(SettingsService.instance.lastBackup);
+          final (IconData icon, Color fg, Color bg, String title, String detail, VoidCallback action) =
+              switch (a.kind) {
+            AlertKind.outOfStock => (
+                Icons.remove_shopping_cart_outlined,
+                AppColors.dangerText,
+                AppColors.dangerFill,
+                trCount(a.count, '{n} product out of stock', '{n} products out of stock'),
+                tr('Restock before a customer asks for it'),
+                _openRestock,
+              ),
+            AlertKind.lowStock => (
+                Icons.trending_down_rounded,
+                AppColors.warningText,
+                AppColors.warningFill,
+                trCount(a.count, '{n} product running low', '{n} products running low'),
+                tr('At or under their minimum'),
+                _openRestock,
+              ),
+            AlertKind.overdueUtang => (
+                Icons.account_balance_wallet_outlined,
+                AppColors.dangerText,
+                AppColors.dangerFill,
+                trCount(a.count, '{n} customer overdue', '{n} customers overdue'),
+                tr('{amount} unpaid for {days} days or more',
+                    {'amount': formatPeso(a.amount), 'days': Customer.overdueAfterDays}),
+                () => _push(UtangScreen(onCharge: widget.onStartSale)),
+              ),
+            AlertKind.backupDue => (
+                Icons.backup_outlined,
+                AppColors.warningText,
+                AppColors.warningFill,
+                tr('Back up your store'),
+                since == null
+                    ? tr('You have never exported a backup.')
+                    : tr('Your last backup was {n} days ago.', {'n': since.inDays}),
+                _backUpNow,
+              ),
+            AlertKind.newErrors => (
+                Icons.error_outline_rounded,
+                AppColors.dangerText,
+                AppColors.dangerFill,
+                trCount(a.count, '{n} new error recorded', '{n} new errors recorded'),
+                tr('Open the error log to see what happened'),
+                () => _push(const ErrorLogScreen()),
+              ),
+          };
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => go(action),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(11)),
+                      child: Icon(icon, color: fg, size: 19),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(title, style: AppText.cardTitle()),
+                          const SizedBox(height: 2),
+                          Text(detail, style: AppText.caption()),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded, color: AppColors.faint, size: 20),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Container(
+          padding: EdgeInsets.fromLTRB(
+              AppSpace.sheetPad, 14, AppSpace.sheetPad, 20 + MediaQuery.of(sheet).padding.bottom),
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                      color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(tr('Alerts'), style: AppText.sectionTitle().copyWith(fontSize: 18)),
+              const SizedBox(height: 6),
+              if (alerts.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle_outline_rounded,
+                          color: AppColors.success, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(tr('All caught up — nothing needs you right now.'),
+                            style: AppText.body()),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                for (final a in alerts.items) row(a),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   /// A short, stable-ish code derived from the failure, for the error tile.
@@ -163,7 +362,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final stats = await _salesService.getPeriodStats(_periodDays);
       if (!mounted) return;
       setState(() => _stats = stats);
-    } catch (e) {
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'Home: changing period (${_errorCode(e)})');
       if (!mounted) return;
       setState(() => _error = (code: _errorCode(e), at: DateTime.now()));
     }
@@ -607,7 +807,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       message = file == null
           ? tr('Backup cancelled — nothing was sent')
           : tr('Backed up to {file}', {'file': file});
-    } catch (e) {
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'backup from Home');
       message = tr('Could not export: {error}', {'error': e});
     }
     if (!mounted) return;
@@ -677,37 +878,72 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
         ),
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.hairline),
-              ),
-              child: const Icon(Icons.notifications_outlined, color: AppColors.body, size: 19),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: Container(
-                width: 7,
-                height: 7,
-                decoration: const BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(width: 10),
-        Container(
-          width: 40,
-          height: 40,
-          decoration: const BoxDecoration(color: AppColors.ink, shape: BoxShape.circle),
-          alignment: Alignment.center,
-          child: Text('M', style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+        // Both were pictures from the mockup: a bell with its red dot painted
+        // on for good, and a hard-coded "M" for the demo cashier. They now
+        // say what is true, and each opens the thing it stands for.
+        ListenableBuilder(
+          listenable: Listenable.merge([SettingsService.instance, ErrorLog.instance]),
+          builder: (context, _) {
+            final urgent = _alerts.hasUrgent;
+            final cashier = SettingsService.instance.cashier;
+            return Row(
+              children: [
+                Semantics(
+                  button: true,
+                  label: urgent ? tr('Alerts, something needs attention') : tr('Alerts'),
+                  child: GestureDetector(
+                    onTap: _showAlerts,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.hairline),
+                          ),
+                          child: const Icon(Icons.notifications_outlined,
+                              color: AppColors.body, size: 19),
+                        ),
+                        if (urgent)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Container(
+                              key: const ValueKey('alert-dot'),
+                              width: 7,
+                              height: 7,
+                              decoration: const BoxDecoration(
+                                  color: AppColors.danger, shape: BoxShape.circle),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Semantics(
+                  button: true,
+                  label: tr('Signed in: {name}', {'name': cashier}),
+                  child: GestureDetector(
+                    onTap: () => _push(const CashierSwitchScreen()),
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(color: AppColors.ink, shape: BoxShape.circle),
+                      alignment: Alignment.center,
+                      child: Text(
+                        Staff(name: cashier, role: '').initials,
+                        style: AppText.chip(color: Colors.white).copyWith(fontSize: 15),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
