@@ -1,6 +1,6 @@
 {
-    "name": "storev2",
-    "short_name": "storev2",
+    "name": "BasePoint",
+    "short_name": "BasePoint",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
