@@ -172,6 +172,14 @@ class _Historical {
       await db.execute('ALTER TABLE customers ADD COLUMN phone TEXT');
       await db.execute('ALTER TABLE customers ADD COLUMN last_reminded_at TEXT');
     }
+
+    if (version >= 11) {
+      await db.execute('CREATE INDEX idx_sales_created ON sales(created_at)');
+      await db.execute('CREATE INDEX idx_sale_items_sale ON sale_items(sale_id)');
+      await db.execute('CREATE INDEX idx_refunds_sale ON refunds(sale_id)');
+      await db.execute('CREATE INDEX idx_refunds_created ON refunds(created_at)');
+      await db.execute('CREATE INDEX idx_refund_items_refund ON refund_items(refund_id)');
+    }
   }
 
   /// Puts one representative row in every table that exists at [version], so
@@ -313,6 +321,21 @@ void main() {
     return info.map((c) => c['name'] as String).toSet();
   }
 
+  Future<Set<String>> indexesOf(Database db) async {
+    final rows = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%'");
+    return rows.map((r) => r['name'] as String).toSet();
+  }
+
+  /// The indexes v11 added, which every screen's lookups rely on.
+  const v11Indexes = {
+    'idx_sales_created',
+    'idx_sale_items_sale',
+    'idx_refunds_sale',
+    'idx_refunds_created',
+    'idx_refund_items_refund',
+  };
+
   Future<int> countOf(Database db, String table) async =>
       Sqflite.firstIntValue(
           await db.rawQuery('SELECT COUNT(*) FROM $table')) ??
@@ -320,10 +343,12 @@ void main() {
 
   group('every shipped version upgrades to the current one', () {
     for (var from = 1; from <= 10; from++) {
-      test('v$from reaches v10 with its data intact', () async {
+      test('v$from reaches v11 with its data intact', () async {
         final db = await upgradeFrom(from);
 
-        expect(await db.getVersion(), 10);
+        expect(await db.getVersion(), 11);
+        expect(await indexesOf(db), containsAll(v11Indexes),
+            reason: 'an upgraded store needs the indexes as much as a new one');
 
         // The product predates every migration, so it is the row that proves
         // an upgrade moved the schema without touching the data.
@@ -467,14 +492,15 @@ void main() {
       await DatabaseHelper.resetForTests();
 
       final again = await DatabaseHelper.instance.database;
-      expect(await again.getVersion(), 10);
+      expect(await again.getVersion(), 11);
       expect(await again.query('products'), before);
     });
 
-    test('a database already at v10 is left alone', () async {
-      final db = await upgradeFrom(10);
-      expect(await db.getVersion(), 10);
+    test('a database already at v11 is left alone', () async {
+      final db = await upgradeFrom(11);
+      expect(await db.getVersion(), 11);
       expect((await db.query('products')).single['price'], 17.5);
+      expect(await indexesOf(db), containsAll(v11Indexes));
     });
   });
 }

@@ -27,17 +27,54 @@ class ProductThumb extends StatelessWidget {
   Widget build(BuildContext context) {
     final path = product.imagePath;
     final placeholder = PhotoPlaceholder(borderRadius: radius, iconSize: iconSize);
-    final child = (path == null || path.isEmpty)
-        ? placeholder
-        : ClipRRect(
-            borderRadius: BorderRadius.circular(radius),
-            child: Image.file(
-              File(path),
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => placeholder,
-            ),
-          );
-    if (size == null) return child;
-    return SizedBox(width: size, height: size, child: child);
+    if (path == null || path.isEmpty) {
+      return size == null
+          ? placeholder
+          : SizedBox(width: size, height: size, child: placeholder);
+    }
+
+    Widget photo(double side) => ClipRRect(
+          borderRadius: BorderRadius.circular(radius),
+          child: Image(
+            image: _sized(File(path), side * MediaQuery.devicePixelRatioOf(context)),
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => placeholder,
+          ),
+        );
+
+    if (size != null) {
+      return SizedBox(width: size, height: size, child: photo(size!));
+    }
+    return LayoutBuilder(
+      builder: (context, c) {
+        final side = c.hasBoundedWidth
+            ? c.maxWidth
+            : (c.hasBoundedHeight ? c.maxHeight : 200.0);
+        return photo(side);
+      },
+    );
+  }
+
+  /// Decodes the photo at roughly the size it is drawn, not the size the
+  /// camera took it.
+  ///
+  /// A saved photo is up to 1200 px wide — over 4 MB once decoded — and a
+  /// 44 px thumbnail needs a fraction of that. With a few hundred products
+  /// the full-size decodes overran the image cache, so scrolling the list
+  /// decoded the same photos again and again and stuttered on a budget phone.
+  ///
+  /// Fitted within a square twice the drawn size, so a photo of any usual
+  /// shape still has at least the drawn size along its short side and stays
+  /// sharp when cropped to fill.
+  static ImageProvider _sized(File file, double px) {
+    final bound = (px * 2).ceil().clamp(64, 2048);
+    return ResizeImage(
+      FileImage(file),
+      width: bound,
+      height: bound,
+      policy: ResizeImagePolicy.fit,
+      allowUpscaling: false,
+    );
   }
 }

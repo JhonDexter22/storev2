@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
@@ -205,29 +207,43 @@ class SalesService {
     final wanted = ids.toSet().toList();
     if (wanted.isEmpty) return const {};
     final db = await dbHelper.database;
-    final rows = await db.query(
-      'sales',
-      where: 'id IN (${List.filled(wanted.length, '?').join(',')})',
-      whereArgs: wanted,
-    );
+    final rows = <Map<String, Object?>>[];
+    for (var at = 0; at < wanted.length; at += maxBoundIds) {
+      final chunk = wanted.sublist(at, min(at + maxBoundIds, wanted.length));
+      rows.addAll(await db.query(
+        'sales',
+        where: 'id IN (${List.filled(chunk.length, '?').join(',')})',
+        whereArgs: chunk,
+      ));
+    }
     final sales = await _withItems(db, rows.map((m) => Sale.fromMap(m)).toList());
     return {for (final s in sales) s.id!: s};
   }
+
+  /// The most `?` placeholders put in one statement.
+  ///
+  /// The SQLite inside Android 10 and 11 refuses more than 999, and a busy
+  /// month is well past that — so a month's sales list would fail outright
+  /// on exactly the cheap phones this app is for. Kept comfortably under.
+  static const maxBoundIds = 500;
 
   Future<List<Sale>> _withItems(DatabaseExecutor db, List<Sale> sales) async {
     if (sales.isEmpty) return sales;
 
     final ids = sales.map((s) => s.id).whereType<int>().toList();
-    final rows = await db.query(
-      'sale_items',
-      where: 'sale_id IN (${List.filled(ids.length, '?').join(',')})',
-      whereArgs: ids,
-      orderBy: 'id ASC',
-    );
     final bySale = <int, List<SaleItem>>{};
-    for (final r in rows) {
-      final item = SaleItem.fromMap(r);
-      bySale.putIfAbsent(item.saleId ?? -1, () => []).add(item);
+    for (var at = 0; at < ids.length; at += maxBoundIds) {
+      final chunk = ids.sublist(at, min(at + maxBoundIds, ids.length));
+      final rows = await db.query(
+        'sale_items',
+        where: 'sale_id IN (${List.filled(chunk.length, '?').join(',')})',
+        whereArgs: chunk,
+        orderBy: 'id ASC',
+      );
+      for (final r in rows) {
+        final item = SaleItem.fromMap(r);
+        bySale.putIfAbsent(item.saleId ?? -1, () => []).add(item);
+      }
     }
     return [for (final s in sales) s.withItems(bySale[s.id] ?? const [])];
   }
@@ -248,30 +264,42 @@ class SalesService {
     final windowStart = todayStart.subtract(Duration(days: days - 1));
     final prevWindowStart = windowStart.subtract(Duration(days: days));
 
-    final rows = await db.query(
-      'sales',
-      where: 'created_at >= ?',
-      whereArgs: [prevWindowStart.toIso8601String()],
-      orderBy: 'created_at ASC',
-    );
-    final sales = rows.map((m) => Sale.fromMap(m)).toList();
+    // Summed per day in SQL rather than read row by row: a month's figures
+    // meant pulling two months of sales into Dart and parsing every date,
+    // which on a phone after a busy year was most of a second — twice, for
+    // the Home screen and again for Reports. The first ten characters of the
+    // stored timestamp are its calendar day, the same day the old per-row
+    // parse arrived at.
+    final rows = await db.rawQuery('''
+      SELECT substr(created_at, 1, 10) AS day,
+             SUM(total) AS revenue,
+             SUM(discount) AS discount,
+             COUNT(*) AS tx,
+             SUM(item_count) AS items
+      FROM sales
+      WHERE created_at >= ?
+      GROUP BY day
+    ''', [prevWindowStart.toIso8601String()]);
 
     double revenue = 0, prevRevenue = 0, discountGiven = 0;
     int tx = 0, items = 0;
     final daily = List<double>.filled(days, 0);
+    final origin = DateTime.utc(windowStart.year, windowStart.month, windowStart.day);
 
-    for (final s in sales) {
-      final d = s.createdAtDate;
-      final dayStart = DateTime(d.year, d.month, d.day);
-      if (!dayStart.isBefore(windowStart)) {
-        revenue += s.total;
-        discountGiven += s.discount;
-        tx += 1;
-        items += s.itemCount;
-        final idx = dayStart.difference(windowStart).inDays;
-        if (idx >= 0 && idx < days) daily[idx] += s.total;
-      } else if (!dayStart.isBefore(prevWindowStart)) {
-        prevRevenue += s.total;
+    for (final r in rows) {
+      final day = DateTime.tryParse('${r['day']}');
+      if (day == null) continue;
+      final idx =
+          DateTime.utc(day.year, day.month, day.day).difference(origin).inDays;
+      final total = (r['revenue'] as num?)?.toDouble() ?? 0;
+      if (idx >= 0) {
+        revenue += total;
+        discountGiven += (r['discount'] as num?)?.toDouble() ?? 0;
+        tx += (r['tx'] as num?)?.toInt() ?? 0;
+        items += (r['items'] as num?)?.toInt() ?? 0;
+        if (idx < days) daily[idx] += total;
+      } else if (idx >= -days) {
+        prevRevenue += total;
       }
     }
 

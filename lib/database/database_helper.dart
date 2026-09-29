@@ -30,7 +30,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -54,6 +54,24 @@ class DatabaseHelper {
     await _createReturnsAndShiftTables(db);
     await _createUtangTables(db);
     await _createStaffTable(db);
+    await _createIndexes(db);
+  }
+
+  /// The lookups every screen makes, indexed so they stay quick after a year.
+  ///
+  /// Without these, "today's sales" reads every sale ever made, and a sale's
+  /// lines are found by reading every line ever sold — invisible on a new
+  /// install, and seconds on a budget phone after twelve months of trading.
+  Future _createIndexes(Database db) async {
+    for (final sql in [
+      'CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id)',
+      'CREATE INDEX IF NOT EXISTS idx_refunds_sale ON refunds(sale_id)',
+      'CREATE INDEX IF NOT EXISTS idx_refunds_created ON refunds(created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_refund_items_refund ON refund_items(refund_id)',
+    ]) {
+      await db.execute(sql);
+    }
   }
 
   /// Staff and their till PINs.
@@ -295,6 +313,9 @@ class DatabaseHelper {
           // Column already present on a database created fresh at v10.
         }
       }
+    }
+    if (oldVersion < 11) {
+      await _createIndexes(db);
     }
   }
 // Idagdag ito sa loob ng DatabaseHelper class
