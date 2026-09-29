@@ -1,17 +1,24 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'core/app_info.dart';
 import 'core/design_tokens.dart';
 import 'core/responsive.dart';
 import 'l10n/tr.dart';
+import 'services/error_log.dart';
 import 'services/first_run.dart';
 import 'services/product_image_store.dart';
 import 'services/product_service.dart';
 import 'services/settings_service.dart';
 import 'services/stock_alerts.dart';
+import 'screens/cashier_switch_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/pos_screen.dart';
 import 'screens/product_screen.dart';
@@ -21,6 +28,14 @@ import 'screens/setup_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // First, so nothing that goes wrong from here on goes unrecorded. Entries
+  // are held in memory until the log file is open a few lines down.
+  _recordErrors();
+  // The fonts ship inside the app (assets/fonts). Never reach for the
+  // network: a sari-sari phone is often offline, and a missing weight should
+  // show up in testing, not as a silent download in a shop.
+  GoogleFonts.config.allowRuntimeFetching = false;
+  LicenseRegistry.addLicense(_fontLicenses);
   // Settings drive the headers and the cash count, so they must be readable
   // synchronously by the time the first screen builds.
   await SettingsService.instance.load();
@@ -28,11 +43,50 @@ Future<void> main() async {
   // deletes them without warning. Move them somewhere durable before that
   // happens; it costs one query on a store with no photos and must never stop
   // the app opening.
-  unawaited(ProductImageStore().rescueStrays(ProductService()).catchError((_) => 0));
+  unawaited(ProductImageStore()
+      .rescueStrays(ProductService())
+      .catchError((Object e, StackTrace st) {
+    ErrorLog.caught(e, st, 'moving old photos');
+    return 0;
+  }));
+  try {
+    await ErrorLog.instance.init(
+        Directory(p.join((await getApplicationSupportDirectory()).path, 'logs')));
+  } catch (_) {
+    // No directory: the log still works in memory for this session.
+  }
   // A store that cannot answer "is this new?" is better opened than locked
   // behind a welcome screen it may not need.
-  final firstRun = await FirstRun.needed().catchError((_) => false);
+  final firstRun = await FirstRun.needed().catchError((Object e, StackTrace st) {
+    ErrorLog.caught(e, st, 'first-run check');
+    return false;
+  });
   runApp(RestockApp(firstRun: firstRun));
+}
+
+/// Sends every error nothing else handled to [ErrorLog], and still shows
+/// them in the console while developing.
+void _recordErrors() {
+  final log = ErrorLog.instance;
+  FlutterError.onError = (details) {
+    log.recordFlutterError(details);
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    log.record(kind: 'uncaught', error: error, stack: stack);
+    debugPrint('Uncaught: $error\n$stack');
+    return true;
+  };
+}
+
+/// The fonts' licences, which travel with the fonts (SIL Open Font License).
+Stream<LicenseEntry> _fontLicenses() async* {
+  for (final (package, file) in [
+    ('Plus Jakarta Sans', 'assets/fonts/OFL-PlusJakartaSans.txt'),
+    ('Roboto Mono', 'assets/fonts/OFL-RobotoMono.txt'),
+  ]) {
+    yield LicenseEntryWithLineBreaks([package], await rootBundle.loadString(file));
+  }
 }
 
 class RestockApp extends StatelessWidget {
@@ -55,7 +109,7 @@ class RestockApp extends StatelessWidget {
   Widget _app() {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Restock App',
+      title: AppInfo.name,
       // Material's own text — date pickers, the back tooltip, "Cancel" in a
       // system dialog — follows the app language too.
       locale: SettingsService.instance.language.locale,
@@ -161,6 +215,13 @@ class _HomeScreenState extends State<HomeScreen>
         .toList();
 
     unawaited(StockAlerts.instance.refresh());
+    ErrorLog.instance.screen = '${_tabs[_currentIndex].label} tab';
+    // Signed out when the app was closed: open on the lock, not the till.
+    if (SettingsService.instance.signedOut) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) CashierSwitchScreen.showSignedOut(context);
+      });
+    }
   }
 
   @override
@@ -198,6 +259,7 @@ class _HomeScreenState extends State<HomeScreen>
       _slideDir = index > _currentIndex ? 1 : -1;
       _currentIndex = index;
     });
+    ErrorLog.instance.screen = '${_tabs[index].label} tab';
   }
 
   void _onTabTap(int index) {

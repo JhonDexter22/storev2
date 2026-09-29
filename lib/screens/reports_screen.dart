@@ -10,6 +10,7 @@ import '../services/settings_service.dart';
 import '../services/backup_share.dart';
 import '../services/utang_service.dart';
 import '../l10n/tr.dart';
+import '../services/error_log.dart';
 
 /// Reports — what sells, what pays, which category carries the period.
 /// Every figure on this screen is scoped to the selected range.
@@ -334,7 +335,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     try {
       // The same file a backup is, so it counts as one when it goes out.
       await shareBackup();
-    } catch (e) {
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'export from Reports');
       if (!mounted) return;
       _toast(tr('Could not export: {error}', {'error': e}));
     } finally {

@@ -22,6 +22,7 @@ const Map<String, String> fil = {
   'GCash': 'GCash',
   'Card': 'Card',
   'Utang': 'Utang',
+  'Credit': 'Utang',
   'Store credit': 'Store credit',
   'Manager': 'Manager',
   'Cashier': 'Cashier',
@@ -64,6 +65,7 @@ const Map<String, String> fil = {
   'Add a payment type': 'Magdagdag ng paraan ng bayad',
   'Add a photo': 'Magdagdag ng litrato',
   'Add as new product': 'Idagdag bilang bagong paninda',
+  'Add my products': 'Idagdag ang paninda ko',
   'Add one from More → Utang before charging a sale.':
       'Magdagdag muna sa Iba pa → Utang bago mag-utang ng benta.',
   'Add product': 'Magdagdag ng paninda',
@@ -83,6 +85,9 @@ const Map<String, String> fil = {
   'Added {n} · {name} now {after}': 'Nadagdagan ng {n} · {name} ay {after} na',
   'After': 'Pagkatapos',
   'After restock': 'Pagkatapos mag-restock',
+  'Alerts': 'Mga paalala',
+  'Alerts, something needs attention': 'Mga paalala, may kailangang asikasuhin',
+  'All caught up — nothing needs you right now.': 'Ayos na lahat — walang kailangang asikasuhin ngayon.',
   'All data cleared': 'Nabura na ang lahat ng data',
   'All stocked': 'Kumpleto ang stock',
   'All {n} products are above their minimum.': 'Lahat ng {n} paninda ay lampas sa minimum.',
@@ -96,6 +101,7 @@ const Map<String, String> fil = {
   'Amount due': 'Babayaran',
   'Apply discount': 'Ilapat ang discount',
   'At full price': 'Sa buong presyo',
+  'At or under their minimum': 'Nasa o mas mababa sa minimum',
   'At the counter': 'Sa counter',
   'Automatically after checkout': 'Awtomatiko pagkatapos ng checkout',
   'Automatically after checkout — needs a printer': 'Awtomatiko pagkatapos ng checkout — kailangan ng printer',
@@ -103,12 +109,16 @@ const Map<String, String> fil = {
   'avg sale': 'avg na benta',
 
   // ── B ──────────────────────────────────────────────────────────────────────
+  'Back': 'Bumalik',
   'Back to recent sales': 'Bumalik sa mga huling benta',
+  'Back up now': 'I-backup na',
   'Back up your store': 'I-backup ang tindahan mo',
   'Backed up': 'Naka-backup',
   'Backed up to {file}': 'Na-backup sa {file}',
+  'Backing up…': 'Nagba-backup…',
   'Backup cancelled — nothing was sent': 'Kinansela ang backup — walang naipadala',
   'Backup · {n}d': 'Backup · {n}a',
+  'Backup from {store}. Keep this file — restoring needs it.': 'Backup mula sa {store}. Itago ang file na ito — kailangan ito sa pag-restore.',
   'Balanced': 'Tugma',
   'Barcode / SKU': 'Barcode / SKU',
   'Beep when the scanner reads a code': 'Tumunog kapag nabasa ng scanner ang code',
@@ -129,6 +139,7 @@ const Map<String, String> fil = {
   'Can close a shift': 'Puwedeng magsara ng shift',
   'Cancel': 'Kanselahin',
   'Cash count': 'Bilang ng pera',
+  'Cash in the drawer to start': 'Pera sa kaha sa simula',
   'Cash received': 'Tinanggap na cash',
   'Cash received is less than the amount due.': 'Kulang ang tinanggap na cash sa babayaran.',
   'Cash sales': 'Benta sa cash',
@@ -154,6 +165,7 @@ const Map<String, String> fil = {
   'Clear all': 'I-clear lahat',
   'Clear all data': 'Burahin ang lahat ng data',
   'Clear all data?': 'Burahin ang lahat ng data?',
+  'Clear the error log?': 'Burahin ang error log?',
   'Close': 'Isara',
   'Close a drawer from Cash count and it will show up here.':
       'Magsara ng kaha sa Bilang ng pera at lalabas ito dito.',
@@ -180,6 +192,8 @@ const Map<String, String> fil = {
   'Could not reach the printer. Is it switched on?': 'Hindi maabot ang printer. Naka-on ba ito?',
   'Could not read the paired printers.': 'Hindi mabasa ang mga naka-pair na printer.',
   'Could not restore: {error}': 'Hindi na-restore: {error}',
+  'Could not save: {error}': 'Hindi na-save: {error}',
+  'Could not share: {error}': 'Hindi maibahagi: {error}',
   'Count exact': 'Eksaktong bilang',
   'Count the drawer': 'Bilangin ang kaha',
   'Count the drawer to see the variance.': 'Bilangin ang kaha para makita ang kulang o sobra.',
@@ -195,7 +209,6 @@ const Map<String, String> fil = {
   'Day closed': 'Sarado na ang araw',
   'Default minimum stock': 'Default na minimum stock',
   'Delete': 'Burahin',
-  'Delete every product and sale': 'Burahin ang lahat ng paninda at benta',
   'Delete everything': 'Burahin lahat',
   'Delete product': 'Burahin ang paninda',
   'Deleted {name}': 'Nabura ang {name}',
@@ -211,6 +224,7 @@ const Map<String, String> fil = {
   'Duplicate product': 'Kopyahin ang paninda',
 
   // ── E ──────────────────────────────────────────────────────────────────────
+  "e.g. Aling Nena's Store": 'hal. Tindahan ni Aling Nena',
   'Each discount': 'Bawat discount',
   'Edit': 'I-edit',
   'Edit customer': 'I-edit ang customer',
@@ -226,6 +240,7 @@ const Map<String, String> fil = {
   'Enter it once more to be sure.': 'Ilagay ulit para sigurado.',
   'Enter the manager PIN to close this shift.': 'Ilagay ang PIN ng manager para isara ang shift.',
   "Enter {name}'s code to sign in.": 'Ilagay ang code ni {name} para mag-sign in.',
+  'Error log': 'Error log',
   'Every line is selected — this will be recorded as a full void.':
       'Napili ang lahat — itatala ito bilang buong void.',
   'Every line on this sale has already been returned.': 'Naibalik na ang lahat ng item sa bentang ito.',
@@ -246,8 +261,10 @@ const Map<String, String> fil = {
   'e.g. SkyFlakes': 'hal. SkyFlakes',
 
   // ── F–H ────────────────────────────────────────────────────────────────────
-  'Flag products at or below minimum': 'Markahan ang paninda na nasa o mas mababa sa minimum',
+  'Finish setup': 'Tapusin ang setup',
   'Forget this printer': 'Kalimutan ang printer na ito',
+  'Four digits only you know. Keep it off the counter.':
+      'Apat na numerong ikaw lang ang nakakaalam. Huwag itong isulat sa counter.',
   'Full day report': 'Buong ulat ng araw',
   'Full inventory list': 'Buong listahan ng imbentaryo',
   'Gallery': 'Gallery',
@@ -256,24 +273,33 @@ const Map<String, String> fil = {
   'Good evening': 'Magandang gabi',
   'Good morning': 'Magandang umaga',
   'Grid': 'Grid',
+  'Handled': 'Naayos',
   'Held': 'Naka-hold',
   'Held sales': 'Mga naka-hold na benta',
   'Hold': 'I-hold',
 
   // ── I–L ────────────────────────────────────────────────────────────────────
   'In stock': 'May stock',
+  'Included': 'Kasama',
   'Inventory': 'Imbentaryo',
+  'It goes at the top of every receipt. You can change it later in Settings.':
+      'Nasa itaas ito ng bawat resibo. Mapapalitan mo ito sa Settings.',
   'Items': 'Item',
   'Items sold': 'Naibentang item',
   'Keep scanning': 'Mag-scan pa',
   'Keep the sale': 'Ituloy ang benta',
   'Keep them': 'Huwag alisin',
+  'Kept on this phone only. If something goes wrong, share this with whoever looks after the app.':
+      'Nasa phone na ito lang. Kapag may nagka-problema, ipadala ito sa nag-aasikaso ng app.',
   'Last 30 days': 'Nakaraang 30 araw',
   'Last 7 days': 'Nakaraang 7 araw',
   'Last export: {when}': 'Huling export: {when}',
   'Language': 'Wika',
   'Layout': 'Ayos',
+  "Let's get your store ready. It takes about a minute.":
+      'Ihanda natin ang tindahan mo. Mga isang minuto lang.',
   'List': 'Listahan',
+  'List running-low products under the bell on Home': 'Ipakita sa paalala sa Home ang mga paubos na paninda',
   'Loading…': 'Naglo-load…',
   'Look up': 'Hanapin',
   'Low': 'Mababa',
@@ -292,17 +318,22 @@ const Map<String, String> fil = {
   'More than this range took in — some are returns of earlier sales':
       'Mas malaki sa kinita sa panahong ito — may ibinalik mula sa naunang benta',
   'min {n}': 'min {n}',
+  'Moving from another phone? Restore a backup': 'Galing sa ibang phone? I-restore ang backup',
 
   // ── N ──────────────────────────────────────────────────────────────────────
   'Name': 'Pangalan',
   'Name A–Z': 'Pangalan A–Z',
   'Needs attention': 'Kailangang asikasuhin',
+  'never': 'hindi pa',
   'Net revenue': 'Netong kita',
   'Net sales': 'Netong benta',
   'Net variance': 'Netong kulang/sobra',
   'New PIN': 'Bagong PIN',
   'New product': 'Bagong paninda',
   'New sale': 'Bagong benta',
+  'Next': 'Susunod',
+  'Next, add what you sell — a name and a price are enough to start. Cashiers can be added any time from More.':
+      'Susunod, idagdag ang mga paninda mo — sapat na ang pangalan at presyo para makapagsimula. Puwedeng magdagdag ng cashier anumang oras sa Iba pa.',
   'No activity yet': 'Wala pang aktibidad',
   'No backup': 'Walang backup',
   'No charges or payments yet.': 'Wala pang utang o bayad.',
@@ -334,6 +365,7 @@ const Map<String, String> fil = {
   'Nobody in this group right now': 'Walang tao sa grupong ito ngayon',
   'None chosen': 'Walang napili',
   'Not now': 'Mamaya na',
+  'Nothing has gone wrong': 'Walang naging problema',
   'Nothing is out of stock': 'Walang ubos na paninda',
   'Nothing is running low': 'Walang paubos na paninda',
   'Nothing needs restocking': 'Walang kailangang i-restock',
@@ -348,6 +380,8 @@ const Map<String, String> fil = {
   'Nudges you when the last export is over a week old': 'Magpapaalala kapag lampas isang linggo na ang huling export',
 
   // ── O ──────────────────────────────────────────────────────────────────────
+  'Open the error log to see what happened': 'Buksan ang error log para makita ang nangyari',
+  'Opening cash': 'Panimulang pera',
   'OUT': 'LUMABAS',
   'OWES': 'UTANG',
   'On': 'Naka-on',
@@ -383,9 +417,11 @@ const Map<String, String> fil = {
   'Photo saved · {name}': 'Nai-save ang litrato · {name}',
   'Pick a backup file': 'Pumili ng backup file',
   'Pick a sale to return': 'Pumili ng bentang ibabalik',
+  'PIN chosen': 'May PIN na',
   'Point at a barcode': 'Itutok sa barcode',
   'Price, high first': 'Presyo, mataas muna',
   'Pricing': 'Presyo',
+  'Product photos': 'Mga litrato ng paninda',
   'Print': 'I-print',
   'Print a test receipt': 'Mag-print ng test na resibo',
   'Print receipt': 'I-print ang resibo',
@@ -395,10 +431,14 @@ const Map<String, String> fil = {
   'Printing…': 'Nagpi-print…',
   'Product information': 'Impormasyon ng paninda',
   'Product name': 'Pangalan ng paninda',
+  'Products, sales and utang — all of it': 'Paninda, benta at utang — lahat',
   "Puts the sale on a customer's tab": 'Ilalagay ang benta sa utang ng customer',
 
   // ── Q–R ────────────────────────────────────────────────────────────────────
   'Quantity': 'Dami',
+  'Restock before a customer asks for it': 'Mag-restock bago may humanap nito',
+  'Restored {n} rows. Now check the details below.':
+      'Na-restore ang {n} row. Tingnan ang mga detalye sa ibaba.',
   'REVENUE': 'KITA',
   'REVENUE BEFORE RETURNS': 'KITA BAGO ANG IBINALIK',
   'Reason': 'Dahilan',
@@ -469,7 +509,15 @@ const Map<String, String> fil = {
   'SALES THIS MONTH': 'BENTA NGAYONG BUWAN',
   'SALES THIS WEEK': 'BENTA NGAYONG LINGGO',
   'SALES TODAY': 'BENTA NGAYON',
+  'Saving…': 'Sine-save…',
+  'Screen': 'Screen',
+  'Set up my store': 'I-setup ang tindahan ko',
   'SETTLED': 'BAYAD NA',
+  'Share it first if someone is looking into a problem — once cleared, it is gone.':
+      'Ipadala muna kung may tumitingin sa problema — kapag binura, wala na ito.',
+  'Signed in: {name}': 'Naka-sign in: {name}',
+  'Signed out — pick who is at the till and enter their code.':
+      'Naka-sign out — piliin kung sino ang nasa kaha at ilagay ang code niya.',
   'SKU / barcode': 'SKU / barcode',
   'Sale': 'Benta',
   'Sale held — tap Held to bring it back': 'Naka-hold ang benta — pindutin ang Naka-hold para ibalik',
@@ -515,6 +563,7 @@ const Map<String, String> fil = {
   'Sort by': 'Pagkakasunod',
   'Start a new sale': 'Magsimula ng bagong benta',
   'Start a sale': 'Magsimula ng benta',
+  'Step {n} of {total}': 'Hakbang {n} sa {total}',
   'Stock': 'Stock',
   'Stock alerts': 'Alerto sa stock',
   'Stock effect': 'Epekto sa stock',
@@ -522,7 +571,9 @@ const Map<String, String> fil = {
       'Nasa o mas mababa sa minimum ang stock — lalabas ang paninda na ito sa Restock.',
   'Stock, low first': 'Stock, mababa muna',
   'Store': 'Tindahan',
+  'Store name': 'Pangalan ng tindahan',
   'Store Overview': 'Buod ng tindahan',
+  'Store name and settings': 'Pangalan at settings ng tindahan',
   'Subtotal': 'Subtotal',
   'Subtotal {amount}': 'Subtotal {amount}',
   'Suggested': 'Mungkahi',
@@ -537,7 +588,12 @@ const Map<String, String> fil = {
   'still on the starting code': 'nasa unang code pa',
 
   // ── T ──────────────────────────────────────────────────────────────────────
+  'The change you open with each day. Closing the day counts from this amount.':
+      'Ang sukli sa kaha tuwing magbubukas. Dito nagsisimula ang bilang sa pagsara ng araw.',
   'THE DRAWER AS COUNTED': 'ANG KAHA AYON SA BILANG',
+  'This permanently deletes every product, sale, return, closed day and utang record on this device. Staff and settings are kept. This cannot be undone.':
+      'Buburahin nang tuluyan ang lahat ng paninda, benta, return, pagsara ng araw at utang sa device na ito. Maiiwan ang staff at settings. Hindi na ito maibabalik.',
+  'Those two PINs did not match. Try again.': 'Hindi magkapareho ang dalawang PIN. Subukan ulit.',
   'TOP SELLERS': 'MABENTA',
   'Take photo': 'Kumuha ng litrato',
   'Takes off {off} · new total {total}': 'Babawas ng {off} · bagong total {total}',
@@ -564,8 +620,6 @@ const Map<String, String> fil = {
   'This device cannot print to a Bluetooth printer.': 'Hindi makapag-print ang device na ito sa Bluetooth printer.',
   'This does not look like a store backup.': 'Mukhang hindi ito backup ng tindahan.',
   "This month's sales": 'Benta ngayong buwan',
-  'This permanently deletes every product and sale on this device. This cannot be undone.':
-      'Permanenteng mabubura ang lahat ng paninda at benta sa device na ito. Hindi na ito maibabalik.',
   "This week's sales": 'Benta ngayong linggo',
   'Those codes ship with the app, so anyone who has seen it knows them. Change them below.':
       'Kasama ang mga code na iyan sa app, kaya alam ito ng sinumang nakakita nito. Palitan sa ibaba.',
@@ -584,6 +638,7 @@ const Map<String, String> fil = {
   'Under 0.1% of revenue': 'Wala pang 0.1% ng kita',
   'Under 0.1% of revenue on credit': 'Wala pang 0.1% ng kita ang naka-utang',
   'Undo': 'I-undo',
+  'Unhandled': 'Hindi naayos',
   'Units are written off — stock stays as it is.': 'Ituturing na lugi ang item — hindi magbabago ang stock.',
   'Units go back on the shelf and count as sellable again.': 'Babalik sa estante ang item at puwede ulit ibenta.',
   'Units to order': 'Dami ng oorderin',
@@ -598,19 +653,29 @@ const Map<String, String> fil = {
   'Void this sale?': 'I-void ang bentang ito?',
   'Void this whole sale?': 'I-void ang buong benta?',
   'Void whole sale': 'I-void ang buong benta',
+  'Welcome': 'Maligayang pagdating',
+  'What is your store called?': 'Ano ang pangalan ng tindahan mo?',
   'Who owes what, aged oldest first': 'Sino ang may utang, pinakaluma muna',
+  'Who runs the store?': 'Sino ang namamahala sa tindahan?',
   'Works with Bluetooth thermal printers that speak ESC/POS — nearly all of them do. The peso sign prints as "P": no thermal printer has a ₱ character.':
       'Gumagana sa Bluetooth thermal printer na ESC/POS — halos lahat ay ganoon. "P" ang lalabas sa halip na ₱: walang thermal printer na may ₱.',
   'Written off': 'Lugi',
   'Yesterday': 'Kahapon',
   'You can edit the message before sending.': 'Puwede mong i-edit ang mensahe bago ipadala.',
   'You have never exported a backup.': 'Hindi ka pa nakapag-export ng backup.',
+  'You will be the manager. Your PIN closes the day, approves refunds and discounts, and adds cashiers.':
+      'Ikaw ang magiging manager. Ang PIN mo ang ginagamit sa pagsara ng araw, pag-apruba ng refund at discount, at pagdagdag ng cashier.',
   'You will need to sign in again to continue using this device.':
       'Kailangan mong mag-sign in ulit para magamit ang device na ito.',
+  "You're ready, {name}": 'Handa ka na, {name}',
   'Your last backup was {n} days ago.': 'Ang huling backup mo ay {n} araw na ang nakalipas.',
+  'Your name': 'Pangalan mo',
+  'Your PIN': 'Ang PIN mo',
 
   // ── Sentences that start with a value ──────────────────────────────────────
+  '{amount} in the drawer at the start of each day': '{amount} sa kaha sa simula ng bawat araw',
   '{amount} of this is on tab — owed, not in the drawer.': '{amount} dito ay utang — wala sa kaha.',
+  '{amount} unpaid for {days} days or more': '{amount} hindi pa bayad nang {days} araw o higit pa',
   '{amount} will be refunded by {method} and recorded against {ref}.':
       'Ire-refund ang {amount} sa {method} at itatala sa {ref}.',
   '{names} and {last}': '{names} at {last}',
@@ -624,6 +689,16 @@ const Map<String, String> fil = {
   '{name} will no longer be able to sign in or ring up sales. Their past sales and shifts are kept.':
       'Hindi na makakapag-sign in o makakapagbenta si {name}. Mananatili ang mga naunang benta at shift niya.',
   '{name} · {n} on hand': '{name} · {n} ang hawak',
+  '{n} customer overdue': '{n} customer na lampas na',
+  '{n} customers overdue': '{n} customer na lampas na',
+  '{n} new error recorded': '{n} bagong error na naitala',
+  '{n} new errors recorded': '{n} bagong error na naitala',
+  '{n} product out of stock': '{n} paninda ang ubos na',
+  '{n} product running low': '{n} paninda ang paubos na',
+  '{n} products out of stock': '{n} paninda ang ubos na',
+  '{n} products running low': '{n} paninda ang paubos na',
+  '{n} recorded · last {when}': '{n} naitala · huli {when}',
+  '{store} backup': 'Backup ng {store}',
   '{net} after {refunded} returned': '{net} matapos ibalik ang {refunded}',
   '{n} added to this sale': '{n} naidagdag sa bentang ito',
   '{n} characters': '{n} character',
