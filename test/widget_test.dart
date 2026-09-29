@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -52,25 +53,51 @@ void main() {
     expect(find.text('Add'), findsOneWidget);
   });
 
+  testWidgets('the part of the Sell button above the bar opens Sell', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const RestockApp());
+    await tester.pump();
+
+    // The circle's centre is its icon's centre. A regular tab's icon sits 26
+    // below the bar's top edge (9 to the pill, half its 34 height), which
+    // locates the edge without reaching into the bar's private layout.
+    final sell = tester.getCenter(find.byIcon(Icons.point_of_sale_outlined));
+    final barTop = tester.getCenter(find.byIcon(Icons.home_outlined)).dy - 26;
+    final aboveBar = Offset(sell.dx, sell.dy - 20);
+    expect(aboveBar.dy, lessThan(barTop), reason: 'the tap must land above the bar');
+
+    await tester.tapAt(aboveBar);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byIcon(Icons.point_of_sale_rounded), findsOneWidget);
+    expect(find.text('Search products'), findsOneWidget);
+  });
+
   group('SettingsService', () {
     test('falls back to defaults on a fresh install', () async {
       final s = SettingsService.instance;
       expect(s.printReceipt, isTrue);
-      expect(s.autoBackup, isFalse);
+      // On by default: a shopkeeper who never heard the store lives on this
+      // phone alone would never think to switch it on.
+      expect(s.autoBackup, isTrue);
       expect(s.defaultMinStock, 5);
       expect(s.cashier, 'May');
     });
 
     test('persists a changed value across a reload', () async {
       final s = SettingsService.instance;
-      await s.setAutoBackup(true);
+      await s.setAutoBackup(false);
       await s.setDefaultMinStock(12);
       await s.setCashier('Nena');
 
       // Re-read from storage the way a fresh launch would.
       await s.load();
 
-      expect(s.autoBackup, isTrue);
+      expect(s.autoBackup, isFalse);
       expect(s.defaultMinStock, 12);
       expect(s.cashier, 'Nena');
     });

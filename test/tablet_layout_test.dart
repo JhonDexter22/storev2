@@ -161,6 +161,9 @@ void main() {
   group('the same screens still render at phone width', () {
     testWidgets('dashboard', (tester) async {
       await seedProduct(name: 'SkyFlakes', stock: 50);
+      // A store with stock and no backup gets the reminder above everything,
+      // which is right but pushes this section off a phone's first screen.
+      await SettingsService.instance.markBackedUp();
       await pumpAt(tester, const DashboardScreen(), _phone);
       expect(find.text('Recent sales'), findsOneWidget);
       // The phone drops the attention block when nothing is low, and shows no

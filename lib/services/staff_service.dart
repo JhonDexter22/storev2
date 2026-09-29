@@ -282,6 +282,79 @@ class StaffService {
     );
   }
 
+  /// Makes the person setting up the store its manager, and clears away the
+  /// starting roster.
+  ///
+  /// The seeded cashiers are placeholders with public codes; left in place,
+  /// "May" and `1111` would be on a real shop's till from day one. The seeded
+  /// manager is taken over rather than deleted and re-added, so there is never
+  /// a moment with no manager — which would leave no one able to close a day.
+  ///
+  /// Only placeholders still on their starting code are touched: anyone whose
+  /// PIN has been changed is a real person, and stays.
+  Future<Staff> claimStore({required String name, required String pin}) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const StaffValidationException('Enter a name.');
+    }
+    if (!PinHasher.isWellFormed(pin)) {
+      throw const StaffValidationException('The PIN has to be four digits.');
+    }
+
+    final db = await _db;
+    return db.transaction((txn) async {
+      await txn.delete('staff', where: 'pin_is_default = 1 AND is_manager = 0');
+
+      final seeded = await txn.query('staff',
+          where: 'pin_is_default = 1 AND is_manager = 1 AND active = 1',
+          orderBy: 'id ASC',
+          limit: 1);
+      final keepId = seeded.isEmpty ? null : seeded.first['id'] as int;
+
+      final clash = await txn.query('staff',
+          where: keepId == null ? 'name = ?' : 'name = ? AND id != ?',
+          whereArgs: keepId == null ? [trimmed] : [trimmed, keepId],
+          limit: 1);
+      if (clash.isNotEmpty) {
+        throw StaffValidationException('$trimmed is already on the roster.');
+      }
+
+      final salt = PinHasher.newSalt();
+      final row = {
+        'name': trimmed,
+        'role': 'Manager',
+        'pin_salt': salt,
+        'pin_hash': PinHasher.hash(pin, salt),
+        'pin_iterations': PinHasher.iterations,
+        'is_manager': 1,
+        'active': 1,
+        'failed_attempts': 0,
+        'locked_until': null,
+        'pin_is_default': 0,
+      };
+
+      final int id;
+      if (keepId != null) {
+        await txn.update('staff', row, where: 'id = ?', whereArgs: [keepId]);
+        id = keepId;
+      } else {
+        id = await txn.insert('staff', {
+          ...row,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+
+      // Any other seeded manager is a second public code with the power to
+      // close a day. With the owner now in place, it can go.
+      await txn.delete('staff',
+          where: 'pin_is_default = 1 AND is_manager = 1 AND id != ?',
+          whereArgs: [id]);
+
+      final saved = await txn.query('staff', where: 'id = ?', whereArgs: [id]);
+      return Staff.fromMap(saved.first);
+    });
+  }
+
   /// Anyone still using the code they were seeded with.
   ///
   /// Read from a flag rather than by testing the seed PIN against the hash:

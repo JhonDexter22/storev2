@@ -224,7 +224,7 @@ void main() {
       await addProduct(name: 'Lucky Me, Pancit Canton');
       final path = await export.writeArchive(temp, now: DateTime(2026, 9, 6, 14, 30));
 
-      expect(path, endsWith('storev2-backup-20260906-1430.zip'));
+      expect(path, endsWith('basepoint-backup-20260906-1430.zip'));
       final files = RestoreService.readArchive(await File(path).readAsBytes());
       expect(files.keys,
           containsAll(ExportService.tables.map((t) => '$t.csv')));

@@ -224,7 +224,7 @@ void main() {
       expect(paths.length, ExportService.tables.length);
       for (final path in paths) {
         expect(File(path).existsSync(), isTrue, reason: '$path should exist');
-        expect(path, contains('storev2-backup-20260905-1430'));
+        expect(path, contains('basepoint-backup-20260905-1430'));
       }
     });
 

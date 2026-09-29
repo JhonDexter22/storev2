@@ -8,6 +8,8 @@ import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import 'export_service.dart';
 import 'product_image_store.dart';
+import 'settings_service.dart';
+import 'error_log.dart';
 
 /// What a backup contains, checked before anything is touched.
 class RestorePreview {
@@ -16,7 +18,12 @@ class RestorePreview {
     required this.warnings,
     required this.errors,
     this.photoCount = 0,
+    this.hasSettings = false,
   });
+
+  /// Whether the archive carries the store's settings — name, payment types
+  /// and the rest. Backups made before settings were included do not.
+  final bool hasSettings;
 
   /// Product photos found in the archive.
   final int photoCount;
@@ -46,12 +53,17 @@ class RestoreService {
     DatabaseHelper? dbHelper,
     ExportService? exportService,
     ProductImageStore? images,
+    SettingsService? settings,
   })  : dbHelper = dbHelper ?? DatabaseHelper.instance,
         exportService = exportService ?? ExportService(),
-        images = images ?? ProductImageStore();
+        images = images ?? ProductImageStore(),
+        settings = settings ?? SettingsService.instance;
 
   final DatabaseHelper dbHelper;
   final ExportService exportService;
+
+  /// Where a backup's store settings are put back.
+  final SettingsService settings;
 
   /// Where restored photos are written. Injectable because the real one needs
   /// a platform directory the test VM has no answer for.
@@ -69,11 +81,6 @@ class RestoreService {
     'utang_entries',
   ];
 
-  /// Unpacks a backup zip into the {fileName: contents} map a restore takes.
-  ///
-  /// Only the CSVs at the top level are read. Anything else in the archive is
-  /// ignored rather than treated as data — a zip is a container someone may
-  /// well have added their own files to.
   /// The product photos inside an archive, keyed by file name.
   ///
   /// A backup taken before photos were included simply has none, so this comes
@@ -92,6 +99,29 @@ class RestoreService {
     return photos;
   }
 
+  /// The store's settings inside an archive, or null if it has none.
+  ///
+  /// A backup from before settings were included has no such file, and one
+  /// that will not parse is treated the same way: the books still restore, and
+  /// the settings on this phone are left as they are.
+  static Map<String, Object?>? readSettings(List<int> bytes) {
+    final entry =
+        ZipDecoder().decodeBytes(bytes).findFile(ExportService.settingsFile);
+    if (entry == null || !entry.isFile) return null;
+    try {
+      final decoded = jsonDecode(
+          utf8.decode(entry.content as List<int>, allowMalformed: true));
+      return decoded is Map<String, Object?> ? decoded : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// Unpacks a backup zip into the {fileName: contents} map a restore takes.
+  ///
+  /// Only the CSVs are read. Anything else in the archive is ignored rather
+  /// than treated as data — a zip is a container someone may well have added
+  /// their own files to.
   static Map<String, String> readArchive(List<int> bytes) {
     final archive = ZipDecoder().decodeBytes(bytes);
     final files = <String, String>{};
@@ -251,6 +281,7 @@ class RestoreService {
   Future<RestorePreview> inspect(
     Map<String, String> files, {
     Map<String, List<int>> photos = const {},
+    Map<String, Object?>? settings,
   }) async {
     final db = await dbHelper.database;
     final counts = <String, int>{};
@@ -264,7 +295,8 @@ class RestoreService {
           rowCounts: counts,
           warnings: warnings,
           errors: errors,
-          photoCount: photos.length);
+          photoCount: photos.length,
+          hasSettings: settings != null);
     }
 
     var matched = 0;
@@ -305,7 +337,8 @@ class RestoreService {
         rowCounts: counts,
         warnings: warnings,
         errors: errors,
-        photoCount: photos.length);
+        photoCount: photos.length,
+        hasSettings: settings != null);
   }
 
   /// Replaces the store's data with the backup's.
@@ -319,9 +352,13 @@ class RestoreService {
   ///
   /// Everything happens in one transaction. A failure part-way leaves the
   /// store exactly as it was rather than half-replaced.
+  ///
+  /// [settings], when the backup carried them, are applied last: a store
+  /// name is worth nothing if the sales did not come back with it.
   Future<void> restore(
     Map<String, String> files, {
     Map<String, List<int>> photos = const {},
+    Map<String, Object?>? settings,
   }) async {
     final preview = await inspect(files);
     if (!preview.isValid) {
@@ -353,6 +390,7 @@ class RestoreService {
     // After the rows, and outside the transaction: a photo that fails to write
     // must not roll back a restore that has already put the books back.
     await restorePhotos(photos);
+    if (settings != null) await this.settings.importSettings(settings);
   }
 
   /// Writes photos from a backup into this device's photo store and repoints
@@ -384,9 +422,10 @@ class RestoreService {
         await db.update('products', {'image_path': target.path},
             where: 'id = ?', whereArgs: [row['id']]);
         written++;
-      } catch (_) {
+      } catch (e, st) {
         // One unwritable photo is not worth failing a restore over; the
         // product falls back to the placeholder it would have had anyway.
+        ErrorLog.caught(e, st, 'restore: writing a photo');
       }
     }
     return written;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
 import '../services/restore_service.dart';
+import '../l10n/tr.dart';
 
 /// Shows what a backup holds and what it would replace, before anything runs.
 ///
@@ -67,13 +68,13 @@ class RestorePreviewSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          Text('Restore this backup?',
+          Text(tr('Restore this backup?'),
               style: AppText.sectionTitle().copyWith(fontSize: 18)),
           const SizedBox(height: 2),
           Text(
             preview.isValid
-                ? '${preview.totalRows} rows across ${rows.length} tables.'
-                : 'This does not look like a store backup.',
+                ? tr('{rows} rows across {tables} tables.', {'rows': preview.totalRows, 'tables': rows.length})
+                : tr('This does not look like a store backup.'),
             style: AppText.caption(),
           ),
           const SizedBox(height: 16),
@@ -115,7 +116,7 @@ class RestorePreviewSheet extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.cta)),
                 ),
-                child: Text('Replace everything',
+                child: Text(tr('Replace everything'),
                     style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
               ),
             ),
@@ -124,7 +125,7 @@ class RestorePreviewSheet extends StatelessWidget {
             height: 46,
             child: TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(preview.isValid ? 'Cancel' : 'Close',
+              child: Text(preview.isValid ? tr('Cancel') : tr('Close'),
                   style: AppText.chip(color: AppColors.body)),
             ),
           ),
@@ -133,7 +134,15 @@ class RestorePreviewSheet extends StatelessWidget {
     );
   }
 
-  Widget _counts(List<MapEntry<String, int>> rows) {
+  Widget _counts(List<MapEntry<String, int>> tables) {
+    // Photos and settings are not rows, but they are what makes a restored
+    // phone look like the old one — worth saying they are coming.
+    final rows = [
+      for (final t in tables) (_label(t.key), '${t.value}'),
+      if (preview.photoCount > 0)
+        (tr('Product photos'), '${preview.photoCount}'),
+      if (preview.hasSettings) (tr('Store name and settings'), tr('Included')),
+    ];
     return Container(
       decoration: BoxDecoration(
         color: AppColors.canvas,
@@ -147,9 +156,8 @@ class RestorePreviewSheet extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               child: Row(
                 children: [
-                  Expanded(
-                      child: Text(_label(rows[i].key), style: AppText.body())),
-                  Text('${rows[i].value}', style: AppText.cardTitle()),
+                  Expanded(child: Text(rows[i].$1, style: AppText.body())),
+                  Text(rows[i].$2, style: AppText.cardTitle()),
                 ],
               ),
             ),
@@ -164,9 +172,8 @@ class RestorePreviewSheet extends StatelessWidget {
   /// States what is being given up, in the same units as what is arriving.
   Widget _replaceWarning() {
     final message = _currentTotal == 0
-        ? 'There is nothing on this device yet, so nothing will be lost.'
-        : 'The $_currentTotal rows currently on this device will be deleted '
-            'first. Staff and their PINs are not touched.';
+        ? tr('There is nothing on this device yet, so nothing will be lost.')
+        : tr('The {n} rows currently on this device will be deleted first. Staff and their PINs are not touched.', {'n': _currentTotal});
     return _note(message, AppColors.dangerText, AppColors.dangerFill,
         AppColors.dangerBorder, Icons.warning_amber_rounded);
   }
@@ -191,14 +198,14 @@ class RestorePreviewSheet extends StatelessWidget {
   }
 
   static String _label(String table) => switch (table) {
-        'products' => 'Products',
-        'sales' => 'Sales',
-        'sale_items' => 'Sale lines',
-        'refunds' => 'Refunds',
-        'refund_items' => 'Refund lines',
-        'shifts' => 'Shifts',
-        'customers' => 'Utang customers',
-        'utang_entries' => 'Utang entries',
+        'products' => tr('Products'),
+        'sales' => tr('Sales'),
+        'sale_items' => tr('Sale lines'),
+        'refunds' => tr('Refunds'),
+        'refund_items' => tr('Refund lines'),
+        'shifts' => tr('Shifts'),
+        'customers' => tr('Utang customers'),
+        'utang_entries' => tr('Utang entries'),
         _ => table,
       };
 }
