@@ -7,6 +7,8 @@ import '../core/design_tokens.dart';
 import '../models/customer.dart';
 import '../services/settings_service.dart';
 import '../services/utang_service.dart';
+import '../l10n/tr.dart';
+import '../services/error_log.dart';
 
 /// A polite nudge, ready to send. The message is drafted for the shopkeeper
 /// and stays editable; it goes by SMS when a number is on file, or through
@@ -70,10 +72,11 @@ class _RemindSheetState extends State<_RemindSheet> {
       final ok = await launchUrl(uri);
       if (!ok) throw Exception('no handler');
       await _sent();
-    } catch (_) {
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'utang: opening SMS');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open your messages app — try Share instead')),
+        SnackBar(content: Text(tr('Could not open your messages app — try Share instead'))),
       );
     }
   }
@@ -112,11 +115,11 @@ class _RemindSheetState extends State<_RemindSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            Text('Remind ${c.name}', style: AppText.sectionTitle().copyWith(fontSize: 18)),
+            Text(tr('Remind {name}', {'name': c.name}), style: AppText.sectionTitle().copyWith(fontSize: 18)),
             const SizedBox(height: 2),
             Text(
               '${formatPeso(c.balance)} · ${c.ageLabel}'
-              '${c.hasPhone ? ' · ${c.phone}' : ' · no number on file'}',
+              '${c.hasPhone ? ' · ${c.phone}' : ' · ${tr('no number on file')}'}',
               style: AppText.caption(),
             ),
             if (c.remindedToday) ...[
@@ -133,7 +136,7 @@ class _RemindSheetState extends State<_RemindSheet> {
                     const Icon(Icons.info_outline_rounded, size: 15, color: AppColors.warningText),
                     const SizedBox(width: 6),
                     Expanded(
-                      child: Text('Already reminded today.', style: AppText.caption(color: AppColors.warningText)),
+                      child: Text(tr('Already reminded today.'), style: AppText.caption(color: AppColors.warningText)),
                     ),
                   ],
                 ),
@@ -158,26 +161,26 @@ class _RemindSheetState extends State<_RemindSheet> {
               ),
             ),
             const SizedBox(height: 6),
-            Text('You can edit the message before sending.', style: AppText.caption(color: AppColors.faint)),
+            Text(tr('You can edit the message before sending.'), style: AppText.caption(color: AppColors.faint)),
             const SizedBox(height: 16),
             Row(
               children: [
                 if (c.hasPhone) ...[
                   Expanded(
-                    child: _Btn(icon: Icons.sms_outlined, label: 'Send SMS', onTap: _sms, primary: true),
+                    child: _Btn(icon: Icons.sms_outlined, label: tr('Send SMS'), onTap: _sms, primary: true),
                   ),
                   const SizedBox(width: 8),
                 ],
                 Expanded(
                   child: _Btn(
                     icon: Icons.ios_share_rounded,
-                    label: c.hasPhone ? 'Share' : 'Send via Messenger…',
+                    label: c.hasPhone ? tr('Share') : tr('Send via Messenger…'),
                     onTap: _share,
                     primary: !c.hasPhone,
                   ),
                 ),
                 const SizedBox(width: 8),
-                _Btn(icon: Icons.copy_rounded, label: '', onTap: _copy, tooltip: 'Copy message'),
+                _Btn(icon: Icons.copy_rounded, label: '', onTap: _copy, tooltip: tr('Copy message')),
               ],
             ),
           ],

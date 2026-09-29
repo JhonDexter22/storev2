@@ -17,6 +17,7 @@ import '../widgets/product_thumb.dart';
 import '../widgets/skeleton.dart';
 import 'barcode_scanner_screen.dart';
 import '../l10n/tr.dart';
+import '../services/error_log.dart';
 
 enum _View { grid, list }
 
@@ -171,9 +172,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
         maxHeight: 1200,
         preferredCameraDevice: CameraDevice.rear,
       );
-    } catch (_) {
+    } catch (e, st) {
       // No camera, or permission refused: say so rather than surface a
       // platform error; the gallery route is one tap away.
+      ErrorLog.caught(e, st, 'photo: ${source.name}');
       if (source == ImageSource.camera && mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()

@@ -5,6 +5,8 @@ import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 
 import 'receipt_document.dart';
 import 'settings_service.dart';
+import '../l10n/tr.dart';
+import 'error_log.dart';
 
 /// A printer the phone has already been paired with.
 class PrinterDevice {
@@ -35,31 +37,31 @@ sealed class PrintResult {
 class PrintOk extends PrintResult {
   const PrintOk();
   @override
-  String get message => 'Printed';
+  String get message => tr('Printed');
 }
 
 class PrintNoPrinter extends PrintResult {
   const PrintNoPrinter();
   @override
-  String get message => 'No printer chosen yet — pick one in Settings';
+  String get message => tr('No printer chosen yet — pick one in Settings');
 }
 
 class PrintPermissionNeeded extends PrintResult {
   const PrintPermissionNeeded();
   @override
-  String get message => 'Allow Bluetooth access, then try again';
+  String get message => tr('Allow Bluetooth access, then try again');
 }
 
 class PrintBluetoothOff extends PrintResult {
   const PrintBluetoothOff();
   @override
-  String get message => 'Bluetooth is off — switch it on and try again';
+  String get message => tr('Bluetooth is off — switch it on and try again');
 }
 
 class PrintUnsupported extends PrintResult {
   const PrintUnsupported();
   @override
-  String get message => 'This device cannot print to a Bluetooth printer';
+  String get message => tr('This device cannot print to a Bluetooth printer');
 }
 
 class PrintFailed extends PrintResult {
@@ -67,7 +69,7 @@ class PrintFailed extends PrintResult {
   final String detail;
 
   @override
-  String get message => 'Could not reach the printer. Is it switched on?';
+  String get message => tr('Could not reach the printer. Is it switched on?');
 }
 
 /// The Bluetooth side of printing, behind an interface.
@@ -196,9 +198,10 @@ class PrinterService {
       }
       if (await transport.write(bytes)) return const PrintOk();
       return const PrintFailed('write refused');
-    } catch (e) {
+    } catch (e, st) {
       // A printer going out of range mid-write throws from the platform. It
       // must not take the sale screen down with it.
+      ErrorLog.caught(e, st, 'printing');
       return PrintFailed('$e');
     }
   }

@@ -8,6 +8,7 @@ import '../services/staff_service.dart';
 import '../widgets/language_switch.dart';
 import '../widgets/pin_sheet.dart';
 import '../widgets/restore_flow.dart';
+import '../services/error_log.dart';
 
 /// Shows [SetupScreen] until it is finished, then [child].
 ///
@@ -142,7 +143,8 @@ class _SetupScreenState extends State<SetupScreen> {
       }
       _toast(tr('Restored {n} rows. Now check the details below.', {'n': done.rows}));
       _go(_Step.store);
-    } catch (e) {
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'setup: restore');
       if (mounted) _toast(tr('Could not restore: {error}', {'error': e}));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -204,7 +206,8 @@ class _SetupScreenState extends State<SetupScreen> {
       if (!mounted) return;
       _toast(e.message);
       _go(_Step.owner);
-    } catch (e) {
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'setup: saving');
       if (mounted) _toast(tr('Could not save: {error}', {'error': e}));
     } finally {
       if (mounted) setState(() => _busy = false);

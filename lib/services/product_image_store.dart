@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/product_model.dart';
 import 'product_service.dart';
+import 'error_log.dart';
 
 /// Where product photos live.
 ///
@@ -92,7 +93,8 @@ class ProductImageStore {
       }
       await File(target).writeAsBytes(squared, flush: true);
       return target;
-    } catch (_) {
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'photo: squaring');
       return keep(sourcePath, now: now);
     }
   }

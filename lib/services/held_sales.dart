@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'error_log.dart';
 
 /// A sale put aside at the counter — the customer went to fetch money, and
 /// the next one is waiting. Lines are kept by product id so a later price
@@ -66,8 +67,9 @@ class HeldSales extends ChangeNotifier {
       final list = jsonDecode(raw) as List<dynamic>;
       _sales = [for (final m in list) HeldSale.fromJson(m as Map<String, dynamic>)];
       notifyListeners();
-    } catch (_) {
+    } catch (e, st) {
       // A corrupt entry is not worth failing the till over; start empty.
+      ErrorLog.caught(e, st, 'held sales: loading');
       _sales = const [];
     }
   }
@@ -95,8 +97,9 @@ class HeldSales extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_key, jsonEncode([for (final s in _sales) s.toJson()]));
-    } catch (_) {
+    } catch (e, st) {
       // Held sales still work for this session; only the restart copy is lost.
+      ErrorLog.caught(e, st, 'held sales: saving');
     }
   }
 

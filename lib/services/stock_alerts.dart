@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'product_service.dart';
+import 'error_log.dart';
 
 /// Counts that the navigation chrome shows as badges.
 ///
@@ -31,8 +32,10 @@ class StockAlerts {
       final low = await _service.getLowStockProducts();
       needsRestock.value = low.length;
       outOfStock.value = low.where((p) => p.stock <= 0).length;
-    } catch (_) {
-      // A badge is decoration; a failed count must never surface as an error.
+    } catch (e, st) {
+      // A badge is decoration; a failed count must never surface as an error
+      // on screen — but a database that cannot count is worth knowing about.
+      ErrorLog.caught(e, st, 'stock badges');
     }
   }
 }

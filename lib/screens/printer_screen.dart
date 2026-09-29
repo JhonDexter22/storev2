@@ -5,6 +5,8 @@ import '../core/responsive.dart';
 import '../services/escpos.dart';
 import '../services/printer_service.dart';
 import '../services/settings_service.dart';
+import '../l10n/tr.dart';
+import '../services/error_log.dart';
 
 /// Choosing the thermal printer, and proving it works.
 ///
@@ -43,18 +45,19 @@ class _PrinterScreenState extends State<PrinterScreen> {
     String? problem;
     try {
       if (!await t.isSupported) {
-        problem = 'This device cannot print to a Bluetooth printer.';
+        problem = tr('This device cannot print to a Bluetooth printer.');
       } else if (!await t.hasPermission) {
         // The check also raises Android's permission dialog, so the honest
         // instruction is to allow it and come back rather than to retry now.
-        problem = 'Allow Bluetooth access, then tap Refresh.';
+        problem = tr('Allow Bluetooth access, then tap Refresh.');
       } else if (!await t.isBluetoothOn) {
-        problem = 'Bluetooth is off. Switch it on, then tap Refresh.';
+        problem = tr('Bluetooth is off. Switch it on, then tap Refresh.');
       } else {
         found = await t.paired();
       }
-    } catch (e) {
-      problem = 'Could not read the paired printers.';
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'printer: listing paired devices');
+      problem = tr('Could not read the paired printers.');
     }
     if (!mounted) return;
     setState(() {
@@ -122,30 +125,30 @@ class _PrinterScreenState extends State<PrinterScreen> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text('Receipt printer',
+                    child: Text(tr('Receipt printer'),
                         style: AppText.screenTitle().copyWith(fontSize: 22)),
                   ),
                   IconButton(
                     onPressed: _loading ? null : _load,
                     icon: const Icon(Icons.refresh_rounded,
                         color: AppColors.body, size: 20),
-                    tooltip: 'Refresh',
+                    tooltip: tr('Refresh'),
                   ),
                 ],
               ),
               const SizedBox(height: 4),
               Text(
                 chosen == null
-                    ? 'No printer chosen. Receipts can still be shared as text.'
-                    : 'Printing to ${_settings.printerName}',
+                    ? tr('No printer chosen. Receipts can still be shared as text.')
+                    : tr('Printing to {name}', {'name': _settings.printerName}),
                 style: AppText.body(),
               ),
               const SizedBox(height: AppSpace.gapBlock),
-              _overline('Paper width'),
+              _overline(tr('Paper width')),
               const SizedBox(height: 8),
               _paperChoice(),
               const SizedBox(height: AppSpace.gapSection),
-              _overline('Paired printers'),
+              _overline(tr('Paired printers')),
               const SizedBox(height: 8),
               if (_loading)
                 const Padding(
@@ -155,8 +158,7 @@ class _PrinterScreenState extends State<PrinterScreen> {
               else if (_problem != null)
                 _message(_problem!)
               else if (_devices.isEmpty)
-                _message('Nothing paired yet. Pair the printer in your '
-                    "phone's Bluetooth settings, then tap Refresh.")
+                _message(tr("Nothing paired yet. Pair the printer in your phone's Bluetooth settings, then tap Refresh."))
               else
                 _deviceList(chosen),
               const SizedBox(height: AppSpace.gapSection),
@@ -177,7 +179,7 @@ class _PrinterScreenState extends State<PrinterScreen> {
                   icon: Icon(
                       _testing ? Icons.hourglass_top_rounded : Icons.print_outlined,
                       size: 18),
-                  label: Text(_testing ? 'Printing…' : 'Print a test receipt',
+                  label: Text(_testing ? tr('Printing…') : tr('Print a test receipt'),
                       style: AppText.chip(color: Colors.white)
                           .copyWith(fontSize: 15)),
                 ),
@@ -189,7 +191,7 @@ class _PrinterScreenState extends State<PrinterScreen> {
                   height: 46,
                   child: TextButton(
                     onPressed: _forget,
-                    child: Text('Forget this printer',
+                    child: Text(tr('Forget this printer'),
                         style: AppText.chip(color: AppColors.dangerText)),
                   ),
                 ),
@@ -239,7 +241,7 @@ class _PrinterScreenState extends State<PrinterScreen> {
                             color: _settings.paperWidth == w
                                 ? AppColors.primary
                                 : AppColors.ink)),
-                    Text('${w.cols} characters', style: AppText.caption()),
+                    Text(tr('{n} characters', {'n': w.cols}), style: AppText.caption()),
                   ],
                 ),
               ),
@@ -308,9 +310,7 @@ class _PrinterScreenState extends State<PrinterScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Works with Bluetooth thermal printers that speak ESC/POS — '
-                'nearly all of them do. The peso sign prints as "P": no '
-                'thermal printer has a ₱ character.',
+                tr('Works with Bluetooth thermal printers that speak ESC/POS — nearly all of them do. The peso sign prints as "P": no thermal printer has a ₱ character.'),
                 style: AppText.caption(),
               ),
             ),

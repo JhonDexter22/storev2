@@ -7,6 +7,8 @@ import '../models/sale_model.dart';
 import '../services/sales_service.dart';
 import '../services/utang_service.dart';
 import 'sale_detail_sheet.dart';
+import '../l10n/tr.dart';
+import '../services/error_log.dart';
 
 /// One customer's book: the running balance, every charge and payment,
 /// and the things done from here — remind, take a payment, call, edit.
@@ -17,9 +19,9 @@ import 'sale_detail_sheet.dart';
 Future<bool?> showCustomerLedger(
   BuildContext context,
   Customer c, {
-  required Future<bool> Function() onRecordPayment,
-  required Future<bool> Function() onRemind,
-  required Future<bool> Function() onEdit,
+  required Future<bool> Function(Customer) onRecordPayment,
+  required Future<bool> Function(Customer) onRemind,
+  required Future<bool> Function(Customer) onEdit,
 }) {
   return showModalBottomSheet<bool>(
     context: context,
@@ -43,9 +45,11 @@ class _LedgerSheet extends StatefulWidget {
   });
 
   final Customer customer;
-  final Future<bool> Function() onRecordPayment;
-  final Future<bool> Function() onRemind;
-  final Future<bool> Function() onEdit;
+  /// Each receives the customer as the sheet currently knows them — after a
+  /// partial payment the balance has moved on from what the list had.
+  final Future<bool> Function(Customer) onRecordPayment;
+  final Future<bool> Function(Customer) onRemind;
+  final Future<bool> Function(Customer) onEdit;
 
   @override
   State<_LedgerSheet> createState() => _LedgerSheetState();
@@ -81,8 +85,8 @@ class _LedgerSheetState extends State<_LedgerSheet> {
     });
   }
 
-  Future<void> _run(Future<bool> Function() action) async {
-    final changed = await action();
+  Future<void> _run(Future<bool> Function(Customer) action) async {
+    final changed = await action(_c);
     if (!mounted) return;
     if (changed) {
       _changed = true;
@@ -94,19 +98,13 @@ class _LedgerSheetState extends State<_LedgerSheet> {
     final uri = Uri(scheme: 'tel', path: _c.phone);
     try {
       await launchUrl(uri);
-    } catch (_) {
+    } catch (e, st) {
       // No dialler on this device; the number is on screen to type.
+      ErrorLog.caught(e, st, 'utang: opening the dialler');
     }
   }
 
-  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  String _when(DateTime d) {
-    final now = DateTime.now();
-    final sameDay = d.year == now.year && d.month == now.month && d.day == now.day;
-    final t = TimeOfDay.fromDateTime(d).format(context);
-    return sameDay ? 'Today · $t' : '${d.day} ${_months[d.month - 1]} · $t';
-  }
+  String _when(DateTime d) => trWhen(context, d);
 
   @override
   Widget build(BuildContext context) {
@@ -164,7 +162,7 @@ class _LedgerSheetState extends State<_LedgerSheet> {
                         Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.sectionTitle()),
                         const SizedBox(height: 2),
                         Text(
-                          c.hasPhone ? c.phone! : 'No number on file',
+                          c.hasPhone ? c.phone! : tr('No number on file'),
                           style: AppText.caption(color: c.hasPhone ? AppColors.body : AppColors.faint),
                         ),
                       ],
@@ -172,12 +170,12 @@ class _LedgerSheetState extends State<_LedgerSheet> {
                   ),
                   if (c.hasPhone)
                     IconButton(
-                      tooltip: 'Call',
+                      tooltip: tr('Call'),
                       onPressed: _call,
                       icon: const Icon(Icons.call_outlined, color: AppColors.primary),
                     ),
                   IconButton(
-                    tooltip: 'Edit',
+                    tooltip: tr('Edit'),
                     onPressed: () => _run(widget.onEdit),
                     icon: const Icon(Icons.edit_outlined, color: AppColors.body),
                   ),
@@ -200,14 +198,14 @@ class _LedgerSheetState extends State<_LedgerSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(owing ? 'OWES' : 'SETTLED', style: AppText.overline(color: owing ? tone : AppColors.muted)),
+                          Text(owing ? tr('OWES') : tr('SETTLED'), style: AppText.overline(color: owing ? tone : AppColors.muted)),
                           const SizedBox(height: 2),
                           Text(formatPeso(c.balance), style: AppText.largeFigure(color: owing ? tone : AppColors.ink)),
                           const SizedBox(height: 2),
                           Text(
                             owing
-                                ? '${c.ageLabel}${c.lastRemindedAt != null ? ' · reminded ${_when(c.lastRemindedAt!)}' : ''}'
-                                : 'Nothing outstanding',
+                                ? '${c.ageLabel}${c.lastRemindedAt != null ? ' · ${tr('reminded {when}', {'when': _when(c.lastRemindedAt!)})}' : ''}'
+                                : tr('Nothing outstanding'),
                             style: AppText.caption(color: owing ? tone : AppColors.muted),
                           ),
                         ],
@@ -228,7 +226,7 @@ class _LedgerSheetState extends State<_LedgerSheet> {
                   : _entries.isEmpty
                       ? Padding(
                           padding: const EdgeInsets.all(24),
-                          child: Text('No charges or payments yet.', style: AppText.body()),
+                          child: Text(tr('No charges or payments yet.'), style: AppText.body()),
                         )
                       : ListView.separated(
                           shrinkWrap: true,
@@ -246,11 +244,11 @@ class _LedgerSheetState extends State<_LedgerSheet> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: _action(Icons.notifications_none_rounded, 'Remind', () => _run(widget.onRemind)),
+                      child: _action(Icons.notifications_none_rounded, tr('Remind'), () => _run(widget.onRemind)),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _action(Icons.payments_outlined, 'Record payment', () => _run(widget.onRecordPayment),
+                      child: _action(Icons.payments_outlined, tr('Record payment'), () => _run(widget.onRecordPayment),
                           primary: true),
                     ),
                   ],
@@ -272,10 +270,10 @@ class _LedgerSheetState extends State<_LedgerSheet> {
     final detail = charge
         ? (sale != null
             ? sale.summary()
-            : (e.note?.isNotEmpty == true ? e.note! : 'Charge'))
-        : 'Paid by ${e.method ?? 'cash'}';
+            : (e.note?.isNotEmpty == true ? e.note! : tr('Charge')))
+        : tr('Paid by {method}', {'method': e.method ?? 'Cash'});
     final sub = charge && sale != null
-        ? '${sale.itemCount} item${sale.itemCount == 1 ? '' : 's'} · ${_when(e.createdAtDate)} · ${sale.shortRef}'
+        ? '${trCount(sale.itemCount, '{n} item', '{n} items')} · ${_when(e.createdAtDate)} · ${sale.shortRef}'
         : _when(e.createdAtDate);
     final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
