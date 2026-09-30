@@ -1092,7 +1092,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(_snack(tr('Added {n} · {name} now {after}', {'n': added, 'name': p.name, 'after': p.stock + added})));
+      ..showSnackBar(_snack(
+        tr('Added {n} · {name} now {after}', {'n': added, 'name': p.name, 'after': p.stock + added}),
+        action: undoAddedStock(p.id!, added, onUndone: _load),
+      ));
   }
 
   /// Delete now, offer Undo for a few seconds. The row comes back with the
@@ -1159,7 +1162,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
   // ── Add / edit sheet ─────────────────────────────────────────────────────
   /// [product] edits in place; [template] seeds a new product from an
   /// existing one (Duplicate) — same name, price, category and photo, but no
-  /// SKU (they are unique) and no stock (it has not been counted yet).
+  /// SKU (each barcode belongs to one product) and no stock (it has not been
+  /// counted yet).
   void _showProductSheet({Product? product, Product? template, String? presetSku}) {
     final isEdit = product != null;
     final seed = product ?? template;
@@ -1174,14 +1178,100 @@ class _ProductsScreenState extends State<ProductsScreen> {
     // A new product starts at the store's configured default minimum.
     int minStock = seed?.minStock ?? SettingsService.instance.defaultMinStock;
 
+    /// Set when the barcode already belongs to another product.
+    String? skuTakenBy;
+    var saving = false;
+    // A blank form starts at 0 against the default minimum, which is "low"
+    // before anyone has typed a thing.
+    var stockTouched = false;
+
+    // What the form opened with, so closing can tell an edit from a glance.
+    (String, String, String, String, String?, int, int) current() => (
+          nameCtrl.text.trim(),
+          priceCtrl.text.trim(),
+          skuCtrl.text.trim(),
+          categoryCtrl.text.trim(),
+          imagePath,
+          stock,
+          minStock,
+        );
+    final opened = current();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      // Dragging down pops the route directly, past the "Discard changes?"
+      // check below — so the sheet closes by ✕, back or a tap outside.
+      enableDrag: false,
       builder: (sheetCtx) => StatefulBuilder(
         builder: (ctx, setSheet) {
-          final lowNotice = stock <= minStock;
-          return Container(
+          final lowNotice = stock <= minStock && (isEdit || stockTouched);
+          final typedCategory = categoryCtrl.text.trim().toLowerCase();
+
+          Future<void> save() async {
+            if (saving) return;
+            final sku = skuCtrl.text.trim();
+            final other = sku.isEmpty
+                ? null
+                : await _productService.otherWithSku(sku, exceptId: product?.id);
+            if (!ctx.mounted) return;
+            setSheet(() => skuTakenBy = other?.name);
+            if (!formKey.currentState!.validate()) return;
+            setSheet(() => saving = true);
+            try {
+              var photo = imagePath;
+              // A duplicate must not share the original's
+              // file, or deleting either would blank both.
+              if (template != null && photo != null && photo == template.imagePath) {
+                photo = await _images.duplicate(photo);
+              }
+              // "biscuit" joins the existing "Biscuit" rather than
+              // becoming a second filter chip.
+              final typed = categoryCtrl.text.trim();
+              final category = _categories.firstWhere(
+                  (c) => c.toLowerCase() == typed.toLowerCase(),
+                  orElse: () => typed);
+              final p = Product(
+                id: product?.id,
+                name: nameCtrl.text.trim(),
+                stock: stock,
+                minStock: minStock,
+                category: category,
+                createdAt: product?.createdAt ?? DateTime.now().toIso8601String(),
+                price: double.parse(priceCtrl.text.trim()),
+                sku: sku.isEmpty ? null : sku,
+                imagePath: photo,
+              );
+              if (isEdit) {
+                await _productService.updateProduct(p);
+                // The photo that was replaced or removed is
+                // nobody's now.
+                final old = product.imagePath;
+                if (old != null && old != photo) _images.discard(old);
+              } else {
+                await _productService.insertProduct(p);
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+              _load();
+            } finally {
+              if (ctx.mounted) setSheet(() => saving = false);
+            }
+          }
+
+          return PopScope(
+            // Every close goes through here; only a form that was changed
+            // asks first. Saving pops directly, so it is never asked.
+            canPop: false,
+            onPopInvokedWithResult: (didPop, _) async {
+              if (didPop) return;
+              if (current() != opened && !await _confirmDiscard(ctx)) return;
+              // A photo taken for this form and not saved is nobody's.
+              final photo = imagePath;
+              if (photo != null && photo != seed?.imagePath) _images.discard(photo);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: Container(
             height: MediaQuery.of(ctx).size.height * 0.92,
             decoration: const BoxDecoration(
               color: AppColors.surface,
@@ -1189,18 +1279,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
             ),
             child: Column(
               children: [
-                const SizedBox(height: 14),
-                Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
-                ),
+                const SizedBox(height: 10),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(AppSpace.sheetPad, 16, AppSpace.sheetPad, 14),
                   child: Row(
                     children: [
                       GestureDetector(
-                        onTap: () => Navigator.pop(ctx),
+                        onTap: () => Navigator.maybePop(ctx),
                         child: Container(
                           width: 38,
                           height: 38,
@@ -1209,7 +1294,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             borderRadius: BorderRadius.circular(11),
                             border: Border.all(color: AppColors.hairline),
                           ),
-                          child: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.body, size: 15),
+                          child: Icon(Icons.close_rounded,
+                              color: AppColors.body, size: 18, semanticLabel: tr('Close')),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1235,7 +1321,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       AppSpace.sheetPad,
                       18,
                       AppSpace.sheetPad,
-                      MediaQuery.of(ctx).viewInsets.bottom + 28,
+                      28,
                     ),
                     child: Form(
                       key: formKey,
@@ -1309,7 +1395,18 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           _fieldLabel(tr('SKU / barcode')),
                           Row(
                             children: [
-                              Expanded(child: _field(skuCtrl, hint: tr('Optional'))),
+                              Expanded(
+                                child: _field(
+                                  skuCtrl,
+                                  hint: tr('Optional'),
+                                  onChanged: (_) {
+                                    if (skuTakenBy != null) setSheet(() => skuTakenBy = null);
+                                  },
+                                  validator: (_) => skuTakenBy == null
+                                      ? null
+                                      : tr('Already used by {name}', {'name': skuTakenBy!}),
+                                ),
+                              ),
                               const SizedBox(width: 10),
                               GestureDetector(
                                 onTap: () async {
@@ -1317,7 +1414,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                     ctx,
                                     MaterialPageRoute(builder: (_) => const SimpleBarcodeScannerScreen()),
                                   );
-                                  if (result is ScanCapture) setSheet(() => skuCtrl.text = result.code);
+                                  if (result is ScanCapture) {
+                                    setSheet(() {
+                                      skuCtrl.text = result.code;
+                                      skuTakenBy = null;
+                                    });
+                                  }
                                 },
                                 child: Container(
                                   width: 52,
@@ -1334,7 +1436,41 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           const SizedBox(height: 14),
                           _fieldLabel(tr('Category')),
                           _field(categoryCtrl, hint: tr('e.g. Biscuits'),
+                              onChanged: (_) => setSheet(() {}),
                               validator: (v) => (v == null || v.trim().isEmpty) ? tr('Required') : null),
+                          // One tap instead of retyping, so a typo does not
+                          // split "Biscuit" into two filter chips.
+                          if (_categories.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              height: 32,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: _categories.length,
+                                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                                itemBuilder: (_, i) {
+                                  final c = _categories[i];
+                                  final on = c.toLowerCase() == typedCategory;
+                                  return GestureDetector(
+                                    onTap: () => setSheet(() => categoryCtrl.text = c),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        color: on ? AppColors.primaryTint : AppColors.surface,
+                                        borderRadius: BorderRadius.circular(AppRadius.chip),
+                                        border: Border.all(
+                                            color: on ? AppColors.primary : AppColors.hairline),
+                                      ),
+                                      child: Text(c,
+                                          style: AppText.chip(
+                                              color: on ? AppColors.primary : AppColors.body)),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
 
                           const SizedBox(height: 20),
                           const Divider(color: AppColors.divider, height: 1),
@@ -1346,17 +1482,28 @@ class _ProductsScreenState extends State<ProductsScreen> {
                               hint: '0.00',
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
                               prefixText: '₱ ',
-                              validator: (v) =>
-                                  (double.tryParse(v ?? '') == null) ? tr('Enter a price') : null),
+                              validator: (v) {
+                                final price = double.tryParse((v ?? '').trim());
+                                if (price == null) return tr('Enter a price');
+                                // Zero or less would ring up for free.
+                                if (price <= 0) return tr('Price must be more than ₱0');
+                                return null;
+                              }),
 
                           const SizedBox(height: 20),
                           const Divider(color: AppColors.divider, height: 1),
                           const SizedBox(height: 18),
                           _sectionLabel(tr('Inventory')),
                           const SizedBox(height: 10),
-                          _stepperRow(tr('Current stock'), stock, (v) => setSheet(() => stock = v)),
+                          _stepperRow(tr('Current stock'), stock, (v) => setSheet(() {
+                                stock = v;
+                                stockTouched = true;
+                              })),
                           const SizedBox(height: 10),
-                          _stepperRow(tr('Minimum stock'), minStock, (v) => setSheet(() => minStock = v)),
+                          _stepperRow(tr('Minimum stock'), minStock, (v) => setSheet(() {
+                                minStock = v;
+                                stockTouched = true;
+                              })),
                           if (lowNotice) ...[
                             const SizedBox(height: 10),
                             Container(
@@ -1382,59 +1529,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             ),
                           ],
 
-                          const SizedBox(height: 20),
-                          const Divider(color: AppColors.divider, height: 1),
-                          const SizedBox(height: 18),
-                          _sectionLabel(tr('Actions')),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(AppRadius.cta)),
-                              ),
-                              onPressed: () async {
-                                if (!formKey.currentState!.validate()) return;
-                                var photo = imagePath;
-                                // A duplicate must not share the original's
-                                // file, or deleting either would blank both.
-                                if (template != null && photo != null && photo == template.imagePath) {
-                                  photo = await _images.duplicate(photo);
-                                }
-                                final p = Product(
-                                  id: product?.id,
-                                  name: nameCtrl.text.trim(),
-                                  stock: stock,
-                                  minStock: minStock,
-                                  category: categoryCtrl.text.trim(),
-                                  createdAt: product?.createdAt ?? DateTime.now().toIso8601String(),
-                                  price: double.tryParse(priceCtrl.text) ?? 0,
-                                  sku: skuCtrl.text.trim().isEmpty ? null : skuCtrl.text.trim(),
-                                  imagePath: photo,
-                                );
-                                if (isEdit) {
-                                  await _productService.updateProduct(p);
-                                  // The photo that was replaced or removed is
-                                  // nobody's now.
-                                  final old = product.imagePath;
-                                  if (old != null && old != photo) _images.discard(old);
-                                } else {
-                                  await _productService.insertProduct(p);
-                                }
-                                if (ctx.mounted) Navigator.pop(ctx);
-                                _load();
-                              },
-                              child: Text(isEdit ? tr('Save changes') : tr('Save product'),
-                                  style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
-                            ),
-                          ),
                           if (isEdit) ...[
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 20),
+                            const Divider(color: AppColors.divider, height: 1),
+                            const SizedBox(height: 18),
                             SizedBox(
                               width: double.infinity,
                               height: 52,
@@ -1459,12 +1557,70 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ),
                   ),
                 ),
+                // Pinned, and above the keyboard when it is up: the form is
+                // long, and Save used to be at the bottom of it.
+                Container(
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpace.sheetPad,
+                    12,
+                    AppSpace.sheetPad,
+                    12 +
+                        (MediaQuery.viewInsetsOf(ctx).bottom > 0
+                            ? MediaQuery.viewInsetsOf(ctx).bottom
+                            : MediaQuery.paddingOf(ctx).bottom),
+                  ),
+                  decoration: const BoxDecoration(
+                    color: AppColors.surface,
+                    border: Border(top: BorderSide(color: AppColors.divider)),
+                  ),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.cta)),
+                      ),
+                      onPressed: save,
+                      child: Text(isEdit ? tr('Save changes') : tr('Save product'),
+                          style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+                    ),
+                  ),
+                ),
               ],
+            ),
             ),
           );
         },
       ),
     );
+  }
+
+  Future<bool> _confirmDiscard(BuildContext ctx) async {
+    final discard = await showDialog<bool>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(tr('Discard changes?'), style: AppText.sectionTitle().copyWith(fontSize: 17)),
+        content: Text(tr('What you entered will not be saved.'), style: AppText.body()),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: Text(tr('Keep editing'), style: AppText.chip(color: AppColors.primary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(tr('Discard'), style: AppText.chip(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    return discard ?? false;
   }
 
   // ── Sheet helpers ────────────────────────────────────────────────────────
@@ -1482,9 +1638,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
     TextInputType? keyboardType,
     String? Function(String?)? validator,
     String? prefixText,
+    ValueChanged<String>? onChanged,
   }) {
     return TextFormField(
       controller: ctrl,
+      onChanged: onChanged,
       keyboardType: keyboardType,
       style: AppText.body(color: AppColors.ink).copyWith(fontSize: 14),
       decoration: InputDecoration(
