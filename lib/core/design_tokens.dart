@@ -151,23 +151,50 @@ class AppSpace {
 }
 
 /// Diagonal-striped placeholder used everywhere a product photo would go.
+///
+/// Shows the product's initials when given a [name]: most of a new catalog
+/// has no photos, and a grid of the word "photo" read as unfinished. "Candy,
+/// small" and "Candy, large" get CS and CL, so neighbours still differ.
 class PhotoPlaceholder extends StatelessWidget {
-  const PhotoPlaceholder({super.key, this.borderRadius = 12, this.iconSize = 18});
+  const PhotoPlaceholder({super.key, this.borderRadius = 12, this.iconSize = 18, this.name});
 
   final double borderRadius;
   final double iconSize;
+  final String? name;
+
+  static String initialsOf(String name) {
+    final words = name
+        .split(RegExp(r'[^A-Za-z0-9]+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+    if (words.isEmpty) return '';
+    if (words.length == 1) return words.first[0].toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final initials = name == null ? '' : initialsOf(name!);
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: CustomPaint(
         painter: _StripePainter(),
-        child: Center(
-          child: Text(
-            'photo',
-            style: AppText.mono(color: AppColors.faint, size: iconSize * 0.6),
-          ),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final side = c.biggest.shortestSide.isFinite ? c.biggest.shortestSide : 46.0;
+            return Center(
+              child: initials.isEmpty
+                  ? Icon(Icons.image_outlined, color: AppColors.faint, size: iconSize)
+                  : Text(
+                      initials,
+                      maxLines: 1,
+                      style: AppText.statFigure(
+                        color: AppColors.muted,
+                        size: (side * 0.32).clamp(12.0, 30.0),
+                      ),
+                    ),
+            );
+          },
         ),
       ),
     );
