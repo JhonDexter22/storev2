@@ -28,12 +28,21 @@ class Staff {
   /// so this is a warning to show, not a detail to hide.
   final bool onStartingPin;
 
-  String get initials {
+  String get initials => initialsOf(name);
+
+  static String initialsOf(String name) {
     final parts = name.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return '?';
-    // A single-word name has one initial — "MA" for May reads as a truncation,
-    // not an initial.
-    if (parts.length == 1) return parts.first[0].toUpperCase();
+    if (parts.length == 1) {
+      final word = parts.first;
+      // A name that is already initials ("JD") stays whole.
+      if (word.length == 2 && word == word.toUpperCase() && word != word.toLowerCase()) {
+        return word;
+      }
+      // Otherwise a single-word name has one initial — "MA" for May reads as
+      // a truncation, not an initial.
+      return word[0].toUpperCase();
+    }
     return (parts.first[0] + parts.last[0]).toUpperCase();
   }
 
