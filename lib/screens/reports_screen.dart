@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/customer.dart';
+import '../models/product_model.dart';
 import '../models/refund_model.dart';
 import '../services/sales_service.dart';
 import '../widgets/discount_audit.dart';
+import '../widgets/sales_chart.dart';
 import '../services/settings_service.dart';
-import '../services/backup_share.dart';
 import '../services/utang_service.dart';
 import '../l10n/tr.dart';
 import '../services/error_log.dart';
@@ -22,7 +24,6 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  bool _exporting = false;
   List<BreakdownRow> _discountReasons = [];
   List<BreakdownRow> _discountCashiers = [];
   List<DiscountRecord> _discounts = [];
@@ -59,8 +60,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  /// [quiet] keeps the current numbers on screen while the next range loads;
+  /// switching range used to blank the whole report to a spinner.
+  Future<void> _load({bool quiet = false}) async {
+    if (!quiet) setState(() => _loading = true);
     final stats = await _sales.getPeriodStats(_days);
     final week = _days == 7 ? stats : await _sales.getPeriodStats(7);
     final top = await _sales.topProducts(_days);
@@ -72,8 +75,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final discounts = await _sales.discountsGiven(_days);
     final utang = await _utangService.getFlows(_days);
     final topBalances = await _utangService.topBalances();
+    final hours = await _sales.salesByHour(_days);
+    final idle = await _sales.notSelling(_days);
     if (!mounted) return;
     setState(() {
+      _hours = hours;
+      _idle = idle;
       _stats = stats;
       _week = week.dailyRevenue;
       _top = top;
@@ -88,6 +95,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _loading = false;
     });
   }
+
+  List<({int hour, int count, double revenue})> _hours = const [];
+  ({List<Product> items, int total}) _idle = (items: const [], total: 0);
 
   double get _refundTotal => _refunds.fold(0, (s, r) => s + r.amount);
   double get _netRevenue => (_stats?.revenue ?? 0) - _refundTotal;
@@ -108,7 +118,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
             : RefreshIndicator(
                 color: AppColors.primary,
-                onRefresh: _load,
+                onRefresh: () => _load(quiet: true),
                 child: Breakpoints.isTablet(context) ? _tabletBody() : _phoneBody(),
               ),
       ),
@@ -128,8 +138,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _section(tr('Top products')),
         _topProducts(),
         const SizedBox(height: AppSpace.gapBlock),
+        if (_days > 1) ...[
+          _section(tr('Not selling')),
+          _notSelling(),
+          const SizedBox(height: AppSpace.gapBlock),
+        ],
         _section(tr('Payment mix')),
         _paymentMix(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _section(tr('Busiest hours')),
+        _busiestHours(),
         const SizedBox(height: AppSpace.gapBlock),
         if (_discounts.isNotEmpty) ...[
           _section(tr('Discounts')),
@@ -252,7 +270,131 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ),
           ],
         ),
+        const SizedBox(height: AppSpace.gapBlock),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _section(tr('Busiest hours')),
+                  _busiestHours(),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_days > 1) ...[
+                    _section(tr('Not selling')),
+                    _notSelling(),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ],
+    );
+  }
+
+  /// Sales by hour of the day, trimmed to the hours the store was open, with
+  /// the busiest named. When to be at the counter, and when to restock.
+  Widget _busiestHours() {
+    final active = _hours.where((h) => h.count > 0).toList();
+    if (active.isEmpty) return _emptyCard(tr('No sales in this range yet'));
+    final first = active.first.hour;
+    final last = active.last.hour;
+    final shown = _hours.where((h) => h.hour >= first && h.hour <= last).toList();
+    final peak = active.reduce((a, b) => b.count > a.count ? b : a);
+    final maxCount = peak.count;
+
+    String label(int hour) => TimeOfDay(hour: hour, minute: 0).format(context);
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            tr('Busiest {from}–{to} · {n} sales', {
+              'from': label(peak.hour),
+              'to': label((peak.hour + 1) % 24),
+              'n': peak.count,
+            }),
+            style: AppText.cardTitle(),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 64,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final h in shown)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                      child: Container(
+                        height: h.count == 0 ? 2 : 4 + (h.count / maxCount) * 56,
+                        decoration: BoxDecoration(
+                          color: h.hour == peak.hour ? AppColors.primary : const Color(0xFFD7DDF5),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Text(label(first), style: AppText.caption()),
+              const Spacer(),
+              Text(label((last + 1) % 24), style: AppText.caption()),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Stock that sat still this range, most money first — the mirror of
+  /// Restock: what not to reorder.
+  Widget _notSelling() {
+    final idle = _idle;
+    if (idle.items.isEmpty) return _emptyCard(tr('Everything on the shelf sold at least once'));
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (int i = 0; i < idle.items.length; i++) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(idle.items[i].name,
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
+                      Text(tr('{n} on the shelf', {'n': idle.items[i].stock}), style: AppText.caption()),
+                    ],
+                  ),
+                ),
+                Text(formatPeso(idle.items[i].price * idle.items[i].stock), style: AppText.cardTitle()),
+              ],
+            ),
+            if (i != idle.items.length - 1) const SizedBox(height: 12),
+          ],
+          if (idle.total > idle.items.length) ...[
+            const SizedBox(height: 12),
+            Text(tr('+{n} more not selling', {'n': idle.total - idle.items.length}),
+                style: AppText.caption()),
+          ],
+        ],
+      ),
     );
   }
 
@@ -302,7 +444,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ),
         GestureDetector(
-          onTap: _exporting ? null : _export,
+          onTap: _stats == null ? null : _shareSummary,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             decoration: BoxDecoration(
@@ -312,10 +454,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.file_download_outlined, size: 15, color: AppColors.primary),
+                const Icon(Icons.ios_share_rounded, size: 15, color: AppColors.primary),
                 const SizedBox(width: 5),
-                Text(_exporting ? tr('Exporting…') : tr('Export'),
-                    style: AppText.chip(color: AppColors.primary)),
+                Text(tr('Share'), style: AppText.chip(color: AppColors.primary)),
               ],
             ),
           ),
@@ -324,23 +465,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  /// Exports the whole store, not just this period.
+  /// The period in a few lines of text, for the share sheet — so an owner
+  /// away from the store can be sent the day's numbers in one message.
   ///
-  /// A report is a view over the same rows a backup contains, and shipping two
-  /// different export shapes would mean two things to keep correct. The reader
-  /// filters by date in their spreadsheet.
-  Future<void> _export() async {
-    if (_exporting) return;
-    setState(() => _exporting = true);
+  /// This button was "Export" and sent the full store backup, which is not
+  /// what anyone tapping it on a report expects. Backups stay in Settings
+  /// and behind Home's reminder.
+  String summaryText() => reportSummaryText(
+        store: SettingsService.instance.storeName,
+        range: _rangeLabel,
+        date: DateTime.now(),
+        stats: _stats!,
+        refunds: _refundTotal,
+        top: _top,
+        payment: _payment,
+        owed: _utang?.outstanding ?? 0,
+      );
+
+  Future<void> _shareSummary() async {
     try {
-      // The same file a backup is, so it counts as one when it goes out.
-      await shareBackup();
+      await SharePlus.instance.share(ShareParams(text: summaryText()));
     } catch (e, st) {
-      ErrorLog.caught(e, st, 'export from Reports');
+      ErrorLog.caught(e, st, 'share report summary');
       if (!mounted) return;
-      _toast(tr('Could not export: {error}', {'error': e}));
-    } finally {
-      if (mounted) setState(() => _exporting = false);
+      _toast(tr('Could not share: {error}', {'error': e}));
     }
   }
 
@@ -359,7 +507,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       return GestureDetector(
         onTap: () {
           setState(() => _days = days);
-          _load();
+          _load(quiet: true);
         },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
@@ -410,7 +558,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _revenueCard() {
     final s = _stats!;
-    final up = s.deltaPct >= 0;
+    // A zero headline over a flat chart says nothing; Home says "no sales"
+    // in words, and so does this now.
+    if (s.transactions == 0) {
+      return _emptyCard(switch (_days) {
+        1 => tr('No sales yet today'),
+        7 => tr('No sales in the last 7 days'),
+        _ => tr('No sales in the last 30 days'),
+      });
+    }
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpace.sheetPad),
@@ -423,40 +579,35 @@ class _ReportsScreenState extends State<ReportsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            // A headline that quietly ignores returns reads as money kept.
-            // Naming it only when there were returns keeps the usual case
-            // short and the unusual case honest.
-            _refundTotal > 0 ? tr('REVENUE BEFORE RETURNS') : tr('REVENUE'),
-            style: AppText.overline(),
-          ),
-          const SizedBox(height: 6),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Flexible(
-                child: Text(formatPeso(s.revenue),
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.heroFigure()),
-              ),
-              const SizedBox(width: 10),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: StatusPill(
-                  label: '${up ? '+' : ''}${(s.deltaPct * 100).toStringAsFixed(0)}%',
-                  fg: up ? AppColors.successText : AppColors.dangerText,
-                  bg: up ? AppColors.successFill : AppColors.dangerFill,
-                  dot: false,
+              Expanded(
+                child: Text(
+                  // A headline that quietly ignores returns reads as money kept.
+                  // Naming it only when there were returns keeps the usual case
+                  // short and the unusual case honest.
+                  _refundTotal > 0 ? tr('REVENUE BEFORE RETURNS') : tr('REVENUE'),
+                  style: AppText.overline(),
                 ),
               ),
+              PeriodComparison(stats: s, days: _days),
             ],
           ),
+          const SizedBox(height: 6),
+          Text(formatPeso(s.revenue),
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.heroFigure()),
           if (_refundTotal > 0) ...[
             const SizedBox(height: 4),
             Text(tr('{net} after {refunded} returned', {'net': formatPeso(_netRevenue), 'refunded': formatPeso(_refundTotal)}),
                 style: AppText.caption()),
           ],
           const SizedBox(height: 18),
-          _BarChart(values: _week),
+          // The range's own days under 30 days; the last week otherwise,
+          // labelled as such under Today.
+          SalesBarChart(
+            values: _days == 30 ? s.dailyRevenue : _week,
+            caption: _days == 1 ? tr('Last 7 days') : null,
+          ),
           const SizedBox(height: 8),
           const Divider(color: AppColors.divider, height: 1),
           const SizedBox(height: 12),
@@ -555,7 +706,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
 
     // Both bars share one scale so their lengths are comparable.
-    final scale = [u.charged, u.collected].reduce((a, b) => a > b ? a : b);
+    final scale = [u.charged, u.collected, u.returned].reduce((a, b) => a > b ? a : b);
     final grew = u.net > 0;
 
     return _card(
@@ -608,6 +759,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
           _flowBar(tr('Charged'), u.charged, scale, AppColors.warning),
           const SizedBox(height: 10),
           _flowBar(tr('Collected'), u.collected, scale, AppColors.success),
+          // Goods brought back off a tab: off the book, but not money in.
+          if (u.returned > 0) ...[
+            const SizedBox(height: 10),
+            _flowBar(tr('Returned'), u.returned, scale, AppColors.primary),
+          ],
           const SizedBox(height: 12),
           Row(
             children: [
@@ -962,48 +1118,29 @@ extension _UtangBlock on _ReportsScreenState {
   }
 }
 
-class _BarChart extends StatelessWidget {
-  const _BarChart({required this.values});
-
-  final List<double> values;
-
-  @override
-  Widget build(BuildContext context) {
-    final days = SettingsService.instance.language == AppLanguage.fil
-        ? const ['L', 'M', 'M', 'H', 'B', 'S', 'L']
-        : const ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    if (values.isEmpty) return const SizedBox(height: 96);
-    final maxVal = values.reduce((a, b) => a > b ? a : b);
-    final now = DateTime.now();
-    return SizedBox(
-      height: 96,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(values.length, (i) {
-          final h = maxVal <= 0 ? 0.0 : (values[i] / maxVal) * 60;
-          final isLast = i == values.length - 1;
-          final dayIdx = (now.weekday - 1 - (values.length - 1 - i)) % 7;
-          return Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    height: h < 4 ? 4 : h,
-                    decoration: BoxDecoration(
-                      color: isLast ? AppColors.primary : const Color(0xFFD7DDF5),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(days[(dayIdx + 7) % 7], style: AppText.caption()),
-                ],
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
+/// The text the report's Share button sends: a few lines an owner can read
+/// in a chat message. Kept apart from the screen so it can be checked
+/// directly.
+String reportSummaryText({
+  required String store,
+  required String range,
+  required DateTime date,
+  required PeriodStats stats,
+  required double refunds,
+  required List<BreakdownRow> top,
+  required List<BreakdownRow> payment,
+  double owed = 0,
+}) {
+  return [
+    '$store · $range · ${trDay(date)}',
+    trCount(stats.transactions, 'Sales {amount} ({n} sale)', 'Sales {amount} ({n} sales)',
+        {'amount': formatPeso(stats.revenue)}),
+    if (refunds > 0) tr('Returns {amount}', {'amount': formatPeso(refunds)}),
+    if (top.isNotEmpty)
+      tr('Top: {items}', {
+        'items': top.take(3).map((r) => '${r.label} ${formatPeso(r.value)}').join(' · '),
+      }),
+    if (payment.isNotEmpty) payment.map((r) => '${tr(r.label)} ${formatPeso(r.value)}').join(' · '),
+    if (owed > 0) tr('Owed to you {amount}', {'amount': formatPeso(owed)}),
+  ].join('\n');
 }
