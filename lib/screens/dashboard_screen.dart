@@ -11,14 +11,15 @@ import '../services/product_service.dart';
 import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/add_stock_sheet.dart';
+import '../widgets/initials_avatar.dart';
 import '../widgets/product_thumb.dart';
+import '../widgets/sales_chart.dart';
 import '../widgets/sale_detail_sheet.dart';
 import '../widgets/sale_row.dart';
 import '../widgets/skeleton.dart';
 import '../services/shift_service.dart';
 import '../services/stock_alerts.dart';
 import 'cash_count_screen.dart';
-import 'reports_screen.dart';
 import 'sales_list_screen.dart';
 import '../l10n/tr.dart';
 import '../services/error_log.dart';
@@ -84,6 +85,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// Sales since the last close — what a Close day would sum up.
   ({double total, int count, DateTime openedAt})? _openShift;
 
+  /// The figure Cash count calls "Expected in drawer", from the same place
+  /// ([ShiftService.drawerNow]). Null until loaded.
+  double? _expectedInDrawer;
+
+  /// Everyone with a balance, for the "Owed to you" tile.
+  ({int count, double amount}) _owed = (count: 0, amount: 0.0);
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +124,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
       _loadOpenShift();
       _loadOverdue();
+      _loadDrawer();
     } catch (e, st) {
       // Without this the spinner would run forever on a read failure.
       ErrorLog.caught(e, st, 'Home: loading (${_errorCode(e)})');
@@ -144,6 +153,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
       _loadOpenShift();
       _loadOverdue();
+      _loadDrawer();
       // Stock added from Home changes the nav badges too.
       StockAlerts.instance.refresh();
     } catch (e, st) {
@@ -167,6 +177,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _loadDrawer() async {
+    try {
+      final drawer = await (widget.shiftService ??
+              ShiftService(sales: _salesService, utang: widget.utangService))
+          .drawerNow();
+      if (!mounted) return;
+      setState(() => _expectedInDrawer = drawer.expected);
+    } catch (e, st) {
+      // The tile shows a dash rather than a wrong figure.
+      ErrorLog.caught(e, st, 'Home: drawer tile');
+    }
+  }
+
   /// Customers whose current balance is past the overdue line, for the bell.
   ({int count, double amount}) _overdue = (count: 0, amount: 0.0);
 
@@ -176,11 +199,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final customers = await (widget.utangService ?? UtangService()).getCustomers();
       final overdue = customers.where((c) => c.status == UtangStatus.overdue).toList();
+      final owing = customers.where((c) => c.balance > 0).toList();
       if (!mounted) return;
-      setState(() => _overdue = (
-            count: overdue.length,
-            amount: overdue.fold(0.0, (s, c) => s + c.balance),
-          ));
+      setState(() {
+        _overdue = (
+          count: overdue.length,
+          amount: overdue.fold(0.0, (s, c) => s + c.balance),
+        );
+        _owed = (
+          count: owing.length,
+          amount: owing.fold(0.0, (s, c) => s + c.balance),
+        );
+      });
     } catch (e, st) {
       ErrorLog.caught(e, st, 'Home: utang alerts');
     }
@@ -249,7 +279,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 trCount(a.count, '{n} customer overdue', '{n} customers overdue'),
                 tr('{amount} unpaid for {days} days or more',
                     {'amount': formatPeso(a.amount), 'days': Customer.overdueAfterDays}),
-                () => _push(UtangScreen(onCharge: widget.onStartSale)),
+                () => _push(UtangScreen(onCharge: widget.onStartSale, overdueOnly: true)),
               ),
             AlertKind.backupDue => (
                 Icons.backup_outlined,
@@ -369,13 +399,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  List<Product> get _needsAttention {
-    final list = _products.where((p) => p.stock <= p.minStock).toList()
-      ..sort((a, b) => a.stock.compareTo(b.stock));
-    return list.take(5).toList();
+  /// Everything at or under its minimum, in Restock's order.
+  List<Product> get _allNeedingAttention =>
+      _products.where((p) => p.stock <= p.minStock).toList()..sort(byRestockUrgency);
+
+  /// The first five; "See all" opens Restock for the rest.
+  List<Product> get _needsAttention => _allNeedingAttention.take(5).toList();
+
+  Widget _attentionHeading() {
+    final total = _allNeedingAttention.length;
+    return Row(
+      children: [
+        Expanded(child: _sectionTitle(tr('Needs attention'))),
+        if (total > _needsAttention.length)
+          GestureDetector(
+            onTap: _openRestock,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(tr('See all {n}', {'n': total}), style: AppText.chip(color: AppColors.primary)),
+                  const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.primary),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
-  int get _totalUnits => _products.fold(0, (s, p) => s + p.stock);
+  /// Retail value of what is on the shelves, as the Products header gives it.
+  double get _inventoryValue => _products.fold(0.0, (s, p) => s + p.price * p.stock);
+
   int get _lowCount => _products.where((p) => p.stock > 0 && p.stock <= p.minStock).length;
   int get _outCount => _products.where((p) => p.stock <= 0).length;
 
@@ -417,16 +474,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _statGrid(),
         const SizedBox(height: AppSpace.gapBlock),
         if (_needsAttention.isNotEmpty) ...[
-          _sectionTitle(tr('Needs attention')),
+          _attentionHeading(),
           const SizedBox(height: 10),
           _attentionList(),
           const SizedBox(height: AppSpace.gapBlock),
         ],
-        _sectionTitle(tr('Recent sales')),
-        const SizedBox(height: 10),
-        _recentSalesList(),
-        const SizedBox(height: AppSpace.gapBlock),
-        _startSaleCard(),
+        // An empty list would only repeat what the sales card already says.
+        if (_recentSales.isNotEmpty) ...[
+          _sectionTitle(tr('Recent sales')),
+          const SizedBox(height: 10),
+          _recentSalesList(),
+          const SizedBox(height: AppSpace.gapBlock),
+        ],
+        // The empty sales card carries its own button; a second one below it
+        // (plus the Sell tab) was three ways to do the same thing.
+        if (_stats!.transactions > 0) _startSaleCard(),
         if (_openShift != null && _openShift!.count > 0) ...[
           const SizedBox(height: AppSpace.gapGrid),
           _closeDayCard(),
@@ -440,7 +502,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// the two lists sit side by side, so what needs restocking and what just
   /// sold are both visible without scrolling.
   Widget _tabletBody() {
-    final stats = _stats!;
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
       children: [
@@ -455,7 +516,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(flex: 3, child: _salesCard()),
+            Expanded(flex: 3, child: _salesCard(showAction: false)),
             const SizedBox(width: 16),
             Expanded(
               flex: 2,
@@ -468,18 +529,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     _closeDayCard(),
                   ],
                   const SizedBox(height: AppSpace.gapGrid),
-                  _statRow([
-                    _statCard(tr('Transactions'), '${stats.transactions}',
-                        Icons.receipt_long_outlined, AppColors.primary),
-                    _statCard(tr('Items sold'), '${stats.itemsSold}',
-                        Icons.shopping_bag_outlined, AppColors.primary),
-                  ]),
+                  _statRow([_drawerCard(), _owedCard()]),
                   const SizedBox(height: AppSpace.gapGrid),
-                  _statRow([
-                    _statCard(tr('Inventory'), tr('{n} units', {'n': _totalUnits}),
-                        Icons.inventory_2_outlined, AppColors.body),
-                    _stockAlertsCard(),
-                  ]),
+                  _statRow([_inventoryCard(), _stockAlertsCard()]),
                 ],
               ),
             ),
@@ -493,7 +545,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionTitle(tr('Needs attention')),
+                  _attentionHeading(),
                   const SizedBox(height: 10),
                   if (_needsAttention.isEmpty) _nothingToRestockCard() else _attentionList(),
                 ],
@@ -545,7 +597,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.circular(AppRadius.card),
         border: Border.all(color: AppColors.hairline),
       ),
-      child: Text(tr('Everything is stocked'), style: AppText.body()),
+      child: Text(
+          _products.isEmpty ? tr('No products yet') : tr('Everything is stocked'),
+          style: AppText.body()),
     );
   }
 
@@ -901,7 +955,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           height: 40,
                           decoration: BoxDecoration(
                             color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(12),
+                            shape: BoxShape.circle,
                             border: Border.all(color: AppColors.hairline),
                           ),
                           child: const Icon(Icons.notifications_outlined,
@@ -909,8 +963,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                         if (urgent)
                           Positioned(
-                            top: 8,
-                            right: 8,
+                            top: 9,
+                            right: 9,
                             child: Container(
                               key: const ValueKey('alert-dot'),
                               width: 7,
@@ -929,16 +983,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   label: tr('Signed in: {name}', {'name': cashier}),
                   child: GestureDetector(
                     onTap: () => _push(const CashierSwitchScreen()),
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: const BoxDecoration(color: AppColors.ink, shape: BoxShape.circle),
-                      alignment: Alignment.center,
-                      child: Text(
-                        Staff(name: cashier, role: '').initials,
-                        style: AppText.chip(color: Colors.white).copyWith(fontSize: 15),
-                      ),
-                    ),
+                    child: InitialsAvatar(Staff.initialsOf(cashier), size: 40),
                   ),
                 ),
               ],
@@ -982,13 +1027,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _salesCard() {
+  /// [showAction] is off on the tablet, where the Start a new sale card
+  /// already sits beside it.
+  Widget _salesCard({bool showAction = true}) {
     final stats = _stats!;
     // With no sales in the period, a ₱0.00 hero and a flat chart say nothing.
     // The rest of the dashboard (inventory, alerts) stays useful, so only this
     // card becomes an empty state.
-    if (stats.transactions == 0) return _noSalesCard();
-    final up = stats.deltaPct >= 0;
+    if (stats.transactions == 0) return _noSalesCard(showAction: showAction);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpace.sheetPad),
@@ -1001,29 +1047,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(switch (_period) {
-            _Period.today => tr('SALES TODAY'),
-            _Period.week => tr('SALES THIS WEEK'),
-            _Period.month => tr('SALES THIS MONTH'),
-          },
-              style: AppText.overline()),
-          const SizedBox(height: 6),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(formatPeso(stats.revenue), style: AppText.heroFigure()),
-              const SizedBox(width: 10),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: StatusPill(
-                  label: '${up ? '+' : ''}${(stats.deltaPct * 100).toStringAsFixed(0)}%',
-                  fg: up ? AppColors.successText : AppColors.dangerText,
-                  bg: up ? AppColors.successFill : AppColors.dangerFill,
-                  dot: false,
-                ),
+              // "Last 7 days", not "this week": the chips count back from
+              // today, and a calendar week is a different number.
+              Expanded(
+                child: Text(switch (_period) {
+                  _Period.today => tr('SALES TODAY'),
+                  _Period.week => tr('SALES · LAST 7 DAYS'),
+                  _Period.month => tr('SALES · LAST 30 DAYS'),
+                },
+                    style: AppText.overline()),
               ),
+              PeriodComparison(stats: stats, days: _periodDays),
             ],
           ),
+          const SizedBox(height: 6),
+          Text(formatPeso(stats.revenue), style: AppText.heroFigure()),
           const SizedBox(height: 18),
           _barChart(),
           const SizedBox(height: 8),
@@ -1031,7 +1071,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 12),
           Row(
             children: [
-              _footerStat(tr('Transactions'), '${stats.transactions}'),
+              // The way to the list of sales, now the Transactions tile is gone.
+              _footerStat(tr('Transactions'), '${stats.transactions}',
+                  onTap: () => _push(SalesListScreen(days: _periodDays))),
               _footerStat(tr('Avg sale'), formatPeso(stats.avgSale)),
               _footerStat(tr('Items'), '${stats.itemsSold}'),
             ],
@@ -1041,7 +1083,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _noSalesCard() {
+  Widget _noSalesCard({required bool showAction}) {
     final label = switch (_period) {
       _Period.today => tr('No sales yet today'),
       _Period.week => tr('No sales in the last 7 days'),
@@ -1075,84 +1117,93 @@ class _DashboardScreenState extends State<DashboardScreen> {
             textAlign: TextAlign.center,
             style: AppText.caption(),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton(
-              onPressed: widget.onStartSale,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.cta)),
+          // Outlined, not filled: the Sell button in the tab bar is the
+          // primary way in, and two solid blue buttons competed for it.
+          if (showAction) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: widget.onStartSale,
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: Text(tr('Start a sale'),
+                    style: AppText.chip(color: AppColors.primary).copyWith(fontSize: 14)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.cta)),
+                ),
               ),
-              child: Text(tr('Start a sale'),
-                  style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
             ),
-          ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _footerStat(String label, String value) {
+  Widget _footerStat(String label, String value, {VoidCallback? onTap}) {
     return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(value, style: AppText.cardTitle()),
-          const SizedBox(height: 2),
-          Text(label, style: AppText.caption()),
-        ],
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Flexible(child: Text(value, style: AppText.cardTitle())),
+                if (onTap != null)
+                  const Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.muted),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(label, style: AppText.caption()),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _barChart() {
-    // Monday first, like the chart. Lunes, Martes, Miyerkules, Huwebes,
-    // Biyernes, Sabado, Linggo.
-    final days = SettingsService.instance.language == AppLanguage.fil
-        ? const ['L', 'M', 'M', 'H', 'B', 'S', 'L']
-        : const ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    final maxVal = (_chartDays.isEmpty ? 1.0 : _chartDays.reduce((a, b) => a > b ? a : b)).clamp(1, double.infinity);
-    final now = DateTime.now();
-    return SizedBox(
-      height: 96,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(_chartDays.length, (i) {
-          final v = _chartDays[i];
-          final h = (v / maxVal) * 60;
-          final isLast = i == _chartDays.length - 1;
-          final dayIdx = (now.weekday - 1 - (_chartDays.length - 1 - i)) % 7;
-          return Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    height: h < 4 ? 4 : h,
-                    decoration: BoxDecoration(
-                      color: isLast ? AppColors.primary : const Color(0xFFD7DDF5),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(days[(dayIdx + 7) % 7], style: AppText.caption()),
-                ],
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
+  /// Under "30 days", the chart is the 30 days; under "Today" and "7 days",
+  /// the last week — labelled as such under Today, where it is context
+  /// rather than the period itself. It was always 7 days, even beneath
+  /// "SALES THIS MONTH".
+  List<double> get _chartBars =>
+      _period == _Period.month ? (_stats?.dailyRevenue ?? const []) : _chartDays;
+
+  Widget _barChart() => SalesBarChart(
+        values: _chartBars,
+        caption: _period == _Period.today ? tr('Last 7 days') : null,
+      );
+
+  Widget _drawerCard() => _statCard(
+        tr('Expected in drawer'),
+        _expectedInDrawer == null ? '—' : formatPeso(_expectedInDrawer!),
+        Icons.payments_outlined,
+        AppColors.primary,
+        onTap: () => _push(const CashCountScreen()),
+      );
+
+  Widget _owedCard() => _statCard(
+        tr('Owed to you'),
+        formatPeso(_owed.amount),
+        Icons.receipt_long_outlined,
+        _owed.amount > 0 ? AppColors.warning : AppColors.body,
+        onTap: () => _push(UtangScreen(onCharge: widget.onStartSale)),
+      );
+
+  /// Pesos, not units: "10,775 units" told an owner nothing to act on.
+  Widget _inventoryCard() => _statCard(
+        tr('Inventory'),
+        formatPeso(_inventoryValue),
+        Icons.inventory_2_outlined,
+        AppColors.body,
+        onTap: widget.onOpenProducts,
+      );
 
   Widget _statGrid() {
-    final stats = _stats!;
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
@@ -1160,28 +1211,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       mainAxisSpacing: AppSpace.gapGrid,
       crossAxisSpacing: AppSpace.gapGrid,
       childAspectRatio: 1.7,
+      // Transactions and items sold were here too, a few pixels under the
+      // sales card's own footer. These are what Home did not show at all.
       children: [
-        _statCard(
-          tr('Transactions'),
-          '${stats.transactions}',
-          Icons.receipt_long_outlined,
-          AppColors.primary,
-          onTap: () => _push(SalesListScreen(days: _periodDays)),
-        ),
-        _statCard(
-          tr('Items sold'),
-          '${stats.itemsSold}',
-          Icons.shopping_bag_outlined,
-          AppColors.primary,
-          onTap: () => _push(const ReportsScreen()),
-        ),
-        _statCard(
-          tr('Inventory'),
-          tr('{n} units', {'n': _totalUnits}),
-          Icons.inventory_2_outlined,
-          AppColors.body,
-          onTap: widget.onOpenProducts,
-        ),
+        _drawerCard(),
+        _owedCard(),
+        _inventoryCard(),
         _stockAlertsCard(),
       ],
     );
@@ -1222,7 +1257,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Icon(icon, size: 18, color: color),
                   const Spacer(),
                   if (onTap != null)
-                    const Icon(Icons.arrow_outward_rounded, size: 15, color: AppColors.faint),
+                    const Icon(Icons.arrow_outward_rounded, size: 16, color: AppColors.muted),
                 ],
               ),
               Flexible(
@@ -1249,6 +1284,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// only once a number is above zero. Orange zeros read as a warning about
   /// nothing.
   Widget _stockAlertsCard() {
+    // With no products, "All stocked" beside "0 units" contradicts itself.
+    if (_products.isEmpty) {
+      return _statCard(
+        tr('Stock alerts'),
+        tr('No products yet'),
+        Icons.inventory_2_outlined,
+        AppColors.muted,
+        onTap: widget.onOpenProducts,
+        figure: Text(tr('No products yet'), style: AppText.statFigure(color: AppColors.muted, size: 18)),
+      );
+    }
     final calm = _lowCount == 0 && _outCount == 0;
     if (calm) {
       return _statCard(
@@ -1380,13 +1426,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _addStock(Product p) async {
-    final added = await showAddStockSheet(context, p);
+    // The same suggestion Restock offers for the same product.
+    final added = await showAddStockSheet(context, p, suggested: suggestedRestock(p));
     if (added == null || !mounted) return;
     await _refresh();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(tr('Added {n} · {name} now {after}', {'n': added, 'name': p.name, 'after': p.stock + added}))));
+      ..showSnackBar(SnackBar(
+        content: Text(tr('Added {n} · {name} now {after}', {'n': added, 'name': p.name, 'after': p.stock + added})),
+        action: undoAddedStock(p.id!, added, onUndone: _refresh),
+      ));
   }
 
   Widget _recentSalesList() {
@@ -1399,7 +1449,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           borderRadius: BorderRadius.circular(AppRadius.card),
           border: Border.all(color: AppColors.hairline),
         ),
-        child: Text(tr('No sales yet today'), style: AppText.body()),
+        child: Text(tr('No sales yet'), style: AppText.body()),
       );
     }
     return Container(
@@ -1435,7 +1485,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// to the sale button: it is pressed once, not a hundred times.
   Widget _closeDayCard() {
     final shift = _openShift!;
-    final since = TimeOfDay.fromDateTime(shift.openedAt).format(context);
+    final opened = shift.openedAt;
+    final now = DateTime.now();
+    final clock = TimeOfDay.fromDateTime(opened).format(context);
+    // "since 9:00 PM" alone does not say which day, and the last close can
+    // be days back.
+    final since = opened.year == now.year && opened.month == now.month && opened.day == now.day
+        ? clock
+        : '${trRelativeDay(opened)}, $clock';
     return Material(
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(AppRadius.card),
