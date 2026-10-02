@@ -30,7 +30,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 11,
+      version: 13,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -111,7 +111,8 @@ class DatabaseHelper {
         name TEXT NOT NULL,
         created_at TEXT NOT NULL,
         phone TEXT,
-        last_reminded_at TEXT
+        last_reminded_at TEXT,
+        credit_limit REAL
       )
     ''');
     await db.execute('''
@@ -175,7 +176,8 @@ class DatabaseHelper {
         denominations TEXT NOT NULL,
         opened_at TEXT NOT NULL DEFAULT '',
         total_sales REAL NOT NULL DEFAULT 0,
-        sale_count INTEGER NOT NULL DEFAULT 0
+        sale_count INTEGER NOT NULL DEFAULT 0,
+        utang_cash REAL NOT NULL DEFAULT 0
       )
     ''');
   }
@@ -316,6 +318,24 @@ class DatabaseHelper {
     }
     if (oldVersion < 11) {
       await _createIndexes(db);
+    }
+    if (oldVersion < 12) {
+      // v12: utang paid back in cash goes into the drawer, so a day close
+      // records it beside cash sales. Closes before this had none counted.
+      try {
+        await db.execute('ALTER TABLE shifts ADD COLUMN utang_cash REAL NOT NULL DEFAULT 0');
+      } catch (_) {
+        // Column already present on a database created fresh at v12.
+      }
+    }
+    if (oldVersion < 13) {
+      // v13: a customer can have a credit limit of their own; null means the
+      // store's default from Settings.
+      try {
+        await db.execute('ALTER TABLE customers ADD COLUMN credit_limit REAL');
+      } catch (_) {
+        // Column already present on a database created fresh at v13.
+      }
     }
   }
 // Idagdag ito sa loob ng DatabaseHelper class
