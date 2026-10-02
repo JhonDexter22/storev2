@@ -50,6 +50,16 @@ class _ErrorLogScreenState extends State<ErrorLogScreen> {
     ));
   }
 
+  /// The screen this is being sent from, for the report's header.
+  String _deviceLine() {
+    final mq = MediaQuery.of(context);
+    final size = mq.size;
+    return 'Screen ${size.width.round()}×${size.height.round()} dp · '
+        'pixel ratio ${mq.devicePixelRatio.toStringAsFixed(2)} · '
+        'text ${mq.textScaler.scale(1).toStringAsFixed(2)}× · '
+        'language ${SettingsService.instance.language.name}';
+  }
+
   /// As a text file rather than message text: a long log is cut short by
   /// most chat apps, and a file keeps its line breaks.
   Future<void> _share() async {
@@ -59,7 +69,7 @@ class _ErrorLogScreenState extends State<ErrorLogScreen> {
       String two(int v) => v.toString().padLeft(2, '0');
       final file = File(p.join(dir.path,
           'basepoint-errors-${now.year}${two(now.month)}${two(now.day)}-${two(now.hour)}${two(now.minute)}.txt'));
-      await file.writeAsString(_log.toReport());
+      await file.writeAsString(_log.toReport(device: _deviceLine()));
       await SharePlus.instance.share(ShareParams(
         files: [XFile(file.path)],
         subject: '${AppInfo.name} error log',
@@ -71,7 +81,7 @@ class _ErrorLogScreenState extends State<ErrorLogScreen> {
   }
 
   Future<void> _confirmClear() async {
-    final ok = await showDialog<bool>(
+    final choice = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
@@ -84,17 +94,23 @@ class _ErrorLogScreenState extends State<ErrorLogScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
+            onPressed: () => Navigator.pop(ctx),
             child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
           ),
+          // The dialog says to share first; now it can.
           TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
+            onPressed: () => Navigator.pop(ctx, 'share'),
+            child: Text(tr('Share first'), style: AppText.chip(color: AppColors.primary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'clear'),
             child: Text(tr('Clear'), style: AppText.chip(color: AppColors.danger)),
           ),
         ],
       ),
     );
-    if (ok == true) await _log.clear();
+    if (choice == 'share') await _share();
+    if (choice == 'clear') await _log.clear();
   }
 
   @override
