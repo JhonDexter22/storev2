@@ -67,10 +67,14 @@ class _PrinterScreenState extends State<PrinterScreen> {
     });
   }
 
+  /// Saves the choice and prints a test straight away. The paired list holds
+  /// every Bluetooth device on the phone — earbuds, a speaker, the car — and
+  /// a wrong pick used to show itself only when a receipt failed at checkout.
   Future<void> _choose(PrinterDevice d) async {
     await _settings.setPrinter(d.address, name: d.label);
     if (!mounted) return;
     setState(() {});
+    await _test();
   }
 
   Future<void> _forget() async {
@@ -153,7 +157,7 @@ class _PrinterScreenState extends State<PrinterScreen> {
               if (_loading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 28),
-                  child: Center(child: CircularProgressIndicator()),
+                  child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
                 )
               else if (_problem != null)
                 _message(_problem!)
@@ -253,7 +257,32 @@ class _PrinterScreenState extends State<PrinterScreen> {
     );
   }
 
+  /// Devices whose names look like printers first; the rest under "Other
+  /// devices". A guess from the name only, so nothing is hidden.
   Widget _deviceList(String? chosen) {
+    final likely = _devices.where((d) => looksLikePrinter(d.name)).toList();
+    final other = _devices.where((d) => !looksLikePrinter(d.name)).toList();
+
+    Widget tile(PrinterDevice d) => ListTile(
+          onTap: () => _choose(d),
+          leading: Icon(
+            d.address == chosen ? Icons.check_circle_rounded : Icons.print_outlined,
+            color: d.address == chosen ? AppColors.success : AppColors.muted,
+            size: 22,
+          ),
+          title: Text(d.label, style: AppText.cardTitle()),
+          subtitle: Text(d.address, style: AppText.caption()),
+        );
+
+    Widget group(List<PrinterDevice> devices) => Column(
+          children: [
+            for (int i = 0; i < devices.length; i++) ...[
+              tile(devices[i]),
+              if (i != devices.length - 1) const Divider(color: AppColors.divider, height: 1),
+            ],
+          ],
+        );
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -262,24 +291,22 @@ class _PrinterScreenState extends State<PrinterScreen> {
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (int i = 0; i < _devices.length; i++) ...[
-            ListTile(
-              onTap: () => _choose(_devices[i]),
-              leading: Icon(
-                _devices[i].address == chosen
-                    ? Icons.check_circle_rounded
-                    : Icons.print_outlined,
-                color: _devices[i].address == chosen
-                    ? AppColors.success
-                    : AppColors.muted,
-                size: 22,
+          // With nothing that looks like a printer, a heading over the whole
+          // list would only add a line.
+          if (likely.isEmpty)
+            group(other)
+          else ...[
+            group(likely),
+            if (other.isNotEmpty) ...[
+              Container(
+                color: AppColors.canvas,
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                child: Text(tr('OTHER DEVICES'), style: AppText.caption().copyWith(letterSpacing: 1.1)),
               ),
-              title: Text(_devices[i].label, style: AppText.cardTitle()),
-              subtitle: Text(_devices[i].address, style: AppText.caption()),
-            ),
-            if (i != _devices.length - 1)
-              const Divider(color: AppColors.divider, height: 1),
+              group(other),
+            ],
           ],
         ],
       ),
@@ -318,3 +345,11 @@ class _PrinterScreenState extends State<PrinterScreen> {
         ),
       );
 }
+
+/// Whether a paired device's name looks like a receipt printer — the cheap
+/// thermal ones sold in the Philippines mostly say so, or carry a maker's or
+/// model's prefix. A guess, used only to sort.
+bool looksLikePrinter(String name) => RegExp(
+      r'print|\bpos\b|pos-?\d|\bpt-|rpp|mtp|thermal|receipt|xprinter|goojprt|zjiang|epson|bixolon|sunmi|munbyn',
+      caseSensitive: false,
+    ).hasMatch(name);
