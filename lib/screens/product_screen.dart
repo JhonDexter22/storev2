@@ -10,6 +10,8 @@ import '../core/responsive.dart';
 import '../models/product_model.dart';
 import '../services/product_service.dart';
 import '../services/settings_service.dart';
+import '../services/staff_service.dart';
+import '../widgets/change_pin_flow.dart';
 import '../services/stock_alerts.dart';
 import '../widgets/add_stock_sheet.dart';
 import '../widgets/product_card.dart';
@@ -152,7 +154,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return list;
   }
 
-  int get _totalUnits => _products.fold(0, (s, p) => s + p.stock);
   double get _inventoryValue => _products.fold(0, (s, p) => s + p.stock * p.price);
   int get _lowCount => _products.where(_isLow).length;
   int get _outCount => _products.where(_isOut).length;
@@ -384,7 +385,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 Text(
                   _loading
                       ? tr('Loading…')
-                      : trCount(_totalUnits, '{n} unit · {value} on hand', '{n} units · {value} on hand', {'value': formatPeso(_inventoryValue)}),
+                      // Products, not units: sachets, cans and bottles
+                      // added together made a number nobody could use.
+                      : trCount(_products.length, '{n} product · {value} on hand', '{n} products · {value} on hand', {'value': formatPeso(_inventoryValue)}),
                   style: AppText.caption(color: AppColors.body),
                 ),
               ],
@@ -1086,7 +1089,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   Future<void> _showAddStockSheet(Product p) async {
-    final added = await showAddStockSheet(context, p);
+    // Low or out: the same suggestion Restock offers. A healthy product
+    // has no shortfall to suggest.
+    final added = await showAddStockSheet(context, p,
+        suggested: p.stock <= p.minStock ? suggestedRestock(p) : null);
     if (added == null || !mounted) return;
     await _load();
     if (!mounted) return;
@@ -1100,7 +1106,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   /// Delete now, offer Undo for a few seconds. The row comes back with the
   /// same id, so sale history that points at it stays intact.
+  ///
+  /// A product that still has stock needs the manager first: deleting it
+  /// takes the stock with it, and Undo lasts four seconds.
   Future<void> _deleteWithUndo(Product p) async {
+    if (p.stock > 0) {
+      final approved = await authoriseAsManager(
+        context,
+        staff: StaffService(),
+        hint: tr('Enter the manager PIN to delete a product that still has stock.'),
+        confirmLabel: tr('Continue'),
+      );
+      if (!approved || !mounted) return;
+    }
     await _productService.deleteProduct(p.id!);
     await _load();
     if (!mounted) return;
@@ -1218,6 +1236,18 @@ class _ProductsScreenState extends State<ProductsScreen> {
             if (!ctx.mounted) return;
             setSheet(() => skuTakenBy = other?.name);
             if (!formKey.currentState!.validate()) return;
+            // Stock taken down by hand leaves no record of who or why — where
+            // missing stock hides. Until there is a stock history, it at least
+            // needs the manager. Raising it does not.
+            if (isEdit && stock < product.stock) {
+              final approved = await authoriseAsManager(
+                ctx,
+                staff: StaffService(),
+                hint: tr('Enter the manager PIN to lower the stock.'),
+                confirmLabel: tr('Continue'),
+              );
+              if (!approved || !ctx.mounted) return;
+            }
             setSheet(() => saving = true);
             try {
               var photo = imagePath;
@@ -1648,8 +1678,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: AppText.body(color: AppColors.faint).copyWith(fontSize: 14),
-        prefixText: prefixText,
-        prefixStyle: AppText.body(color: AppColors.body).copyWith(fontSize: 14),
+        // A prefix icon rather than prefixText, which only appears once the
+        // field has focus: an empty price read as a bare, oddly indented 0.00.
+        prefixIcon: prefixText == null
+            ? null
+            : Padding(
+                padding: const EdgeInsets.only(left: 14, right: 2),
+                child: Text(prefixText.trim(),
+                    style: AppText.body(color: AppColors.body).copyWith(fontSize: 14)),
+              ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
         filled: true,
         fillColor: AppColors.canvas,
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
