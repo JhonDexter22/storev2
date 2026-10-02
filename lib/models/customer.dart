@@ -11,11 +11,13 @@ class Customer {
     required this.createdAt,
     this.phone,
     this.lastRemindedAt,
+    this.creditLimit,
     this.balance = 0,
     this.oldestChargeAt,
     this.lastActivityAt,
     this.lastActivityAmount,
     this.lastActivityIsCharge = false,
+    this.lastActivityIsReturn = false,
   });
 
   final int? id;
@@ -30,6 +32,10 @@ class Customer {
   /// When a reminder was last sent, so the list can show it and the
   /// shopkeeper does not nag the same person twice in a day.
   final DateTime? lastRemindedAt;
+
+  /// This customer's own limit; null means the store's default. Zero means
+  /// no limit for them.
+  final double? creditLimit;
 
   bool get remindedToday {
     final at = lastRemindedAt;
@@ -51,13 +57,12 @@ class Customer {
   /// the UI so money formatting stays in one place.
   final double? lastActivityAmount;
   final bool lastActivityIsCharge;
+  final bool lastActivityIsReturn;
 
   static const dueSoonAfterDays = 15;
   static const overdueAfterDays = 30;
 
-  /// Credit ceiling. Crossing it warns but never blocks — the shopkeeper
-  /// decides, not the app.
-  static const creditCeiling = 500.0;
+
 
   String get initials {
     final parts = name.trim().split(RegExp(r'\s+'));
@@ -93,6 +98,7 @@ class Customer {
     DateTime? lastActivityAt,
     double? lastActivityAmount,
     bool? lastActivityIsCharge,
+    bool? lastActivityIsReturn,
   }) =>
       Customer(
         id: id,
@@ -100,11 +106,13 @@ class Customer {
         createdAt: createdAt,
         phone: phone,
         lastRemindedAt: lastRemindedAt,
+        creditLimit: creditLimit,
         balance: balance ?? this.balance,
         oldestChargeAt: oldestChargeAt ?? this.oldestChargeAt,
         lastActivityAt: lastActivityAt ?? this.lastActivityAt,
         lastActivityAmount: lastActivityAmount ?? this.lastActivityAmount,
         lastActivityIsCharge: lastActivityIsCharge ?? this.lastActivityIsCharge,
+        lastActivityIsReturn: lastActivityIsReturn ?? this.lastActivityIsReturn,
       );
 
   factory Customer.fromMap(Map<String, dynamic> m) => Customer(
@@ -115,6 +123,7 @@ class Customer {
         lastRemindedAt: m['last_reminded_at'] == null
             ? null
             : DateTime.tryParse(m['last_reminded_at'] as String),
+        creditLimit: (m['credit_limit'] as num?)?.toDouble(),
       );
 }
 
@@ -138,12 +147,14 @@ class UtangEntry {
   /// Positive for a charge, negative for a payment.
   final double amount;
 
-  /// 'charge' or 'payment'.
+  /// 'charge', 'payment', or 'return' — goods from a tab sale brought back,
+  /// which lowers the balance without being money collected.
   final String kind;
   final String? method;
   final String? note;
 
   bool get isCharge => kind == 'charge';
+  bool get isReturn => kind == 'return';
   DateTime get createdAtDate => DateTime.parse(createdAt);
 
   factory UtangEntry.fromMap(Map<String, dynamic> m) => UtangEntry(
