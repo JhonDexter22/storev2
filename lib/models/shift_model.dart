@@ -13,6 +13,7 @@ class Shift {
     this.openedAt = '',
     this.totalSales = 0,
     this.saleCount = 0,
+    this.utangCash = 0,
   });
 
   final int? id;
@@ -26,6 +27,9 @@ class Shift {
   final String terminal;
   final double openingFloat;
   final double cashSales;
+
+  /// Utang paid back in cash: in the drawer, but not a sale.
+  final double utangCash;
   final double expected;
   final double counted;
 
@@ -70,5 +74,6 @@ class Shift {
         openedAt: m['opened_at'] as String? ?? '',
         totalSales: (m['total_sales'] as num?)?.toDouble() ?? 0,
         saleCount: (m['sale_count'] as num?)?.toInt() ?? 0,
+        utangCash: (m['utang_cash'] as num?)?.toDouble() ?? 0,
       );
 }
