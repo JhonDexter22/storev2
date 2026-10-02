@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/shift_model.dart';
-import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../services/shift_service.dart';
 import '../services/staff_service.dart';
@@ -24,7 +24,6 @@ class CashCountScreen extends StatefulWidget {
 }
 
 class _CashCountScreenState extends State<CashCountScreen> {
-  final SalesService _sales = SalesService();
   final ShiftService _shifts = ShiftService();
   final StaffService _staff = StaffService();
 
@@ -36,8 +35,37 @@ class _CashCountScreenState extends State<CashCountScreen> {
   static const _notesFrom = 50;
 
   final Map<int, int> _counts = {};
+
+  /// One field per denomination, kept in step with + and −.
+  late final Map<int, TextEditingController> _fields = {
+    for (final d in _denominations) d: TextEditingController(),
+  };
+
+  void _setCount(int value, int count) {
+    setState(() => _counts[value] = count);
+    final text = count == 0 ? '' : '$count';
+    final field = _fields[value]!;
+    if (field.text != text) {
+      field.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final f in _fields.values) {
+      f.dispose();
+    }
+    super.dispose();
+  }
   bool _loading = true;
   double _cashSales = 0;
+
+  /// Utang paid back in cash since the last close: in the drawer, though
+  /// not a sale.
+  double _utangCash = 0;
   double _totalSales = 0;
   int _saleCount = 0;
   DateTime _openedAt = DateTime.now();
@@ -56,11 +84,12 @@ class _CashCountScreenState extends State<CashCountScreen> {
   }
 
   Future<void> _load() async {
-    final cash = await _sales.cashSalesToday();
+    final drawer = await _shifts.drawerNow();
     final shiftSales = await _shifts.currentShiftSales();
     if (!mounted) return;
     setState(() {
-      _cashSales = cash;
+      _cashSales = drawer.cashSales;
+      _utangCash = drawer.utangCash;
       _totalSales = shiftSales.total;
       _saleCount = shiftSales.count;
       _openedAt = shiftSales.openedAt;
@@ -68,7 +97,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
     });
   }
 
-  double get _expected => _openingFloat + _cashSales;
+  double get _expected => _openingFloat + _cashSales + _utangCash;
   double get _counted =>
       _counts.entries.fold<double>(0, (s, e) => s + e.key * e.value);
   double get _variance => _counted - _expected;
@@ -85,33 +114,15 @@ class _CashCountScreenState extends State<CashCountScreen> {
   }
 
   String get _varianceLabel {
-    if (_variance.abs() < 0.005) return tr('Drawer balances');
+    if (_variance.abs() < 0.005) return tr('Balanced');
     return _variance < 0 ? tr('Short') : tr('Over');
-  }
-
-  /// Fills a drawer that balances exactly, greedily from the largest note.
-  void _countExact() {
-    var remaining = _expected.round();
-    final next = <int, int>{};
-    for (final d in _denominations) {
-      final n = remaining ~/ d;
-      if (n > 0) {
-        next[d] = n;
-        remaining -= n * d;
-      }
-    }
-    setState(() {
-      _counts
-        ..clear()
-        ..addAll(next);
-    });
   }
 
   Future<void> _closeShift() async {
     final passed = await authoriseAsManager(
       context,
       staff: _staff,
-      hint: tr('Enter the manager PIN to close this shift.'),
+      hint: tr('Enter the manager PIN to close the day.'),
       confirmLabel: tr('Confirm close'),
     );
     if (!passed || !mounted) return;
@@ -121,6 +132,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
       terminal: _terminal,
       openingFloat: _openingFloat,
       cashSales: _cashSales,
+      utangCash: _utangCash,
       counted: _counted,
       denominations: Map.of(_counts)..removeWhere((_, v) => v == 0),
       totalSales: _totalSales,
@@ -318,7 +330,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.cta)),
                 ),
-                child: Text(tr('Close shift'),
+                child: Text(tr('Close day'),
                     style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
               ),
             ),
@@ -359,17 +371,6 @@ class _CashCountScreenState extends State<CashCountScreen> {
               ],
             ),
           ),
-          GestureDetector(
-            onTap: _countExact,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              decoration: BoxDecoration(
-                color: AppColors.primaryTint,
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: Text(tr('Count exact'), style: AppText.chip(color: AppColors.primary)),
-            ),
-          ),
         ],
       ),
     );
@@ -389,6 +390,10 @@ class _CashCountScreenState extends State<CashCountScreen> {
           _row(tr('Opening float'), formatPeso(_openingFloat)),
           const SizedBox(height: 8),
           _row(tr('Cash sales'), formatPeso(_cashSales)),
+          if (_utangCash > 0) ...[
+            const SizedBox(height: 8),
+            _row(tr('Utang paid in cash'), formatPeso(_utangCash)),
+          ],
           const SizedBox(height: 10),
           const Divider(color: AppColors.divider, height: 1),
           const SizedBox(height: 10),
@@ -455,7 +460,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
               children: [
                 Text('₱$value',
                     style: AppText.cardTitle(color: zero ? AppColors.faint : AppColors.ink)),
-                Text(value >= _notesFrom ? 'note' : 'coin',
+                Text(value >= _notesFrom ? tr('note') : tr('coin'),
                     style: AppText.caption(color: AppColors.faint)),
               ],
             ),
@@ -467,9 +472,35 @@ class _CashCountScreenState extends State<CashCountScreen> {
                 compact: true,
                 figureSize: 16,
                 onDecrement: () {
-                  if (count > 0) setState(() => _counts[value] = count - 1);
+                  if (count > 0) _setCount(value, count - 1);
                 },
-                onIncrement: () => setState(() => _counts[value] = count + 1),
+                onIncrement: () => _setCount(value, count + 1),
+                field: TextField(
+                  key: ValueKey('count-$value'),
+                  controller: _fields[value],
+                  keyboardType: TextInputType.number,
+                  textInputAction:
+                      value == _denominations.last ? TextInputAction.done : TextInputAction.next,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(4),
+                  ],
+                  textAlign: TextAlign.center,
+                  style: AppText.statFigure(size: 16),
+                  onChanged: (v) => setState(() => _counts[value] = int.tryParse(v) ?? 0),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: '0',
+                    hintStyle: AppText.statFigure(size: 16, color: AppColors.faint),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                    border: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: AppColors.hairline)),
+                    enabledBorder: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: AppColors.hairline)),
+                    focusedBorder: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: AppColors.primary, width: 1.5)),
+                  ),
+                ),
               ),
             ),
           ),
@@ -565,7 +596,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
               ),
-              child: Text(tr('Close shift'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+              child: Text(tr('Close day'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
             ),
           ),
           const SizedBox(height: 6),
