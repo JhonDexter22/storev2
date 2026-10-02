@@ -48,6 +48,14 @@ class PaymentType {
 
   /// The types every install starts with — the four that were hardcoded at
   /// checkout before this was configurable.
+  /// The name a sale on a customer's tab is recorded under.
+  static String get utangName =>
+      builtInTypes.firstWhere((t) => t.kind == PaymentKind.utang).name;
+
+  /// The name cash is recorded under — what leaves the drawer on a refund.
+  static String get cashName =>
+      builtInTypes.firstWhere((t) => t.kind == PaymentKind.cash).name;
+
   static const builtInTypes = [
     PaymentType(name: 'Cash', kind: PaymentKind.cash),
     PaymentType(name: 'GCash', kind: PaymentKind.plain),
