@@ -15,6 +15,8 @@ import '../services/settings_service.dart';
 import '../services/utang_service.dart';
 import '../widgets/discount_sheet.dart';
 import '../l10n/tr.dart';
+import '../models/sale_model.dart';
+import '../services/error_log.dart';
 
 /// How the cashier left checkout. Both outcomes clear the cart; only
 /// [completed] means stock moved and needs re-reading.
@@ -46,6 +48,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   List<Customer> _customers = [];
   Customer? _chargeTo;
+  String _customerSearch = '';
 
   Discount _discount = Discount.none;
 
@@ -86,36 +89,74 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void _setReceived(double v) {
     setState(() {
       _received = v;
-      _receivedCtrl.text = v == 0 ? '' : v.toStringAsFixed(0);
+      // Centavos shown when there are any: Exact on ₱27.50 used to put "28"
+      // in the box while recording 27.50.
+      _receivedCtrl.text = v == 0
+          ? ''
+          : (v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2));
     });
   }
+
+  /// The next notes up from what is due — what a customer actually hands
+  /// over. A ₱37 sale offers ₱50, ₱100 and ₱200; fixed ₱500 / ₱1,000 chips
+  /// fit almost nothing a sari-sari store sells.
+  List<double> get _quickCash {
+    const notes = [20.0, 50.0, 100.0, 200.0, 500.0, 1000.0];
+    final up = notes.where((n) => n > _due + 0.005).take(3).toList();
+    if (up.isNotEmpty) return up;
+    // Above ₱1,000: the next round ₱500 and ₱1,000.
+    final byFive = (_due / 500).ceil() * 500.0;
+    final byThousand = (_due / 1000).ceil() * 1000.0;
+    return {byFive, byThousand}.where((n) => n > _due + 0.005).toList();
+  }
+
+  static String _note(double v) => formatPeso(v).replaceAll('.00', '');
 
   Future<void> _completeSale() async {
     if (!_canComplete || _saving) return;
     setState(() => _saving = true);
     final methodLabel = _method.name;
     final onCredit = _method.kind == PaymentKind.utang;
-    final sale = await _salesService.recordSale(
-      lines: widget.lines,
-      paymentMethod: methodLabel,
-      // No cash is tendered on the credit path, so nothing is received and no
-      // change is calculated.
-      cashReceived: _method.kind == PaymentKind.cash
-          ? _received
-          : (onCredit ? 0 : _due),
-      changeAmount: _method.kind == PaymentKind.cash ? _change : 0,
-      discount: _discount,
-      cashier: SettingsService.instance.cashier,
-    );
-    if (onCredit && _chargeTo?.id != null) {
-      await _utang.charge(
-        customerId: _chargeTo!.id!,
-        amount: _due,
-        saleId: sale.id,
-        note: sale.reference,
+    // A failure used to leave the button spinning for good, with no message
+    // and no way to try again — a frozen sale at the till.
+    try {
+      final sale = await _salesService.recordSale(
+        lines: widget.lines,
+        paymentMethod: methodLabel,
+        // No cash is tendered on the credit path, so nothing is received and no
+        // change is calculated.
+        cashReceived: _method.kind == PaymentKind.cash
+            ? _received
+            : (onCredit ? 0 : _due),
+        changeAmount: _method.kind == PaymentKind.cash ? _change : 0,
+        discount: _discount,
+        cashier: SettingsService.instance.cashier,
       );
+      if (onCredit && _chargeTo?.id != null) {
+        await _utang.charge(
+          customerId: _chargeTo!.id!,
+          amount: _due,
+          saleId: sale.id,
+          note: sale.reference,
+        );
+      }
+      if (!mounted) return;
+      _finish(sale, methodLabel, onCredit);
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'checkout: saving the sale');
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: AppColors.ink,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        content: Text(tr('Could not save the sale. Try again.'),
+            style: const TextStyle(color: Colors.white)),
+      ));
     }
-    if (!mounted) return;
+  }
+
+  void _finish(Sale sale, String methodLabel, bool onCredit) {
     // The one moment on this screen that deserves a thump.
     HapticFeedback.mediumImpact();
     setState(() {
@@ -559,53 +600,177 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   /// Each row shows the balance now and the balance this sale would create, so
   /// the consequence is visible before committing.
+  /// Adds someone to the book and puts this sale on their tab. Starting a
+  /// tab used to mean abandoning the sale for the Credit screen.
+  Future<void> _newCustomer() async {
+    final ctrl = TextEditingController(text: _customerSearch.trim());
+    String? error;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) {
+          void save() {
+            if (ctrl.text.trim().isEmpty) {
+              setDialog(() => error = tr('Enter a name'));
+              return;
+            }
+            Navigator.pop(ctx, ctrl.text.trim());
+          }
+
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Text(tr('New customer'), style: AppText.sectionTitle().copyWith(fontSize: 17)),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              onSubmitted: (_) => save(),
+              onChanged: (_) {
+                if (error != null) setDialog(() => error = null);
+              },
+              style: AppText.body(color: AppColors.ink),
+              decoration: InputDecoration(
+                hintText: tr('Name'),
+                errorText: error,
+                filled: true,
+                fillColor: AppColors.canvas,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
+              ),
+              TextButton(
+                onPressed: save,
+                child: Text(tr('Add'), style: AppText.chip(color: AppColors.primary)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (name == null) return;
+    final id = await _utang.addCustomer(name);
+    final list = await _utang.getCustomers();
+    if (!mounted) return;
+    setState(() {
+      _customers = list;
+      _chargeTo = list.firstWhere((c) => c.id == id);
+      _customerSearch = '';
+    });
+  }
+
+  Widget _newCustomerButton() => SizedBox(
+        width: double.infinity,
+        height: 46,
+        child: OutlinedButton.icon(
+          onPressed: _newCustomer,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            side: const BorderSide(color: AppColors.hairline),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
+          ),
+          icon: const Icon(Icons.person_add_alt_rounded, size: 17),
+          label: Text(tr('New customer'), style: AppText.chip(color: AppColors.primary)),
+        ),
+      );
+
   Widget _customerPicker() {
     if (_customers.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: AppColors.hairline),
-        ),
-        child: Column(
-          children: [
-            Text(tr('No customers on credit yet'), style: AppText.cardTitle()),
-            const SizedBox(height: 4),
-            Text(
-              tr('Add one from More → Utang before charging a sale.'),
-              textAlign: TextAlign.center,
-              style: AppText.caption(),
+      return Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.card),
+              border: Border.all(color: AppColors.hairline),
             ),
-          ],
-        ),
+            child: Column(
+              children: [
+                Text(tr('No customers on credit yet'), style: AppText.cardTitle()),
+                const SizedBox(height: 4),
+                // Was "Add one from More → Utang" — a row More does not have.
+                Text(
+                  tr('Add their name to start a tab.'),
+                  textAlign: TextAlign.center,
+                  style: AppText.caption(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _newCustomerButton(),
+        ],
       );
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: AppColors.hairline),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          for (int i = 0; i < _customers.length; i++) ...[
-            _customerRow(_customers[i]),
-            if (i != _customers.length - 1)
-              const Divider(color: AppColors.divider, height: 1),
-          ],
+    final q = _customerSearch.trim().toLowerCase();
+    final shown = q.isEmpty
+        ? _customers
+        : _customers
+            .where((c) => c.name.toLowerCase().contains(q) || (c.phone ?? '').contains(q))
+            .toList();
+
+    return Column(
+      children: [
+        if (_customers.length > 5) ...[
+          Container(
+            height: 46,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.input),
+              border: Border.all(color: AppColors.hairline),
+            ),
+            child: TextField(
+              onChanged: (v) => setState(() => _customerSearch = v),
+              style: AppText.body(color: AppColors.ink),
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                isCollapsed: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                hintText: tr('Search name or number'),
+                hintStyle: AppText.body(color: AppColors.faint),
+                prefixIcon: const Icon(Icons.search_rounded, color: AppColors.muted, size: 20),
+                prefixIconConstraints: const BoxConstraints(minWidth: 42),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
         ],
-      ),
+        if (shown.isNotEmpty)
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.card),
+              border: Border.all(color: AppColors.hairline),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                for (int i = 0; i < shown.length; i++) ...[
+                  _customerRow(shown[i]),
+                  if (i != shown.length - 1)
+                    const Divider(color: AppColors.divider, height: 1),
+                ],
+              ],
+            ),
+          ),
+        const SizedBox(height: 10),
+        _newCustomerButton(),
+      ],
     );
   }
 
   Widget _customerRow(Customer c) {
     final selected = _chargeTo?.id == c.id;
     final becomes = c.balance + _due;
-    final overCeiling = becomes > Customer.creditCeiling;
+    final overCeiling = isOverLimit(c, balance: becomes);
 
     return Material(
       color: selected ? AppColors.primaryTint : Colors.transparent,
@@ -668,7 +833,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Widget _cashReceivedCard() {
-    final quick = [500.0, 1000.0];
+    final quick = _quickCash;
     return Container(
       padding: const EdgeInsets.all(AppSpace.cardPad),
       decoration: BoxDecoration(
@@ -697,15 +862,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 color: AppColors.muted,
               ).copyWith(fontSize: 24),
             ),
-            onChanged: (v) =>
-                setState(() => _received = double.tryParse(v) ?? 0),
+            // "1,000" is a thousand, not nothing.
+            onChanged: (v) => setState(
+                () => _received = double.tryParse(v.replaceAll(',', '').trim()) ?? 0),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               for (final amount in quick) ...[
                 _quickAmountChip(
-                  '₱${amount.toInt()}',
+                  _note(amount),
                   () => _setReceived(amount),
                 ),
                 const SizedBox(width: 8),
@@ -820,7 +986,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      "On ${_chargeTo!.name}'s tab",
+                      tr("On {name}'s tab", {'name': _chargeTo!.name}),
                       style: AppText.caption(color: AppColors.warningText),
                     ),
                   ),
