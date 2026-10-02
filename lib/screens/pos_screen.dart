@@ -7,6 +7,8 @@ import '../core/responsive.dart';
 import '../models/cart_line.dart';
 import '../models/product_model.dart';
 import '../models/sale_model.dart';
+import '../services/backup_share.dart';
+import '../services/error_log.dart';
 import '../services/held_sales.dart';
 import '../services/product_service.dart';
 import '../services/sales_service.dart';
@@ -34,6 +36,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   List<Product> _products = [];
   bool _loading = true;
   String _search = '';
+  final _searchCtrl = TextEditingController();
   String _category = 'All';
   final Map<int, int> _cart = {}; // productId -> qty
 
@@ -78,6 +81,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     for (final f in _flights) {
       f.cancel();
     }
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -132,8 +136,14 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     // A search reaches the whole catalog whatever chip is selected: the
     // cashier typing a name has already said which product they want.
     if (_category == _kPopular && q.isEmpty) {
-      return [
+      final popular = [
         for (final id in _frequentIds) _products.firstWhere((p) => p.id == id),
+      ];
+      // Best sellers first, but one that cannot be sold does not hold a top
+      // slot; it waits at the end until it is restocked.
+      return [
+        ...popular.where((p) => p.stock > 0),
+        ...popular.where((p) => p.stock <= 0),
       ];
     }
     return _products.where((p) {
@@ -142,7 +152,23 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           (p.sku ?? '').toLowerCase().contains(q);
       final matchCat = q.isNotEmpty || _category == 'All' || _category == _kPopular || p.category == _category;
       return matchQ && matchCat;
-    }).toList();
+    }).toList()
+      // A–Z, with what cannot be sold at the end. The database hands them
+      // back newest-added first, which a cashier looking for one has no
+      // reason to know.
+      ..sort((a, b) {
+        final out = (a.stock <= 0 ? 1 : 0).compareTo(b.stock <= 0 ? 1 : 0);
+        return out != 0 ? out : a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+  }
+
+  /// Short tiles while most of the catalog has no photo: a tall striped
+  /// square with initials in it is half of every card spent on nothing, and
+  /// it held a phone to four products a screen. Once most products have
+  /// photos, the tiles go back to the tall photo card.
+  bool get _compactTiles {
+    final withPhoto = _products.where((p) => (p.imagePath ?? '').isNotEmpty).length;
+    return withPhoto * 2 < _products.length;
   }
 
   List<CartLine> get _cartLines => _cart.entries
@@ -537,7 +563,31 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
   /// Look and placement come from the app theme: Scaffold floats it above
   /// the cart bar on its own.
-  SnackBar _snack(String text) => SnackBar(content: Text(text), duration: const Duration(seconds: 3));
+  SnackBar _snack(String text, {SnackBarAction? action}) =>
+      SnackBar(content: Text(text), duration: const Duration(seconds: 3), action: action);
+
+  /// Empties the cart, with Undo. "Clear all" sits a thumb's width from
+  /// "Hold", and a mis-tap used to lose a whole sale for good.
+  void _clearCart() {
+    if (_cart.isEmpty) return;
+    _settleFlights();
+    final saved = Map.of(_cart);
+    setState(_cart.clear);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(_snack(
+        tr('Sale cleared'),
+        action: SnackBarAction(
+          label: tr('Undo'),
+          onPressed: () {
+            if (!mounted) return;
+            setState(() {
+              saved.forEach((id, qty) => _cart.update(id, (v) => v + qty, ifAbsent: () => qty));
+            });
+          },
+        ),
+      ));
+  }
 
   /// Decrement a line; at zero the line leaves the cart entirely.
   void _decrementLine(int productId) {
@@ -571,10 +621,10 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           insetPadding: const EdgeInsets.all(24),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(AppRadius.hero),
-            child: const SizedBox(
+            child: SizedBox(
               width: 470,
               height: 640,
-              child: SimpleBarcodeScannerScreen.forSale(),
+              child: SimpleBarcodeScannerScreen.forSale(inCart: Map.of(_cart)),
             ),
           ),
         ),
@@ -582,7 +632,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     } else {
       result = await Navigator.push<ScannerResult>(
         context,
-        MaterialPageRoute(builder: (_) => const SimpleBarcodeScannerScreen.forSale()),
+        MaterialPageRoute(builder: (_) => SimpleBarcodeScannerScreen.forSale(inCart: Map.of(_cart))),
       );
     }
     if (result is! ScanSale || !mounted) return;
@@ -591,14 +641,23 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
     if (scanned.added.isNotEmpty) {
       _settleFlights();
-      setState(() {
-        scanned.added.forEach((id, qty) {
-          _cart.update(id, (v) => v + qty, ifAbsent: () => qty);
-        });
-      });
+      // The scanner caps at stock but cannot see the cart: with 2 on the
+      // shelf and 2 already rung up, a scan made 3, and the sale took a unit
+      // that never existed. Capped here, as a card tap already is.
+      final merged = addScannedToCart(_cart, scanned.added, _products);
+      setState(() => _cart
+        ..clear()
+        ..addAll(merged.cart));
+      final short = merged.short;
       // No card was tapped, so there is nowhere to fly from; just land.
       HapticFeedback.lightImpact();
       _bar.bump();
+      final s = short;
+      if (s != null && mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(_snack(tr('Only {n} {name} in stock', {'n': s.stock, 'name': s.name})));
+      }
     }
 
     // "Add as new product" on an unknown code hands us the SKU to pre-fill.
@@ -621,7 +680,12 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     );
     if (outcome == null || !mounted) return;
     _settleFlights();
-    setState(_cart.clear);
+    // The next customer starts from the full grid, not the last one's search.
+    _searchCtrl.clear();
+    setState(() {
+      _cart.clear();
+      _search = '';
+    });
     if (outcome == CheckoutOutcome.completed) _load();
   }
 
@@ -684,9 +748,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                     const SizedBox(width: 16),
                     GestureDetector(
                       onTap: () {
-                        _settleFlights();
-                        setState(_cart.clear);
                         Navigator.pop(ctx);
+                        _clearCart();
                       },
                       child: Text(tr('Clear all'), style: AppText.chip(color: AppColors.danger)),
                     ),
@@ -858,9 +921,11 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(12)),
+            // The store's mark, as on Settings: grey and square-ish, since
+            // circles are for people.
+            decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(12)),
             alignment: Alignment.center,
-            child: const Icon(Icons.storefront_rounded, color: Colors.white, size: 20),
+            child: const Icon(Icons.storefront_rounded, color: AppColors.body, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -882,7 +947,47 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _backupPill() {
+  bool _backingUp = false;
+
+  /// The same backup as Home's reminder. The pill sat in amber all day and
+  /// did nothing when tapped — a warning nobody could act on, which teaches
+  /// everyone to ignore amber.
+  Future<void> _backUpNow() async {
+    if (_backingUp) return;
+    setState(() => _backingUp = true);
+    String message;
+    try {
+      final file = await shareBackup();
+      message = file == null
+          ? tr('Backup cancelled — nothing was sent')
+          : tr('Backed up to {file}', {'file': file});
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'backup from the till');
+      message = tr('Could not export: {error}', {'error': e});
+    }
+    if (!mounted) return;
+    setState(() => _backingUp = false);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(_snack(message));
+  }
+
+  Widget _backupPill() => Semantics(
+        button: true,
+        label: tr('Back up now'),
+        child: GestureDetector(
+          onTap: _backUpNow,
+          child: _backingUp
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                )
+              : _backupPillLook(),
+        ),
+      );
+
+  Widget _backupPillLook() {
     final raw = SettingsService.instance.lastBackup;
     final status = BackupStatus.from(raw == null ? null : DateTime.tryParse(raw));
     return switch (status.level) {
@@ -915,6 +1020,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                 border: Border.all(color: AppColors.hairline),
               ),
               child: TextField(
+                controller: _searchCtrl,
                 onChanged: (v) => setState(() => _search = v),
                 style: AppText.body(color: AppColors.ink),
                 decoration: InputDecoration(
@@ -925,6 +1031,17 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                   hintStyle: AppText.body(color: AppColors.faint),
                   prefixIcon: const Icon(Icons.search_rounded, color: AppColors.muted, size: 20),
                   prefixIconConstraints: const BoxConstraints(minWidth: 42),
+                  suffixIcon: _search.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: tr('Clear'),
+                          icon: const Icon(Icons.close_rounded, color: AppColors.muted, size: 18),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _search = '');
+                          },
+                        ),
+                  suffixIconConstraints: const BoxConstraints(minWidth: 44),
                 ),
               ),
             ),
@@ -935,8 +1052,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
             child: Container(
               width: 46,
               height: 46,
-              decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(AppRadius.input)),
-              child: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 20),
+              decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(AppRadius.input)),
+              child: Icon(Icons.qr_code_scanner_rounded,
+                  color: Colors.white, size: 20, semanticLabel: tr('Scan barcode')),
             ),
           ),
         ],
@@ -982,10 +1100,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                   ),
                   const SizedBox(width: 14),
                   GestureDetector(
-                    onTap: () {
-                      _settleFlights();
-                      setState(_cart.clear);
-                    },
+                    onTap: _clearCart,
                     child: Text(tr('Clear'), style: AppText.chip(color: AppColors.danger)),
                   ),
                 ],
@@ -1233,6 +1348,12 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
         mainAxisSpacing: AppSpace.gapGrid,
         crossAxisSpacing: AppSpace.gapGrid,
         childAspectRatio: ProductCard.aspectRatio,
+        // A fixed height rather than a ratio, so the strip above the name
+        // stays a strip on a wide phone; scaled with the text, so a reader
+        // with larger type does not clip the price.
+        mainAxisExtent: _compactTiles
+            ? MediaQuery.textScalerOf(context).scale(ProductCard.textBlockHeight(showCategory: false)) + 56
+            : null,
       ),
       itemCount: items.length,
       itemBuilder: (_, i) => Listener(
@@ -1244,6 +1365,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           product: items[i],
           qtyInCart: _cart[items[i].id] ?? 0,
           dimWhenOut: true,
+          showLowStock: false,
+          showCategory: false,
+          onQtyTap: () => _showQtySheet(items[i]),
           onTap: items[i].stock <= 0 ? null : () => _addToCart(items[i]),
           onLongPress: items[i].stock <= 0 ? null : () => _showQtySheet(items[i]),
         ),
@@ -1357,4 +1481,21 @@ class _QuickPill extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Scanned items added to [cart], never past what is on the shelf once the
+/// cart's own units are counted. [short] is a product that was capped, for
+/// the "Only 2 in stock" message.
+({Map<int, int> cart, Product? short}) addScannedToCart(
+    Map<int, int> cart, Map<int, int> added, List<Product> products) {
+  final next = Map.of(cart);
+  Product? short;
+  added.forEach((id, qty) {
+    final product = products.where((p) => p.id == id).firstOrNull;
+    final have = next[id] ?? 0;
+    final room = product == null ? qty : (product.stock - have).clamp(0, qty);
+    if (room < qty) short = product;
+    if (room > 0) next[id] = have + room;
+  });
+  return (cart: next, short: short);
 }
