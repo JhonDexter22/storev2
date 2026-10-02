@@ -7,6 +7,7 @@ import '../services/pin_hasher.dart';
 import '../services/settings_service.dart';
 import '../services/staff_service.dart';
 import '../widgets/change_pin_flow.dart';
+import '../widgets/initials_avatar.dart';
 import '../widgets/pin_sheet.dart';
 import '../l10n/tr.dart';
 
@@ -16,10 +17,14 @@ import '../l10n/tr.dart';
 /// rather than a username field. The list and the codes behind it come from
 /// the database; nothing here knows a PIN.
 class CashierSwitchScreen extends StatefulWidget {
-  const CashierSwitchScreen({super.key, this.staffService});
+  const CashierSwitchScreen({super.key, this.staffService, this.openStaff = false});
 
   /// Injectable so tests can drive the roster without a database.
   final StaffService? staffService;
+
+  /// Opens Manage staff as soon as the roster is in — for the Staff row on
+  /// More, so an owner adding a cashier need not know it lives behind Switch.
+  final bool openStaff;
 
   /// Shows the screen as the lock after Sign out: no way back to the till
   /// until someone signs in with their code — even the person who signed
@@ -59,7 +64,13 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
       _roster = roster;
       _loading = false;
     });
+    if (widget.openStaff && !_openedStaff) {
+      _openedStaff = true;
+      _manageStaff();
+    }
   }
+
+  bool _openedStaff = false;
 
   void _toast(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -179,11 +190,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   onTap: () => Navigator.pop(ctx, person),
-                  leading: CircleAvatar(
-                    backgroundColor: AppColors.canvas,
-                    child: Text(person.initials,
-                        style: AppText.statFigure(color: AppColors.body, size: 14)),
-                  ),
+                  leading: InitialsAvatar(person.initials, size: 40, tone: AvatarTone.idle),
                   title: Text(person.name, style: AppText.cardTitle()),
                   subtitle: Text(
                     person.onStartingPin
@@ -476,21 +483,9 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
         ),
         child: Row(
           children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: active ? AppColors.primary : AppColors.canvas,
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                person.initials,
-                style: AppText.statFigure(
-                  color: active ? Colors.white : AppColors.body,
-                  size: 16,
-                ),
-              ),
+            InitialsAvatar(
+              person.initials,
+              tone: active ? AvatarTone.active : AvatarTone.idle,
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -692,7 +687,7 @@ class _AddCashierSheetState extends State<_AddCashierSheet> {
               value: _isManager,
               activeThumbColor: AppColors.primary,
               onChanged: (v) => setState(() => _isManager = v),
-              title: Text(tr('Can close a shift'), style: AppText.body()),
+              title: Text(tr('Can close the day'), style: AppText.body()),
               subtitle: Text(tr('Managers authorise closes and roster changes.'),
                   style: AppText.caption()),
             ),
