@@ -8,4 +8,7 @@ class AppInfo {
 
   static const name = 'BasePoint';
   static const version = '1.0.0';
+
+  /// The `+N` after the version in `pubspec.yaml`.
+  static const build = 1;
 }
