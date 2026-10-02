@@ -150,36 +150,85 @@ class AppSpace {
   static const gapBlock = 22.0;
 }
 
+/// A soft colour per category, for products without a photo: the cashier
+/// learns "blue is noodles" and finds by colour before reading. Picked to
+/// stay clear of the status colours — no red, amber or green — so a tint is
+/// never mistaken for "out" or "low".
+///
+/// Chosen from the category's name, so a colour never moves when another
+/// category is added. Eight hues for any number of categories means two can
+/// share one; the name on the card still tells them apart.
+class CategoryTint {
+  const CategoryTint._(this.fill, this.ink);
+
+  final Color fill;
+  final Color ink;
+
+  static const _palette = [
+    CategoryTint._(Color(0xFFE3EBFF), Color(0xFF2F55C8)), // blue
+    CategoryTint._(Color(0xFFEEE7FF), Color(0xFF6D4AC9)), // violet
+    CategoryTint._(Color(0xFFFCE7F3), Color(0xFFB4387E)), // pink
+    CategoryTint._(Color(0xFFDDF3F1), Color(0xFF1F7A72)), // teal
+    CategoryTint._(Color(0xFFE4E7FB), Color(0xFF4349A8)), // indigo
+    CategoryTint._(Color(0xFFE6EAF0), Color(0xFF4A5568)), // slate
+    CategoryTint._(Color(0xFFF3ECE1), Color(0xFF8A6A3B)), // sand
+    CategoryTint._(Color(0xFFDDF1F8), Color(0xFF1C7290)), // cyan
+  ];
+
+  static CategoryTint of(String category) {
+    // Not String.hashCode, which Dart does not promise to keep the same
+    // from one release to the next.
+    var h = 0;
+    for (final c in category.trim().toLowerCase().codeUnits) {
+      h = (h * 31 + c) & 0x7fffffff;
+    }
+    return _palette[h % _palette.length];
+  }
+}
+
 /// Diagonal-striped placeholder used everywhere a product photo would go.
 ///
 /// Shows the product's initials when given a [name]: most of a new catalog
-/// has no photos, and a grid of the word "photo" read as unfinished. "Candy,
-/// small" and "Candy, large" get CS and CL, so neighbours still differ.
+/// has no photos, and a grid of the word "photo" read as unfinished.
+///
+/// The variant after a comma counts: "Sardines in tomato sauce, large" and
+/// "…, medium" are SL and SM. Taking the first two words gave every one of
+/// them SI.
 class PhotoPlaceholder extends StatelessWidget {
-  const PhotoPlaceholder({super.key, this.borderRadius = 12, this.iconSize = 18, this.name});
+  const PhotoPlaceholder({super.key, this.borderRadius = 12, this.iconSize = 18, this.name, this.tint});
 
   final double borderRadius;
   final double iconSize;
   final String? name;
 
+  /// A flat category colour in place of the stripes.
+  final CategoryTint? tint;
+
   static String initialsOf(String name) {
-    final words = name
-        .split(RegExp(r'[^A-Za-z0-9]+'))
-        .where((w) => w.isNotEmpty)
-        .toList();
-    if (words.isEmpty) return '';
-    if (words.length == 1) return words.first[0].toUpperCase();
-    return (words[0][0] + words[1][0]).toUpperCase();
+    List<String> words(String s) =>
+        s.split(RegExp(r'[^A-Za-z0-9]+')).where((w) => w.isNotEmpty).toList();
+    final parts = name.split(',');
+    final head = words(parts.first);
+    if (head.isEmpty) return '';
+    if (parts.length > 1) {
+      final variant = words(parts.last);
+      if (variant.isNotEmpty) return (head[0][0] + variant[0][0]).toUpperCase();
+    }
+    if (head.length == 1) return head[0][0].toUpperCase();
+    return (head[0][0] + head[1][0]).toUpperCase();
   }
 
   @override
   Widget build(BuildContext context) {
     final initials = name == null ? '' : initialsOf(name!);
+    final t = tint;
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: CustomPaint(
-        painter: _StripePainter(),
-        child: LayoutBuilder(
+        painter: t == null ? _StripePainter() : null,
+        child: ColoredBox(
+          color: t?.fill ?? Colors.transparent,
+          child: LayoutBuilder(
           builder: (context, c) {
             final side = c.biggest.shortestSide.isFinite ? c.biggest.shortestSide : 46.0;
             return Center(
@@ -189,12 +238,13 @@ class PhotoPlaceholder extends StatelessWidget {
                       initials,
                       maxLines: 1,
                       style: AppText.statFigure(
-                        color: AppColors.muted,
+                        color: t?.ink ?? AppColors.muted,
                         size: (side * 0.32).clamp(12.0, 30.0),
                       ),
                     ),
             );
           },
+          ),
         ),
       ),
     );
@@ -300,6 +350,7 @@ class QtyStepper extends StatelessWidget {
     this.figureSize = 20,
     this.canIncrement = true,
     this.decrementIcon = Icons.remove_rounded,
+    this.field,
   });
 
   final int value;
@@ -310,6 +361,10 @@ class QtyStepper extends StatelessWidget {
   final bool canIncrement;
   final IconData decrementIcon;
 
+  /// Shown in place of the figure — a text field, where typing 37 beats
+  /// tapping + thirty-seven times.
+  final Widget? field;
+
   @override
   Widget build(BuildContext context) {
     final side = compact ? 30.0 : 44.0;
@@ -318,12 +373,13 @@ class QtyStepper extends StatelessWidget {
       children: [
         _btn(decrementIcon, onDecrement, side, true),
         SizedBox(
-          width: compact ? 34 : 48,
-          child: Text(
-            '$value',
-            textAlign: TextAlign.center,
-            style: AppText.statFigure(size: figureSize),
-          ),
+          width: field != null ? 52 : (compact ? 34 : 48),
+          child: field ??
+              Text(
+                '$value',
+                textAlign: TextAlign.center,
+                style: AppText.statFigure(size: figureSize),
+              ),
         ),
         _btn(Icons.add_rounded, canIncrement ? onIncrement : null, side, canIncrement),
       ],
