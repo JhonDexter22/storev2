@@ -1,4 +1,5 @@
 import '../database/database_helper.dart';
+import 'settings_service.dart';
 import '../models/customer.dart';
 
 /// Charged vs collected over a period, for the Utang block in Reports.
@@ -9,6 +10,7 @@ class UtangFlows {
     required this.outstanding,
     required this.overdue,
     required this.customerCount,
+    this.returned = 0,
   });
 
   final double charged;
@@ -17,27 +19,34 @@ class UtangFlows {
   final double overdue;
   final int customerCount;
 
-  /// Positive when the book grew over the period.
-  double get net => charged - collected;
+  /// Goods from tab sales brought back: off the book, though not collected.
+  final double returned;
+
+  /// Positive when the book grew over the period. Returns count against it:
+  /// without them a sale charged and returned the same day read as the book
+  /// growing by its amount, while the balance had not moved.
+  double get net => charged - collected - returned;
 }
 
 class UtangService {
   final dbHelper = DatabaseHelper.instance;
 
-  Future<int> addCustomer(String name, {String? phone}) async {
+  Future<int> addCustomer(String name, {String? phone, double? creditLimit}) async {
     final db = await dbHelper.database;
     return db.insert('customers', {
       'name': name.trim(),
       'created_at': DateTime.now().toIso8601String(),
       'phone': _cleanPhone(phone),
+      'credit_limit': creditLimit,
     });
   }
 
-  Future<void> updateCustomer(int id, {required String name, String? phone}) async {
+  /// [creditLimit] null puts the customer back on the store's default.
+  Future<void> updateCustomer(int id, {required String name, String? phone, double? creditLimit}) async {
     final db = await dbHelper.database;
     await db.update(
       'customers',
-      {'name': name.trim(), 'phone': _cleanPhone(phone)},
+      {'name': name.trim(), 'phone': _cleanPhone(phone), 'credit_limit': creditLimit},
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -145,6 +154,7 @@ class UtangService {
       lastActivityAt: last?.createdAtDate,
       lastActivityAmount: last?.amount.abs(),
       lastActivityIsCharge: last?.isCharge ?? false,
+      lastActivityIsReturn: last?.isReturn ?? false,
     );
   }
 
@@ -172,13 +182,26 @@ class UtangService {
     });
   }
 
-  Future<void> recordPayment({
+  /// Utang paid back in cash from [since] on — money that lands in the
+  /// drawer without being a sale.
+  Future<double> cashCollectedSince(DateTime since) async {
+    final db = await dbHelper.database;
+    final rows = await db.rawQuery(
+      "SELECT COALESCE(SUM(-amount),0) AS v FROM utang_entries "
+      "WHERE kind = 'payment' AND method = 'Cash' AND created_at >= ?",
+      [since.toIso8601String()],
+    );
+    return (rows.first['v'] as num).toDouble();
+  }
+
+  /// Returns the entry's id, so the screen can offer Undo.
+  Future<int> recordPayment({
     required int customerId,
     required double amount,
     required String method,
   }) async {
     final db = await dbHelper.database;
-    await db.insert('utang_entries', {
+    return db.insert('utang_entries', {
       'customer_id': customerId,
       'created_at': DateTime.now().toIso8601String(),
       // Payments are stored negative so a balance is just the sum.
@@ -186,6 +209,13 @@ class UtangService {
       'kind': 'payment',
       'method': method,
     });
+  }
+
+  /// Takes back a payment recorded by mistake. Payments only: a charge
+  /// belongs to a sale, and is undone by returning the sale.
+  Future<void> deletePayment(int entryId) async {
+    final db = await dbHelper.database;
+    await db.delete('utang_entries', where: "id = ? AND kind = 'payment'", whereArgs: [entryId]);
   }
 
   /// Period-scoped flows plus the running book totals.
@@ -206,6 +236,11 @@ class UtangService {
       "WHERE kind = 'payment' AND created_at >= ?",
       [start],
     );
+    final returned = await db.rawQuery(
+      "SELECT COALESCE(SUM(-amount),0) AS v FROM utang_entries "
+      "WHERE kind = 'return' AND created_at >= ?",
+      [start],
+    );
 
     final customers = await getCustomers();
     final owing = customers.where((c) => c.balance > 0).toList();
@@ -218,6 +253,7 @@ class UtangService {
           .where((c) => c.status == UtangStatus.overdue)
           .fold(0, (s, c) => s + c.balance),
       customerCount: owing.length,
+      returned: (returned.first['v'] as num).toDouble(),
     );
   }
 
@@ -228,4 +264,18 @@ class UtangService {
       ..sort((a, b) => b.balance.compareTo(a.balance));
     return owing.take(limit).toList();
   }
+}
+
+/// The limit that applies to [c]: their own, or the store's default. Zero
+/// means none. Crossing it warns but never blocks — the shopkeeper decides,
+/// not the app.
+///
+/// Was one fixed ₱500 for everyone, in the code: a regular who always
+/// carries ₱1,500 showed "Over limit" on every sale, until the warning meant
+/// nothing.
+double creditLimitFor(Customer c) => c.creditLimit ?? SettingsService.instance.creditLimit;
+
+bool isOverLimit(Customer c, {double balance = -1}) {
+  final limit = creditLimitFor(c);
+  return limit > 0 && (balance < 0 ? c.balance : balance) > limit + 0.005;
 }
