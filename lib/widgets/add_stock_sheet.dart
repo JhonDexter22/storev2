@@ -10,8 +10,13 @@ import '../l10n/tr.dart';
 ///
 /// Adds via the relative [ProductService.addStock], so a sale that lands
 /// while the sheet is open is not overwritten. Completes with the amount
-/// added, or null if dismissed; the caller reloads and announces it.
-Future<int?> showAddStockSheet(BuildContext context, Product p) {
+/// added, or null if dismissed; the caller reloads and announces it, with
+/// [undoAddedStock] on the announcement.
+///
+/// [suggested] adds a one-tap chip that *sets* that amount. The field still
+/// starts empty, so "+12" for a dozen means 12 — Restock used to open at the
+/// suggestion, and "+12" on top of it made 22.
+Future<int?> showAddStockSheet(BuildContext context, Product p, {int? suggested}) {
   final ctrl = TextEditingController();
   int amount = 0;
 
@@ -29,6 +34,12 @@ Future<int?> showAddStockSheet(BuildContext context, Product p) {
           await ProductService().addStock(p.id!, added);
           HapticFeedback.lightImpact();
           if (ctx.mounted) Navigator.pop(ctx, added);
+        }
+
+        void setAmount(int n) {
+          ctrl.text = '$n';
+          ctrl.selection = TextSelection.collapsed(offset: ctrl.text.length);
+          setSheet(() => amount = n);
         }
 
         Widget quick(int n) => Expanded(
@@ -115,6 +126,32 @@ Future<int?> showAddStockSheet(BuildContext context, Product p) {
                   ),
                 ),
                 const SizedBox(height: 10),
+                if (suggested != null && suggested > 0) ...[
+                  GestureDetector(
+                    onTap: () => setAmount(suggested),
+                    child: Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: amount == suggested ? AppColors.primaryTint : AppColors.canvas,
+                        borderRadius: BorderRadius.circular(AppRadius.iconBtn),
+                        border: Border.all(
+                            color: amount == suggested ? AppColors.primary : AppColors.hairline),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.lightbulb_outline_rounded,
+                              size: 16, color: AppColors.primary),
+                          const SizedBox(width: 6),
+                          Text(tr('Suggested +{n}', {'n': suggested}),
+                              style: AppText.chip(color: AppColors.primary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 Row(
                   children: [
                     quick(5),
@@ -170,5 +207,18 @@ Future<int?> showAddStockSheet(BuildContext context, Product p) {
         );
       },
     ),
+  );
+}
+
+/// Takes back a restock typed wrong — 240 for 24 — for the few seconds its
+/// announcement is up. Relative, like the add, so a sale in between stands.
+SnackBarAction undoAddedStock(int productId, int added, {required VoidCallback onUndone}) {
+  return SnackBarAction(
+    label: tr('Undo'),
+    textColor: AppColors.primary,
+    onPressed: () async {
+      await ProductService().addStock(productId, -added);
+      onUndone();
+    },
   );
 }
