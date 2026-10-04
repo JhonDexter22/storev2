@@ -228,6 +228,8 @@ class _DayCloseViewState extends State<DayCloseView> {
                           const SizedBox(height: 8),
                           _row(tr('Opening float'), formatPeso(shift.openingFloat)),
                           _row(tr('Cash sales'), formatPeso(shift.cashSales)),
+                          if (shift.utangCash > 0)
+                            _row(tr('Utang paid in cash'), formatPeso(shift.utangCash)),
                           _row(tr('Expected'), formatPeso(shift.expected)),
                           _row(tr('Counted'), formatPeso(shift.counted)),
                           const SizedBox(height: 6),
