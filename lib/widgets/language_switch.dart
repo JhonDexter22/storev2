@@ -9,10 +9,7 @@ import '../services/settings_service.dart';
 /// own language, so someone who cannot read the current one can still find
 /// theirs. The switch is instant and keeps the screen in place.
 class LanguageSwitch extends StatelessWidget {
-  const LanguageSwitch({super.key, this.compact = false});
-
-  /// `EN | FIL` for a header; full names for a settings row.
-  final bool compact;
+  const LanguageSwitch({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +17,6 @@ class LanguageSwitch extends StatelessWidget {
 
     Widget side(AppLanguage lang) {
       final on = lang == current;
-      final label = compact ? (lang == AppLanguage.en ? 'EN' : 'FIL') : lang.label;
       return Semantics(
         button: true,
         selected: on,
@@ -34,12 +30,12 @@ class LanguageSwitch extends StatelessWidget {
                 },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
-            padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 16, vertical: compact ? 6 : 9),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
             decoration: BoxDecoration(
               color: on ? AppColors.ink : Colors.transparent,
               borderRadius: BorderRadius.circular(AppRadius.chip),
             ),
-            child: Text(label, style: AppText.chip(color: on ? Colors.white : AppColors.body)),
+            child: Text(lang.label, style: AppText.chip(color: on ? Colors.white : AppColors.body)),
           ),
         ),
       );
