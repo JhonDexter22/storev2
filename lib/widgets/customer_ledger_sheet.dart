@@ -19,7 +19,7 @@ import '../services/error_log.dart';
 Future<bool?> showCustomerLedger(
   BuildContext context,
   Customer c, {
-  required Future<bool> Function(Customer) onRecordPayment,
+  required Future<int?> Function(Customer) onRecordPayment,
   required Future<bool> Function(Customer) onRemind,
   required Future<bool> Function(Customer) onEdit,
 }) {
@@ -47,7 +47,8 @@ class _LedgerSheet extends StatefulWidget {
   final Customer customer;
   /// Each receives the customer as the sheet currently knows them — after a
   /// partial payment the balance has moved on from what the list had.
-  final Future<bool> Function(Customer) onRecordPayment;
+  /// Completes with the new payment's entry id, so this panel can offer Undo.
+  final Future<int?> Function(Customer) onRecordPayment;
   final Future<bool> Function(Customer) onRemind;
   final Future<bool> Function(Customer) onEdit;
 
@@ -92,6 +93,57 @@ class _LedgerSheetState extends State<_LedgerSheet> {
       _changed = true;
       await _load();
     }
+  }
+
+  /// The payment just recorded from this panel, until it is undone or the
+  /// panel closes. Undo lives here: a message on the screen behind the panel
+  /// could not be reached.
+  int? _justPaid;
+
+  Future<void> _pay() async {
+    final id = await widget.onRecordPayment(_c);
+    if (!mounted || id == null) return;
+    _changed = true;
+    _justPaid = id;
+    await _load();
+  }
+
+  Future<void> _undoPay() async {
+    final id = _justPaid;
+    if (id == null) return;
+    await _utang.deletePayment(id);
+    _justPaid = null;
+    _changed = true;
+    await _load();
+  }
+
+  Widget _paidBanner() {
+    final entry = _entries.where((e) => e.id == _justPaid).firstOrNull;
+    if (entry == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpace.sheetPad, 10, AppSpace.sheetPad, 0),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+        decoration: BoxDecoration(
+          color: AppColors.successFill,
+          borderRadius: BorderRadius.circular(AppRadius.input),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, size: 18, color: AppColors.successText),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(tr('Paid {amount}', {'amount': formatPeso(entry.amount.abs())}),
+                  style: AppText.body(color: AppColors.successText)),
+            ),
+            TextButton(
+              onPressed: _undoPay,
+              child: Text(tr('Undo'), style: AppText.chip(color: AppColors.primary)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _call() async {
@@ -215,6 +267,7 @@ class _LedgerSheetState extends State<_LedgerSheet> {
                 ),
               ),
             ),
+            if (_justPaid != null) _paidBanner(),
             const SizedBox(height: 12),
             // ── Ledger ─────────────────────────────────────────────────
             Flexible(
@@ -248,8 +301,7 @@ class _LedgerSheetState extends State<_LedgerSheet> {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _action(Icons.payments_outlined, tr('Record payment'), () => _run(widget.onRecordPayment),
-                          primary: true),
+                      child: _action(Icons.payments_outlined, tr('Record payment'), _pay, primary: true),
                     ),
                   ],
                 ),
@@ -264,6 +316,7 @@ class _LedgerSheetState extends State<_LedgerSheet> {
 
   Widget _entryRow(UtangEntry e) {
     final charge = e.isCharge;
+    final returned = e.isReturn;
     final sale = e.saleId == null ? null : _sales[e.saleId];
     // A charge from the till names what was bought; the receipt number is
     // a poor substitute and lives in the receipt itself.
@@ -271,8 +324,10 @@ class _LedgerSheetState extends State<_LedgerSheet> {
         ? (sale != null
             ? sale.summary()
             : (e.note?.isNotEmpty == true ? e.note! : tr('Charge')))
-        : tr('Paid by {method}', {'method': e.method ?? 'Cash'});
-    final sub = charge && sale != null
+        : returned
+            ? (sale != null ? tr('Returned · {items}', {'items': sale.summary()}) : tr('Returned'))
+            : tr('Paid by {method}', {'method': e.method ?? 'Cash'});
+    final sub = (charge || returned) && sale != null
         ? '${trCount(sale.itemCount, '{n} item', '{n} items')} · ${_when(e.createdAtDate)} · ${sale.shortRef}'
         : _when(e.createdAtDate);
     final row = Padding(
@@ -283,13 +338,19 @@ class _LedgerSheetState extends State<_LedgerSheet> {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: charge ? AppColors.warningFill : AppColors.successFill,
+              color: charge
+                  ? AppColors.warningFill
+                  : (returned ? AppColors.primaryTint : AppColors.successFill),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
-              charge ? Icons.add_shopping_cart_rounded : Icons.check_rounded,
+              charge
+                  ? Icons.add_shopping_cart_rounded
+                  : (returned ? Icons.undo_rounded : Icons.check_rounded),
               size: 17,
-              color: charge ? AppColors.warningText : AppColors.successText,
+              color: charge
+                  ? AppColors.warningText
+                  : (returned ? AppColors.primary : AppColors.successText),
             ),
           ),
           const SizedBox(width: 12),
@@ -306,7 +367,10 @@ class _LedgerSheetState extends State<_LedgerSheet> {
           const SizedBox(width: 8),
           Text(
             '${charge ? '+' : '−'}${formatPeso(e.amount.abs())}',
-            style: AppText.cardTitle(color: charge ? AppColors.ink : AppColors.successText),
+            style: AppText.cardTitle(
+                color: charge
+                    ? AppColors.ink
+                    : (returned ? AppColors.primary : AppColors.successText)),
           ),
           if (sale != null) ...[
             const SizedBox(width: 2),
