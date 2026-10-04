@@ -23,6 +23,7 @@ class SettingsService extends ChangeNotifier {
   static const _kStoreName = 'store_name';
   static const _kTerminal = 'terminal';
   static const _kOpeningFloat = 'opening_float';
+  static const _kCreditLimit = 'credit_limit';
   static const _kLastBackup = 'last_backup';
   static const _kDisabledPayments = 'disabled_payment_types';
   static const _kCustomPayments = 'custom_payment_types';
@@ -63,6 +64,15 @@ class SettingsService extends ChangeNotifier {
   String get storeName => _prefs?.getString(_kStoreName) ?? 'Sari-Sari Store';
   String get terminal => _prefs?.getString(_kTerminal) ?? 'Terminal 1';
   double get openingFloat => _prefs?.getDouble(_kOpeningFloat) ?? 1000;
+
+  /// How far a customer's tab can run before checkout warns, unless the
+  /// customer has a limit of their own. Zero means no limit.
+  double get creditLimit => _prefs?.getDouble(_kCreditLimit) ?? 500;
+
+  Future<void> setCreditLimit(double v) async {
+    await _prefs?.setDouble(_kCreditLimit, v < 0 ? 0 : v);
+    notifyListeners();
+  }
   String? get lastBackup => _prefs?.getString(_kLastBackup);
 
   /// The paired thermal printer, if one has been chosen.
@@ -247,6 +257,7 @@ class SettingsService extends ChangeNotifier {
         _kStoreName: storeName,
         _kTerminal: terminal,
         _kOpeningFloat: openingFloat,
+        _kCreditLimit: creditLimit,
         _kDefaultMinStock: defaultMinStock,
         _kPrintReceipt: printReceipt,
         _kScanSound: scanSound,
@@ -278,7 +289,7 @@ class SettingsService extends ChangeNotifier {
           await prefs.setBool(key, v),
         (_kDefaultMinStock, int v) => await prefs.setInt(key, v),
         // JSON has one number type: a float of 1000 may come back as an int.
-        (_kOpeningFloat, num v) => await prefs.setDouble(key, v.toDouble()),
+        (_kOpeningFloat || _kCreditLimit, num v) => await prefs.setDouble(key, v.toDouble()),
         (_kDisabledPayments || _kCustomPayments, List v)
             when v.every((e) => e is String) =>
           await prefs.setStringList(key, v.cast<String>()),
