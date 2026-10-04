@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/customer.dart';
+import '../models/payment_type.dart';
+import '../services/settings_service.dart';
 import '../services/utang_service.dart';
 import '../widgets/customer_ledger_sheet.dart';
 import '../widgets/utang_remind_sheet.dart';
@@ -14,7 +16,11 @@ enum _Filter { all, dueSoon, overdue }
 /// Utang ledger — who owes what, aged rather than alphabetical, so the overdue
 /// balance is the first thing read.
 class UtangScreen extends StatefulWidget {
-  const UtangScreen({super.key, this.onCharge});
+  const UtangScreen({super.key, this.onCharge, this.overdueOnly = false});
+
+  /// Opens on the Overdue filter — from the bell's overdue alert, so the
+  /// customers it counted are the ones on screen.
+  final bool overdueOnly;
 
   /// Header CTA — starts a sale to put on someone's tab.
   final VoidCallback? onCharge;
@@ -27,7 +33,11 @@ class _UtangScreenState extends State<UtangScreen> {
   final UtangService _utang = UtangService();
 
   List<Customer> _customers = [];
-  _Filter _filter = _Filter.all;
+  late _Filter _filter = widget.overdueOnly ? _Filter.overdue : _Filter.all;
+
+  /// The settled group at the bottom of All, folded until asked for.
+  bool _showSettled = false;
+  String _search = '';
   bool _loading = true;
   ({double amount, int count}) _collected = (amount: 0, count: 0);
 
@@ -50,6 +60,12 @@ class _UtangScreenState extends State<UtangScreen> {
   }
 
   List<Customer> get _visible => _customers.where((c) {
+    final q = _search.trim().toLowerCase();
+    if (q.isNotEmpty &&
+        !c.name.toLowerCase().contains(q) &&
+        !(c.phone ?? '').contains(q)) {
+      return false;
+    }
     switch (_filter) {
       case _Filter.all:
         return true;
@@ -87,17 +103,21 @@ class _UtangScreenState extends State<UtangScreen> {
   Future<void> _addCustomer() async {
     final result = await _customerForm();
     if (result == null) return;
-    await _utang.addCustomer(result.name, phone: result.phone);
+    await _utang.addCustomer(result.name, phone: result.phone, creditLimit: result.creditLimit);
     _load();
   }
 
   /// Name and number, for a new customer or an existing one. Returns null
   /// when cancelled.
-  Future<({String name, String? phone})?> _customerForm({
+  Future<({String name, String? phone, double? creditLimit})?> _customerForm({
     Customer? existing,
   }) async {
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
     final phoneCtrl = TextEditingController(text: existing?.phone ?? '');
+    final own = existing?.creditLimit;
+    final limitCtrl = TextEditingController(
+        text: own == null ? '' : (own == own.roundToDouble() ? '${own.toInt()}' : own.toStringAsFixed(2)));
+    final storeLimit = SettingsService.instance.creditLimit;
     InputDecoration deco(String hint) => InputDecoration(
       hintText: hint,
       hintStyle: AppText.body(color: AppColors.faint),
@@ -143,6 +163,25 @@ class _UtangScreenState extends State<UtangScreen> {
                 style: AppText.caption(color: AppColors.faint),
               ),
             ),
+            const SizedBox(height: 12),
+            // Their own limit, for a trusted regular or someone to keep
+            // short. Empty follows the store's default in Settings.
+            TextField(
+              controller: limitCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              style: AppText.body(color: AppColors.ink),
+              decoration: deco(storeLimit <= 0
+                  ? tr('Credit limit (store default: none)')
+                  : tr('Credit limit (store default: {amount})', {'amount': formatPeso(storeLimit)})),
+            ),
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                tr('Leave empty for the store default. 0 means no limit.'),
+                style: AppText.caption(color: AppColors.faint),
+              ),
+            ),
           ],
         ),
         actions: [
@@ -162,16 +201,18 @@ class _UtangScreenState extends State<UtangScreen> {
     );
     final name = nameCtrl.text.trim();
     if (ok != true || name.isEmpty) return null;
+    final limit = double.tryParse(limitCtrl.text.replaceAll(',', '').trim());
     return (
       name: name,
       phone: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
+      creditLimit: limit == null || limit < 0 ? null : limit,
     );
   }
 
   Future<bool> _editCustomer(Customer c) async {
     final result = await _customerForm(existing: c);
     if (result == null) return false;
-    await _utang.updateCustomer(c.id!, name: result.name, phone: result.phone);
+    await _utang.updateCustomer(c.id!, name: result.name, phone: result.phone, creditLimit: result.creditLimit);
     await _load();
     return true;
   }
@@ -208,23 +249,56 @@ class _UtangScreenState extends State<UtangScreen> {
     final changed = await showCustomerLedger(
       context,
       c,
-      onRecordPayment: _recordPayment,
+      onRecordPayment: (c) => _recordPayment(c, announce: false),
       onRemind: _remind,
       onEdit: _editCustomer,
     );
     if (changed == true) _load();
   }
 
-  Future<bool> _recordPayment(Customer c) async {
+  /// The store's own ways to be paid, less Utang — a debt is not paid off
+  /// with more debt. Was a fixed Cash / GCash pair that ignored Settings.
+  List<String> get _paymentMethods => [
+        for (final t in SettingsService.instance.paymentTypes)
+          if (t.kind != PaymentKind.utang) t.name,
+      ];
+
+  /// "1,000" and "1000" both; null when it is not a number at all.
+  static double? _parseAmount(String raw) =>
+      double.tryParse(raw.replaceAll(',', '').trim());
+
+  /// Returns the payment's entry id, or null when nothing was recorded.
+  /// [announce] off for the customer's panel, which shows its own Undo — a
+  /// message here would land behind it.
+  Future<int?> _recordPayment(Customer c, {bool announce = true}) async {
     final ctrl = TextEditingController(text: c.balance.toStringAsFixed(2));
-    String method = 'Cash';
+    final methods = _paymentMethods;
+    String method = methods.first;
+    String? error;
 
     final amount = await showModalBottomSheet<double>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
+        builder: (ctx, setSheet) {
+          // Says what is wrong instead of a button that does nothing: a
+          // comma, an empty field, or more than is owed.
+          void submit() {
+            final v = _parseAmount(ctrl.text);
+            if (v == null || v <= 0) {
+              setSheet(() => error = tr('Enter an amount'));
+              return;
+            }
+            if (v > c.balance + 0.005) {
+              setSheet(() => error = tr('{name} only owes {amount}',
+                  {'name': c.name, 'amount': formatPeso(c.balance)}));
+              return;
+            }
+            Navigator.pop(ctx, v);
+          }
+
+          return Padding(
           padding: EdgeInsets.fromLTRB(
             AppSpace.sheetPad,
             14,
@@ -258,6 +332,10 @@ class _UtangScreenState extends State<UtangScreen> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  onChanged: (_) {
+                    if (error != null) setSheet(() => error = null);
+                  },
+                  onSubmitted: (_) => submit(),
                   style: AppText.largeFigure().copyWith(fontSize: 24),
                   decoration: InputDecoration(
                     border: InputBorder.none,
@@ -268,12 +346,18 @@ class _UtangScreenState extends State<UtangScreen> {
                     ).copyWith(fontSize: 24),
                   ),
                 ),
+                if (error != null) ...[
+                  const SizedBox(height: 6),
+                  Text(error!, style: AppText.caption(color: AppColors.dangerText)),
+                ],
                 const SizedBox(height: 16),
                 Text(tr('Method'), style: AppText.body()),
                 const SizedBox(height: 8),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    for (final m in ['Cash', 'GCash']) ...[
+                    for (final m in methods)
                       GestureDetector(
                         onTap: () => setSheet(() => method = m),
                         child: Container(
@@ -281,7 +365,6 @@ class _UtangScreenState extends State<UtangScreen> {
                             horizontal: 16,
                             vertical: 9,
                           ),
-                          margin: const EdgeInsets.only(right: 8),
                           decoration: BoxDecoration(
                             color: method == m
                                 ? AppColors.ink
@@ -294,7 +377,7 @@ class _UtangScreenState extends State<UtangScreen> {
                             ),
                           ),
                           child: Text(
-                            m,
+                            tr(m),
                             style: AppText.chip(
                               color: method == m
                                   ? Colors.white
@@ -303,7 +386,6 @@ class _UtangScreenState extends State<UtangScreen> {
                           ),
                         ),
                       ),
-                    ],
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -311,10 +393,7 @@ class _UtangScreenState extends State<UtangScreen> {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: () {
-                      final v = double.tryParse(ctrl.text) ?? 0;
-                      if (v > 0) Navigator.pop(ctx, v);
-                    },
+                    onPressed: submit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
@@ -334,19 +413,37 @@ class _UtangScreenState extends State<UtangScreen> {
               ],
             ),
           ),
-        ),
+        );
+        },
       ),
     );
 
-    if (amount == null || amount <= 0) return false;
-    await _utang.recordPayment(
+    if (amount == null || amount <= 0) return null;
+    final entryId = await _utang.recordPayment(
       customerId: c.id!,
       amount: amount,
       method: method,
     );
     HapticFeedback.lightImpact();
     await _load();
-    return true;
+    if (!mounted || !announce) return entryId;
+    final after = c.balance - amount;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(after <= 0.005
+            ? tr('Paid {amount} · {name} is settled', {'amount': formatPeso(amount), 'name': c.name})
+            : tr('Paid {amount} · {name} now owes {balance}',
+                {'amount': formatPeso(amount), 'name': c.name, 'balance': formatPeso(after)})),
+        action: SnackBarAction(
+          label: tr('Undo'),
+          onPressed: () async {
+            await _utang.deletePayment(entryId);
+            _load();
+          },
+        ),
+      ));
+    return entryId;
   }
 
   @override
@@ -393,6 +490,11 @@ class _UtangScreenState extends State<UtangScreen> {
         children: [
           _statTiles(),
           const SizedBox(height: AppSpace.gapSection),
+          // A search box once the book outgrows a glance.
+          if (_customers.length > 5) ...[
+            _searchField(),
+            const SizedBox(height: 10),
+          ],
           _filterChips(),
           const SizedBox(height: AppSpace.gapSection),
           if (_visible.isEmpty)
@@ -405,13 +507,15 @@ class _UtangScreenState extends State<UtangScreen> {
                 ),
               ),
             )
-          else if (tablet)
-            ..._cardPairs()
-          else
-            for (final c in _visible) ...[
-              _customerCard(c),
-              const SizedBox(height: 10),
+          else ...[
+            // Everyone who ever had a tab stays (their history matters), so
+            // under All the settled ones fold into one line at the bottom.
+            ..._cards(_split ? _visible.where((c) => c.balance > 0).toList() : _visible, tablet),
+            if (_split && _visible.any((c) => c.balance <= 0)) ...[
+              _settledHeader(_visible.where((c) => c.balance <= 0).length),
+              if (_showSettled) ..._cards(_visible.where((c) => c.balance <= 0).toList(), tablet),
             ],
+          ],
           const SizedBox(height: 6),
           _addButton(),
         ],
@@ -422,11 +526,52 @@ class _UtangScreenState extends State<UtangScreen> {
   /// Tablet: two customers per row. The cards are a fixed set of rows, so
   /// pairing them keeps each one readable instead of stretching a name and a
   /// balance across the full width. An odd last card keeps its half.
-  List<Widget> _cardPairs() {
+  /// Folding applies to All with no search: a search should find a settled
+  /// customer without a second tap.
+  bool get _split => _filter == _Filter.all && _search.trim().isEmpty;
+
+  List<Widget> _cards(List<Customer> list, bool tablet) => tablet
+      ? _cardPairs(list)
+      : [
+          for (final c in list) ...[
+            _customerCard(c),
+            const SizedBox(height: 10),
+          ],
+        ];
+
+  Widget _settledHeader(int n) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Material(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            onTap: () => setState(() => _showSettled = !_showSettled),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.cardPad, vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadius.card),
+                border: Border.all(color: AppColors.hairline),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_outline_rounded, size: 18, color: AppColors.successText),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(tr('Settled · {n}', {'n': n}), style: AppText.cardTitle())),
+                  Icon(_showSettled ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                      color: AppColors.muted),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+  List<Widget> _cardPairs(List<Customer> list) {
     final rows = <Widget>[];
-    for (var i = 0; i < _visible.length; i += 2) {
-      final left = _visible[i];
-      final right = i + 1 < _visible.length ? _visible[i + 1] : null;
+    for (var i = 0; i < list.length; i += 2) {
+      final left = list[i];
+      final right = i + 1 < list.length ? list[i + 1] : null;
       rows.add(
         IntrinsicHeight(
           child: Row(
@@ -629,6 +774,30 @@ class _UtangScreenState extends State<UtangScreen> {
     );
   }
 
+  Widget _searchField() {
+    return Container(
+      height: 46,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.input),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: TextField(
+        onChanged: (v) => setState(() => _search = v),
+        style: AppText.body(color: AppColors.ink),
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          isCollapsed: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          hintText: tr('Search name or number'),
+          hintStyle: AppText.body(color: AppColors.faint),
+          prefixIcon: const Icon(Icons.search_rounded, color: AppColors.muted, size: 20),
+          prefixIconConstraints: const BoxConstraints(minWidth: 42),
+        ),
+      ),
+    );
+  }
+
   Widget _filterChips() {
     Widget chip(_Filter f, String label) {
       final selected = _filter == f;
@@ -671,7 +840,10 @@ class _UtangScreenState extends State<UtangScreen> {
   String _activityLabel(Customer c) {
     final amount = c.lastActivityAmount;
     if (amount == null) return tr('No activity yet');
-    return tr(c.lastActivityIsCharge ? 'Charged {amount}' : 'Paid {amount}', {'amount': formatPeso(amount)});
+    final money = {'amount': formatPeso(amount)};
+    if (c.lastActivityIsCharge) return tr('Charged {amount}', money);
+    if (c.lastActivityIsReturn) return tr('Returned {amount}', money);
+    return tr('Paid {amount}', money);
   }
 
   Widget _customerCard(Customer c) {
@@ -761,6 +933,16 @@ class _UtangScreenState extends State<UtangScreen> {
                             bg: AppColors.successFill,
                             dot: false,
                           ),
+                        // Only checkout used to say so, at the moment of a sale.
+                        if (isOverLimit(c)) ...[
+                          const SizedBox(height: 4),
+                          StatusPill(
+                            label: tr('Over limit'),
+                            fg: AppColors.dangerText,
+                            bg: AppColors.dangerFill,
+                            dot: false,
+                          ),
+                        ],
                       ],
                     ),
                   ],
