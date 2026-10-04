@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/design_tokens.dart';
 import '../models/staff.dart';
 import '../services/staff_service.dart';
+import 'initials_avatar.dart';
 import '../l10n/tr.dart';
 
 /// A four-digit PIN gate, used both for the manager check before a shift close
@@ -74,7 +75,7 @@ class PinSheet extends StatefulWidget {
     BuildContext context, {
     required Future<PinResult> Function(String pin) verify,
     String title = 'Manager PIN',
-    String hint = 'Enter the manager PIN to close this shift.',
+    String hint = 'Enter the manager PIN to close the day.',
     String confirmLabel = 'Confirm close',
     String? avatarInitials,
     String? subtitle,
@@ -100,7 +101,7 @@ class PinSheet extends StatefulWidget {
     BuildContext context, {
     required Future<PinResult> Function(String pin) verify,
     String title = 'Manager PIN',
-    String hint = 'Enter the manager PIN to close this shift.',
+    String hint = 'Enter the manager PIN to close the day.',
     String confirmLabel = 'Confirm close',
     String? avatarInitials,
     String? subtitle,
@@ -257,14 +258,7 @@ class _PinSheetState extends State<PinSheet> {
           ),
           const SizedBox(height: 18),
           if (widget.avatarInitials != null) ...[
-            Container(
-              width: 56,
-              height: 56,
-              decoration: const BoxDecoration(color: AppColors.primaryTint, shape: BoxShape.circle),
-              alignment: Alignment.center,
-              child: Text(widget.avatarInitials!,
-                  style: AppText.statFigure(color: AppColors.primary, size: 20)),
-            ),
+            InitialsAvatar(widget.avatarInitials!, size: 56, tone: AvatarTone.soft),
             const SizedBox(height: 12),
           ],
           Text(tr(widget.title), style: AppText.sectionTitle().copyWith(fontSize: 18)),
