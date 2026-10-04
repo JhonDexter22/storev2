@@ -222,10 +222,16 @@ class ErrorLog extends ChangeNotifier {
   }
 
   /// The whole log as readable text, newest first, for sharing.
-  String toReport() {
+  ///
+  /// [device] is a line about the screen it was sent from — size, text
+  /// scale, language — which the log itself cannot know, and which is often
+  /// what explains a layout error on one phone and not another.
+  String toReport({String? device}) {
     final b = StringBuffer()
       ..writeln('${AppInfo.name} error log · v${AppInfo.version} · '
-          '${Platform.operatingSystem} ${Platform.operatingSystemVersion}')
+          '${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+    if (device != null) b.writeln(device);
+    b
       ..writeln('${_entries.length} entries, newest first')
       ..writeln();
     for (final e in entries) {
