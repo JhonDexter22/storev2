@@ -11,7 +11,7 @@ import '../widgets/day_close_view.dart';
 import '../services/shift_service.dart';
 import '../l10n/tr.dart';
 
-/// Shift history — find a short drawer without opening a report.
+/// Closed days — find a short drawer without opening a report.
 class ShiftHistoryScreen extends StatefulWidget {
   const ShiftHistoryScreen({super.key});
 
@@ -19,10 +19,23 @@ class ShiftHistoryScreen extends StatefulWidget {
   State<ShiftHistoryScreen> createState() => _ShiftHistoryScreenState();
 }
 
+enum _Outcome { all, short, over }
+
 class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
   final ShiftService _shifts = ShiftService();
+  static const _page = 20;
+
   List<Shift> _list = [];
   bool _loading = true;
+  bool _hasMore = false;
+  int _totalCloses = 0;
+  _Outcome _outcome = _Outcome.all;
+  ({double sales, double short, int shortDays, double over, int overDays}) _month =
+      (sales: 0, short: 0, shortDays: 0, over: 0, overDays: 0);
+
+  /// Null for everyone.
+  String? _cashier;
+  List<String> _cashiers = const [];
 
   @override
   void initState() {
@@ -30,17 +43,49 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
     _load();
   }
 
+  String? get _outcomeKey => switch (_outcome) {
+        _Outcome.all => null,
+        _Outcome.short => 'short',
+        _Outcome.over => 'over',
+      };
+
   Future<void> _load() async {
-    final shifts = await _shifts.getShifts();
+    final shifts = await _shifts.getShifts(limit: _page, outcome: _outcomeKey, cashier: _cashier);
+    final total = await _shifts.closeCount();
+    final month = await _shifts.totalsOver(30, cashier: _cashier);
+    final cashiers = await _shifts.closingCashiers();
     if (!mounted) return;
     setState(() {
+      _cashiers = cashiers;
       _list = shifts;
+      _hasMore = shifts.length == _page;
+      _totalCloses = total;
+      _month = month;
       _loading = false;
     });
   }
 
-  double get _totalSales => _list.fold(0, (s, x) => s + x.totalSales);
-  double get _netVariance => _list.fold(0, (s, x) => s + x.variance);
+  Future<void> _loadOlder() async {
+    final more = await _shifts.getShifts(
+        limit: _page, offset: _list.length, outcome: _outcomeKey, cashier: _cashier);
+    if (!mounted) return;
+    setState(() {
+      _list = [..._list, ...more];
+      _hasMore = more.length == _page;
+    });
+  }
+
+  void _setOutcome(_Outcome o) {
+    if (o == _outcome) return;
+    setState(() => _outcome = o);
+    _load();
+  }
+
+  void _setCashier(String? c) {
+    if (c == _cashier) return;
+    setState(() => _cashier = c);
+    _load();
+  }
 
   static Color _varianceColor(double v) {
     if (v.abs() < 0.005) return AppColors.success;
@@ -53,19 +98,25 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
   }
 
   static String _varianceWord(double v) {
-    if (v.abs() < 0.005) return tr('Exact');
+    if (v.abs() < 0.005) return tr('Balanced');
     return v < 0 ? tr('Short') : tr('Over');
   }
 
   String _dateLabel(DateTime d) => trDay(d);
   String _weekday(DateTime d) => trWeekday(d.weekday);
 
+  /// A day opens at the previous close, so its window can cross midnight.
+  /// "9:00 PM – 9:00 PM" read as no time at all; the opening day is named
+  /// when it is not the closing day.
   String _hours(Shift s) {
     final open = s.openedAtDate;
     final close = s.closedAtDate;
     String fmt(DateTime d) => TimeOfDay.fromDateTime(d).format(context);
     if (open == null) return fmt(close);
-    return '${fmt(open)} – ${fmt(close)}';
+    final sameDay = open.year == close.year && open.month == close.month && open.day == close.day;
+    return sameDay
+        ? '${fmt(open)} – ${fmt(close)}'
+        : '${trDay(open)} ${fmt(open)} – ${fmt(close)}';
   }
 
   @override
@@ -80,7 +131,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-                  : _list.isEmpty
+                  : _totalCloses == 0
                       ? _empty()
                       : LayoutBuilder(
                           builder: (context, constraints) => ListView(
@@ -88,11 +139,39 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                               context, constraints.maxWidth, top: 6),
                           children: [
                             _statTiles(),
-                            const SizedBox(height: AppSpace.gapBlock),
+                            const SizedBox(height: AppSpace.gapSection),
+                            _outcomeChips(),
+                            const SizedBox(height: AppSpace.gapSection),
+                            if (_list.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 32),
+                                child: Center(
+                                  child: Text(
+                                    _outcome == _Outcome.short
+                                        ? tr('No short drawers')
+                                        : tr('No drawers over'),
+                                    style: AppText.body(),
+                                  ),
+                                ),
+                              ),
                             for (final s in _list) ...[
                               _shiftCard(s),
                               const SizedBox(height: 10),
                             ],
+                            if (_hasMore)
+                              SizedBox(
+                                height: 46,
+                                child: OutlinedButton(
+                                  onPressed: _loadOlder,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.body,
+                                    side: const BorderSide(color: AppColors.hairline),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(AppRadius.cta)),
+                                  ),
+                                  child: Text(tr('Show older'), style: AppText.chip(color: AppColors.body)),
+                                ),
+                              ),
                           ],
                         ),
                         ),
@@ -126,11 +205,12 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(tr('Shift history'), style: AppText.screenTitle().copyWith(fontSize: 20)),
+                Text(tr('Closed days'), style: AppText.screenTitle().copyWith(fontSize: 20)),
                 Text(
                   _loading
                       ? tr('Loading…')
-                      : trCount(_list.length, '{n} close recorded', '{n} closes recorded'),
+                      // Every close, not just the page on screen.
+                      : trCount(_totalCloses, '{n} close recorded', '{n} closes recorded'),
                   style: AppText.caption(),
                 ),
               ],
@@ -141,19 +221,105 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
     );
   }
 
+  /// Over the last 30 days, and saying so: these used to add up whichever
+  /// twenty closes were loaded, under no period at all.
   Widget _statTiles() {
-    return Row(
+    final m = _month;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: _tile(tr('Sales'), formatPeso(_totalSales), AppColors.ink, AppColors.surface)),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _tile(
-            tr('Net variance'),
-            '${_netVariance > 0 ? '+' : ''}${formatPeso(_netVariance)}',
-            _varianceColor(_netVariance),
-            _netVariance.abs() < 0.005 ? AppColors.surface : _varianceFill(_netVariance),
+        Text(tr('LAST 30 DAYS'), style: AppText.overline(color: AppColors.muted)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: _tile(tr('Sales'), formatPeso(m.sales), AppColors.ink, AppColors.surface)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _tile(
+                trCount(m.shortDays, 'Short · {n} day', 'Short · {n} days'),
+                formatPeso(m.short),
+                m.short > 0 ? AppColors.danger : AppColors.ink,
+                m.short > 0 ? AppColors.dangerFill : AppColors.surface,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _tile(
+                trCount(m.overDays, 'Over · {n} day', 'Over · {n} days'),
+                formatPeso(m.over),
+                m.over > 0 ? AppColors.primary : AppColors.ink,
+                m.over > 0 ? AppColors.primaryTint : AppColors.surface,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _outcomeChips() {
+    Widget chip(_Outcome o, String label) {
+      final selected = _outcome == o;
+      return GestureDetector(
+        onTap: () => _setOutcome(o),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          margin: const EdgeInsets.only(right: AppSpace.gapChip),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.ink : AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.chip),
+            border: Border.all(color: selected ? AppColors.ink : AppColors.hairline),
+          ),
+          child: Text(label, style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
+        ),
+      );
+    }
+
+    Widget person(String? name) {
+      final selected = _cashier == name;
+      return GestureDetector(
+        onTap: () => _setCashier(name),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          margin: const EdgeInsets.only(right: AppSpace.gapChip),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.primaryTint : AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.chip),
+            border: Border.all(color: selected ? AppColors.primary : AppColors.hairline),
+          ),
+          child: Text(name ?? tr('Everyone'),
+              style: AppText.chip(color: selected ? AppColors.primary : AppColors.body)),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              chip(_Outcome.all, tr('All')),
+              chip(_Outcome.short, tr('Short')),
+              chip(_Outcome.over, tr('Over')),
+            ],
           ),
         ),
+        // Who closes short, when more than one person closes: a pattern the
+        // owner otherwise had to spot card by card.
+        if (_cashiers.length > 1) ...[
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                person(null),
+                for (final c in _cashiers) person(c),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -169,12 +335,14 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: AppText.caption()),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption()),
           const SizedBox(height: 4),
-          Text(value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppText.statFigure(color: color, size: 20)),
+          // Three to a row now, so a large figure shrinks rather than clips.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(value, maxLines: 1, style: AppText.statFigure(color: color, size: 18)),
+          ),
         ],
       ),
     );
@@ -328,6 +496,10 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                     const SizedBox(height: 8),
                     _detailRow(tr('Cash sales'), formatPeso(s.cashSales)),
                     const SizedBox(height: 8),
+                    if (s.utangCash > 0) ...[
+                      _detailRow(tr('Utang paid in cash'), formatPeso(s.utangCash)),
+                      const SizedBox(height: 8),
+                    ],
                     _detailRow(tr('Expected'), formatPeso(s.expected)),
                     const SizedBox(height: 8),
                     _detailRow(tr('Counted'), formatPeso(s.counted)),
@@ -399,7 +571,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
       MaterialPageRoute(
         builder: (ctx) => DayCloseView(
           summary: summary,
-          title: tr('Shift report'),
+          title: tr('Day report'),
           onDone: () => Navigator.pop(ctx),
         ),
       ),
@@ -447,9 +619,9 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
               child: const Icon(Icons.history_rounded, color: AppColors.primary, size: 30),
             ),
             const SizedBox(height: 14),
-            Text(tr('No shifts closed yet'), style: AppText.cardTitle().copyWith(fontSize: 15)),
+            Text(tr('No days closed yet'), style: AppText.cardTitle().copyWith(fontSize: 15)),
             const SizedBox(height: 4),
-            Text(tr('Close a drawer from Cash count and it will show up here.'),
+            Text(tr('Close the day from Cash count and it will show up here.'),
                 textAlign: TextAlign.center, style: AppText.caption()),
           ],
         ),
