@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/product_model.dart';
 import 'product_service.dart';
 import 'error_log.dart';
 
@@ -38,4 +39,33 @@ class StockAlerts {
       ErrorLog.caught(e, st, 'stock badges');
     }
   }
+}
+
+/// Stock against the healthy level (twice the minimum), 0..1.
+double restockFill(Product p) {
+  final healthy = p.minStock * 2;
+  if (healthy <= 0) return 1;
+  return (p.stock / healthy).clamp(0.0, 1.0);
+}
+
+/// Most urgent first — the order Restock lists in, and Home's "Needs
+/// attention" with it, so the two never disagree about what comes first.
+/// Everything out is at zero, so there the higher minimum — the faster
+/// seller — leads. Running low is ordered by how near empty it is.
+int byRestockUrgency(Product a, Product b) {
+  final int order;
+  if (a.stock <= 0 && b.stock <= 0) {
+    order = b.minStock.compareTo(a.minStock);
+  } else {
+    order = restockFill(a).compareTo(restockFill(b));
+  }
+  return order != 0 ? order : a.name.toLowerCase().compareTo(b.name.toLowerCase());
+}
+
+/// How many to order: enough to land at twice the minimum, and never less
+/// than the minimum itself — one order that keeps the product off Restock
+/// for a while. Restock, Home and Products all offer this same figure.
+int suggestedRestock(Product p) {
+  final s = p.minStock * 2 - p.stock;
+  return s < p.minStock ? p.minStock : s;
 }
