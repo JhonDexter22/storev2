@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/app_info.dart';
 import '../core/design_tokens.dart';
@@ -12,9 +13,11 @@ import 'error_log_screen.dart';
 import 'payment_types_screen.dart';
 import 'printer_screen.dart';
 import '../services/restore_service.dart';
+import '../services/product_service.dart';
 import '../services/settings_service.dart';
 import '../services/staff_service.dart';
 import '../services/stock_alerts.dart';
+import '../widgets/change_pin_flow.dart';
 import '../widgets/restore_flow.dart';
 import '../l10n/tr.dart';
 import '../widgets/language_switch.dart';
@@ -106,8 +109,20 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
     }
   }
 
+  /// Clearing and restoring each replace the whole store, so both sit behind
+  /// the same manager code that closing a shift does. Before this, anyone at
+  /// the till was one dialog away from wiping every sale.
+  Future<bool> _managerApproves(String hint) => authoriseAsManager(
+        context,
+        staff: StaffService(),
+        hint: hint,
+        confirmLabel: tr('Continue'),
+      );
+
   Future<void> _confirmClearData() async {
-    final confirmed = await showDialog<bool>(
+    if (!await _managerApproves(tr('Enter the manager PIN to clear all data.'))) return;
+    if (!mounted) return;
+    final choice = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
@@ -120,17 +135,26 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
+            onPressed: () => Navigator.pop(ctx),
             child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
           ),
+          // The way out that keeps the data: a copy first, then decide.
           TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
+            onPressed: () => Navigator.pop(ctx, 'export'),
+            child: Text(tr('Export a backup first'), style: AppText.chip(color: AppColors.primary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'delete'),
             child: Text(tr('Delete everything'), style: AppText.chip(color: AppColors.danger)),
           ),
         ],
       ),
     );
-    if (confirmed == true) {
+    if (choice == 'export') {
+      await _exportBackup();
+      return;
+    }
+    if (choice == 'delete') {
       await DatabaseHelper.instance.clearAllData();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -142,40 +166,92 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
     }
   }
 
+  /// The minimum a new product starts with. Digits only — the box used to
+  /// take "-5" and save it — and it says so when left empty rather than
+  /// closing on the old value.
   Future<void> _editMinStock() async {
     final ctrl = TextEditingController(text: '${_settings.defaultMinStock}');
-    final result = await showDialog<int>(
+    var applyToAll = false;
+    String? error;
+    final result = await showDialog<({int value, bool all})>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(tr('Default minimum stock'), style: AppText.sectionTitle().copyWith(fontSize: 17)),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          style: AppText.body(color: AppColors.ink),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: AppColors.canvas,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-          ),
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(ctx, int.tryParse(ctrl.text) ?? _settings.defaultMinStock),
-            child: Text(tr('Save'), style: AppText.chip(color: AppColors.primary)),
-          ),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) {
+          void save() {
+            final v = int.tryParse(ctrl.text.trim());
+            if (v == null) {
+              setDialog(() => error = tr('Enter a number'));
+              return;
+            }
+            Navigator.pop(ctx, (value: v, all: applyToAll));
+          }
+
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Text(tr('Default minimum stock'), style: AppText.sectionTitle().copyWith(fontSize: 17)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(5),
+                  ],
+                  onChanged: (_) {
+                    if (error != null) setDialog(() => error = null);
+                  },
+                  onSubmitted: (_) => save(),
+                  style: AppText.body(color: AppColors.ink),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: AppColors.canvas,
+                    errorText: error,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(tr('New products start with this.'), style: AppText.caption()),
+                const SizedBox(height: 4),
+                // Off by default: it overwrites minimums set product by product.
+                CheckboxListTile(
+                  value: applyToAll,
+                  onChanged: (v) => setDialog(() => applyToAll = v ?? false),
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  activeColor: AppColors.primary,
+                  title: Text(tr('Also apply to every product'), style: AppText.body(color: AppColors.ink)),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
+              ),
+              TextButton(
+                onPressed: save,
+                child: Text(tr('Save'), style: AppText.chip(color: AppColors.primary)),
+              ),
+            ],
+          );
+        },
       ),
     );
-    if (result != null) await _settings.setDefaultMinStock(result);
+    if (result == null) return;
+    await _settings.setDefaultMinStock(result.value);
+    if (result.all) {
+      await ProductService().setAllMinStock(result.value);
+      // The nav badges count against minimums; they just moved.
+      StockAlerts.instance.refresh();
+      if (mounted) _toast(tr('Every product now has a minimum of {n}', {'n': result.value}));
+    }
   }
 
   @override
@@ -284,8 +360,15 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
                     {'amount': formatPeso(_settings.openingFloat)}),
                 _editOpeningFloat,
               ),
+              _navRow(
+                tr('Credit limit'),
+                _settings.creditLimit <= 0
+                    ? tr('No limit')
+                    : tr('{amount} unless set per customer', {'amount': formatPeso(_settings.creditLimit)}),
+                _editCreditLimit,
+              ),
             ]),
-            const SizedBox(height: AppSpace.gapSection),
+            const SizedBox(height: AppSpace.gapBlock),
             _overline(tr('Inventory')),
             const SizedBox(height: 8),
             _group([
@@ -293,9 +376,12 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
               // decides whether running-low products appear under the bell on Home.
               _toggleRow(tr('Low stock alerts'), tr('List running-low products under the bell on Home'),
                   _settings.lowStockAlerts, _settings.setLowStockAlerts),
-              _navRow(tr('Default minimum stock'), tr('{n} units', {'n': _settings.defaultMinStock}), _editMinStock),
+              // Says who it is for: changing it did nothing to the products
+              // already on the shelf, and nothing on screen said so.
+              _navRow(tr('Default minimum stock'),
+                  tr('{n} units · for new products', {'n': _settings.defaultMinStock}), _editMinStock),
             ]),
-            const SizedBox(height: AppSpace.gapSection),
+            const SizedBox(height: AppSpace.gapBlock),
             _overline(tr('Data')),
             const SizedBox(height: 8),
             _group([
@@ -321,6 +407,11 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
                 tr('Replaces everything on this device'),
                 _restoring ? null : _restoreBackup,
               ),
+            ]),
+            const SizedBox(height: AppSpace.gapBlock),
+            _overline(tr('Help')),
+            const SizedBox(height: 8),
+            _group([
               _navRow(
                 tr('Error log'),
                 _errorLogSummary(),
@@ -331,11 +422,18 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
                   if (mounted) setState(() {});
                 }),
               ),
+              // What to read out when reporting a problem.
+              _infoRow(tr('App version'), '${AppInfo.version} (${AppInfo.build})'),
+            ]),
+            // Alone and last, with space above: it used to sit one row under
+            // Export, where a thumb reaching to back up could land on it.
+            const SizedBox(height: AppSpace.gapBlock + 10),
+            _group([
               _navRow(tr('Clear all data'), tr('Products, sales and utang — all of it'), _confirmClearData, danger: true),
             ]),
             // Never in a release build: this replaces the store's data.
             if (!kReleaseMode) ...[
-              const SizedBox(height: AppSpace.gapSection),
+              const SizedBox(height: AppSpace.gapBlock),
               _overline('Developer'),
               const SizedBox(height: 8),
               _group([
@@ -350,7 +448,6 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
               ]),
             ],
             const SizedBox(height: AppSpace.gapBlock),
-            Center(child: Text('${AppInfo.name} · v${AppInfo.version}', style: AppText.caption())),
           ],
         ),
         ),
@@ -386,6 +483,8 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
 
   /// Reads a backup back in, after showing exactly what it will do.
   Future<void> _restoreBackup() async {
+    if (!await _managerApproves(tr('Enter the manager PIN to restore a backup.'))) return;
+    if (!mounted) return;
     setState(() => _restoring = true);
     try {
       final done =
@@ -404,7 +503,11 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
   }
 
   /// The change the drawer opens with — what closing the day counts from.
+  /// Behind the manager: Cash count reads this when it counts, so lowering it
+  /// by the amount a drawer is short made the drawer balance.
   Future<void> _editOpeningFloat() async {
+    if (!await _managerApproves(tr('Enter the manager PIN to change the opening cash.'))) return;
+    if (!mounted) return;
     final v = _settings.openingFloat;
     final ctrl = TextEditingController(
         text: v == v.roundToDouble() ? '${v.toInt()}' : v.toStringAsFixed(2));
@@ -447,40 +550,131 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
     if (mounted) setState(() {});
   }
 
+  /// How far a tab can run before checkout warns. A customer can have their
+  /// own; this is everyone else's. Only a warning, so no manager needed.
+  Future<void> _editCreditLimit() async {
+    final v = _settings.creditLimit;
+    final ctrl = TextEditingController(
+        text: v == v.roundToDouble() ? '${v.toInt()}' : v.toStringAsFixed(2));
+    String? error;
+    final result = await showDialog<double>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) {
+          void save() {
+            final parsed = double.tryParse(ctrl.text.replaceAll(',', '').trim());
+            if (parsed == null || parsed < 0) {
+              setDialog(() => error = tr('Enter an amount'));
+              return;
+            }
+            Navigator.pop(ctx, parsed);
+          }
+
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Text(tr('Credit limit'), style: AppText.sectionTitle().copyWith(fontSize: 17)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  onChanged: (_) {
+                    if (error != null) setDialog(() => error = null);
+                  },
+                  onSubmitted: (_) => save(),
+                  style: AppText.body(color: AppColors.ink),
+                  decoration: InputDecoration(
+                    prefixText: '₱ ',
+                    errorText: error,
+                    filled: true,
+                    fillColor: AppColors.canvas,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  tr('Checkout warns when a sale takes a customer past this. It never blocks the sale. 0 means no limit.'),
+                  style: AppText.caption(),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
+              ),
+              TextButton(
+                onPressed: save,
+                child: Text(tr('Save'), style: AppText.chip(color: AppColors.primary)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (result == null) return;
+    await _settings.setCreditLimit(result);
+    if (mounted) setState(() {});
+  }
+
   /// The name printed at the top of every receipt.
   Future<void> _editStoreName() async {
     final ctrl = TextEditingController(text: _settings.storeName);
+    String? error;
     final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(tr('Store name'), style: AppText.sectionTitle().copyWith(fontSize: 17)),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          maxLength: 40,
-          style: AppText.body(color: AppColors.ink),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: AppColors.canvas,
-            counterText: '',
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-          ),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text),
-            child: Text(tr('Save'), style: AppText.chip(color: AppColors.primary)),
-          ),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) {
+          // A blank name used to close the box and quietly keep the old one,
+          // which looked like a save that failed.
+          void save() {
+            if (ctrl.text.trim().isEmpty) {
+              setDialog(() => error = tr('Enter a store name'));
+              return;
+            }
+            Navigator.pop(ctx, ctrl.text);
+          }
+
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Text(tr('Store name'), style: AppText.sectionTitle().copyWith(fontSize: 17)),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              maxLength: 40,
+              style: AppText.body(color: AppColors.ink),
+              onChanged: (_) {
+                if (error != null) setDialog(() => error = null);
+              },
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: AppColors.canvas,
+                counterText: '',
+                errorText: error,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+              onSubmitted: (_) => save(),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
+              ),
+              TextButton(
+                onPressed: save,
+                child: Text(tr('Save'), style: AppText.chip(color: AppColors.primary)),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (result == null) return;
@@ -526,12 +720,17 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
       ),
       child: Row(
         children: [
+          // A rounded square in the More tab's Store colours: circles are
+          // for people.
           Container(
             width: 48,
             height: 48,
-            decoration: const BoxDecoration(color: AppColors.ink, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: AppColors.divider,
+              borderRadius: BorderRadius.circular(14),
+            ),
             alignment: Alignment.center,
-            child: const Icon(Icons.storefront_rounded, color: Colors.white, size: 22),
+            child: const Icon(Icons.storefront_rounded, color: AppColors.body, size: 22),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -540,8 +739,9 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
               children: [
                 Text(_settings.storeName, style: AppText.cardTitle().copyWith(fontSize: 15)),
                 const SizedBox(height: 2),
-                Text(tr('{terminal} · Cashier {name}', {'terminal': _settings.terminal, 'name': _settings.cashier}),
-                    style: AppText.caption()),
+                // The cashier changes every shift and is on the More tab;
+                // here, beside Edit, it read as something Edit could change.
+                Text(_settings.terminal, style: AppText.caption()),
               ],
             ),
           ),
@@ -597,6 +797,19 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
           ),
           const SizedBox(width: 12),
           AppSwitch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String title, String value) {
+    return Padding(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Expanded(child: Text(title, style: AppText.cardTitle())),
+          const SizedBox(width: 12),
+          Text(value, style: AppText.mono(color: AppColors.body, size: 12)),
         ],
       ),
     );
