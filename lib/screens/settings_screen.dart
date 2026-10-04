@@ -2,26 +2,26 @@ import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
+import '../models/staff.dart';
 import '../services/settings_service.dart';
 import '../services/shift_service.dart';
 import '../services/utang_service.dart';
 import 'cash_count_screen.dart';
 import 'cashier_switch_screen.dart';
-import 'product_screen.dart';
 import 'reports_screen.dart';
 import 'returns_screen.dart';
 import 'shift_history_screen.dart';
 import 'store_settings_screen.dart';
 import 'utang_screen.dart';
 import '../l10n/tr.dart';
-import '../widgets/language_switch.dart';
+import '../widgets/initials_avatar.dart';
 
 /// The More hub: everything that is not one of the four main tabs.
 ///
 /// Destinations are grouped by when a cashier reaches for them — what runs
 /// every day, what happens at the counter, and what is set up once — rather
 /// than listed flat. The rows that have a live number worth glancing at
-/// (money owed, sales so far this shift) show it on the right so the hub
+/// (money owed, cash expected in the drawer) show it on the right so the hub
 /// answers the common question without a tap.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.onStartSale});
@@ -35,9 +35,16 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final Future<double> _owed = _loadOwed();
-  late final Future<({double total, int count, DateTime openedAt})> _shift =
-      ShiftService().currentShiftSales();
+  // Not final: reloaded on the way back from any row, or closing the day in
+  // Cash count and taking a payment in Credit left them showing the old
+  // figures until the tab was left and reopened.
+  late Future<double> _owed = _loadOwed();
+  late Future<double> _drawer = _loadDrawer();
+
+  /// The figure Cash count and Home's tile call "Expected in drawer". The
+  /// row used to show all sales this shift — GCash, card and utang included
+  /// — beside a title that says cash.
+  Future<double> _loadDrawer() async => (await ShiftService().drawerNow()).expected;
 
   Future<double> _loadOwed() async {
     final customers = await UtangService().getCustomers();
@@ -46,8 +53,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String _todayLabel() => trDay(DateTime.now());
 
-  void _open(Widget screen) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+  Future<void> _open(Widget screen) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    if (!mounted) return;
+    setState(() {
+      _owed = _loadOwed();
+      _drawer = _loadDrawer();
+    });
   }
 
   void _confirmSignOut() {
@@ -56,9 +68,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(tr('Sign out?'), style: AppText.sectionTitle()),
+        title: Text(tr('Lock the till?'), style: AppText.sectionTitle()),
         content: Text(
-          tr('You will need to sign in again to continue using this device.'),
+          tr('It stays locked until someone enters their code.'),
           style: AppText.body(),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -77,7 +89,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (!mounted) return;
               await CashierSwitchScreen.showSignedOut(context);
             },
-            child: Text(tr('Sign out'), style: AppText.chip(color: AppColors.danger)),
+            child: Text(tr('Lock'), style: AppText.chip(color: AppColors.danger)),
           ),
         ],
       ),
@@ -97,7 +109,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final sections = <_Section>[
       _Section(
-        title: tr('Today'),
+        // All three are about money; "Today" sat over Reports (up to 30
+        // days) and Closed days (past days).
+        title: tr('Money'),
         tint: AppColors.primaryTint,
         iconColor: AppColors.primary,
         items: [
@@ -110,14 +124,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _MoreItem(
             icon: Icons.payments_outlined,
             title: tr('Cash count'),
-            subtitle: tr('End of day reconciliation'),
-            trailing: _ShiftMeta(future: _shift),
+            subtitle: tr('Count and close the day'),
+            trailing: _DrawerMeta(future: _drawer),
             onTap: () => _open(const CashCountScreen()),
           ),
           _MoreItem(
             icon: Icons.history_rounded,
-            title: tr('Shift history'),
-            subtitle: tr('Past closes and drawer variance'),
+            title: tr('Closed days'),
+            subtitle: tr('Past days and drawer checks'),
             onTap: () => _open(const ShiftHistoryScreen()),
           ),
         ],
@@ -136,7 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _MoreItem(
             icon: Icons.receipt_long_outlined,
             title: tr('Credit'),
-            subtitle: tr('Who owes what, aged oldest first'),
+            subtitle: tr('Who owes, oldest first'),
             trailing: _OwedMeta(future: _owed),
             onTap: () => _open(UtangScreen(onCharge: widget.onStartSale)),
           ),
@@ -148,10 +162,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         iconColor: AppColors.body,
         items: [
           _MoreItem(
-            icon: Icons.inventory_2_outlined,
-            title: tr('Products'),
-            subtitle: tr('Full inventory list'),
-            onTap: () => _open(const ProductsScreen()),
+            icon: Icons.manage_accounts_outlined,
+            title: tr('Staff'),
+            subtitle: tr('Add cashiers, change PINs'),
+            onTap: () => _open(const CashierSwitchScreen(openStaff: true)),
           ),
           _MoreItem(
             icon: Icons.settings_outlined,
@@ -178,12 +192,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               phoneSide: 24,
             ),
             children: [
-              Row(
-                children: [
-                  Expanded(child: Text(tr('More'), style: AppText.screenTitle())),
-                  const LanguageSwitch(compact: true),
-                ],
-              ),
+              // Language lives in Settings only: a set-once choice, and a pill
+              // up here was one stray tap from flipping the app mid-shift.
+              Text(tr('More'), style: AppText.screenTitle()),
               const SizedBox(height: 16),
 
               _CashierCard(
@@ -198,7 +209,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 20),
               ],
 
-              _SignOutRow(onTap: _confirmSignOut),
+              _LockRow(onTap: _confirmSignOut),
             ],
           ),
         ),
@@ -216,13 +227,6 @@ class _CashierCard extends StatelessWidget {
   final String detail;
   final VoidCallback onSwitch;
 
-  String get _initials {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts.first[0].toUpperCase();
-    return (parts.first[0] + parts.last[0]).toUpperCase();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -235,19 +239,7 @@ class _CashierCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: const BoxDecoration(
-              color: AppColors.primary,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              _initials,
-              style: AppText.sectionTitle(color: Colors.white),
-            ),
-          ),
+          InitialsAvatar(Staff.initialsOf(name)),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -257,7 +249,20 @@ class _CashierCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(name, style: AppText.sectionTitle(), maxLines: 1, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 2),
-                Text(detail, style: AppText.caption(color: AppColors.body), maxLines: 1, overflow: TextOverflow.ellipsis),
+                // The line opens with the store's name, which beside a
+                // cashier's name read as a second person without the icon.
+                Row(
+                  children: [
+                    const Icon(Icons.storefront_outlined, size: 14, color: AppColors.muted),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(detail,
+                          style: AppText.caption(color: AppColors.body),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -418,10 +423,12 @@ class _MenuRow extends StatelessWidget {
                   children: [
                     Text(item.title, style: AppText.cardTitle().copyWith(fontSize: 14.5)),
                     const SizedBox(height: 2),
+                    // Two lines rather than one: beside a figure on a small
+                    // phone, and in Filipino, one line cut the sentence off.
                     Text(
                       item.subtitle,
                       style: AppText.caption(color: AppColors.body),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
@@ -465,23 +472,23 @@ class _OwedMeta extends StatelessWidget {
   }
 }
 
-/// Sales rung up so far this shift.
-class _ShiftMeta extends StatelessWidget {
-  const _ShiftMeta({required this.future});
+/// What should be in the drawer now.
+class _DrawerMeta extends StatelessWidget {
+  const _DrawerMeta({required this.future});
 
-  final Future<({double total, int count, DateTime openedAt})> future;
+  final Future<double> future;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<({double total, int count, DateTime openedAt})>(
+    return FutureBuilder<double>(
       future: future,
       builder: (context, snap) {
-        final s = snap.data;
-        if (s == null || s.count == 0) return const SizedBox.shrink();
+        final expected = snap.data;
+        if (expected == null) return const SizedBox.shrink();
         return _MetaPill(
-          text: formatPeso(s.total),
-          color: AppColors.successText,
-          background: AppColors.successFill,
+          text: formatPeso(expected),
+          color: AppColors.primary,
+          background: AppColors.primaryTint,
         );
       },
     );
@@ -512,34 +519,66 @@ class _MetaPill extends StatelessWidget {
   }
 }
 
-// ── Sign out ───────────────────────────────────────────────────────────────────
-/// Deliberately quieter than the destinations above it: a bordered row, no
-/// fill, so it cannot be mistaken for a place to go.
-class _SignOutRow extends StatelessWidget {
-  const _SignOutRow({required this.onTap});
+// ── Lock till ──────────────────────────────────────────────────────────────────
+/// A row like every other on this screen, in its own group at the bottom.
+///
+/// Was a full-width red outlined "Sign out" button: it looked like a warning
+/// rather than part of the list, and its name suggested the store account
+/// would go — when what it does is lock the till until someone enters their
+/// code. The red lock tile still sets it apart from the places to go above.
+class _LockRow extends StatelessWidget {
+  const _LockRow({required this.onTap});
 
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.cta),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 15),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.cta),
-            border: Border.all(color: AppColors.dangerBorder),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.logout_rounded, size: 18, color: AppColors.dangerText),
-              const SizedBox(width: 8),
-              Text(tr('Sign out'), style: AppText.chip(color: AppColors.dangerText).copyWith(fontSize: 14)),
-            ],
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          splashColor: AppColors.dangerFill,
+          highlightColor: AppColors.divider,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.dangerFill,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.lock_outline_rounded, size: 21, color: AppColors.dangerText),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(tr('Lock till'),
+                          style: AppText.cardTitle(color: AppColors.dangerText).copyWith(fontSize: 14.5)),
+                      const SizedBox(height: 2),
+                      Text(
+                        tr('A code is needed to sell again'),
+                        style: AppText.caption(color: AppColors.body),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
