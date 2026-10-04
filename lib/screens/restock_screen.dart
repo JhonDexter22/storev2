@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/product_model.dart';
+import '../services/error_log.dart';
 import '../services/product_service.dart';
+import '../services/settings_service.dart';
+import '../services/stock_alerts.dart';
+import '../widgets/add_stock_sheet.dart';
 import '../widgets/product_thumb.dart';
 import '../l10n/tr.dart';
 
@@ -27,28 +31,44 @@ class _RestockScreenState extends State<RestockScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  /// [quiet] keeps the list on screen while it reloads — after a restock or
+  /// a pull to refresh, a spinner in its place was a flash of nothing.
+  Future<void> _load({bool quiet = false}) async {
+    if (!quiet) setState(() => _loading = true);
     final all = await _productService.getAllProducts();
     if (!mounted) return;
     setState(() {
       _all = all;
-      _products = all.where((p) => p.stock <= p.minStock).toList();
+      _products = all.where((p) => p.stock <= p.minStock).toList()..sort(byRestockUrgency);
       _loading = false;
     });
   }
 
+
   List<Product> get _critical => _products.where((p) => p.stock <= 0).toList();
   List<Product> get _low => _products.where((p) => p.stock > 0).toList();
 
-  /// Enough to land at twice the minimum, and never less than the minimum
-  /// itself — one order that keeps the product off this screen for a while.
-  int _suggested(Product p) {
-    final s = p.minStock * 2 - p.stock;
-    return s < p.minStock ? p.minStock : s;
-  }
+  /// The shared rule, so Home and Products offer the same figure.
+  int _suggested(Product p) => suggestedRestock(p);
 
-  int get _suggestedTotal => _products.fold(0, (s, p) => s + _suggested(p));
+  /// The list, as a message to take to the palengke or send to a supplier.
+  Future<void> _shareList() async {
+    final text = restockListText(
+      store: SettingsService.instance.storeName,
+      date: DateTime.now(),
+      items: _products,
+      suggested: _suggested,
+    );
+    try {
+      await SharePlus.instance.share(ShareParams(text: text));
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'share restock list');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(tr('Could not share: {error}', {'error': e})),
+      ));
+    }
+  }
 
   /// Healthy products nearest their minimum — what will land on this screen
   /// next. Ordered by headroom in units, then by how full the bar is.
@@ -62,242 +82,29 @@ class _RestockScreenState extends State<RestockScreen> {
     return list.take(5).toList();
   }
 
-  /// Stock against the healthy level (twice the minimum), 0..1.
-  double _fill(Product p) {
-    final healthy = p.minStock * 2;
-    if (healthy <= 0) return 1;
-    return (p.stock / healthy).clamp(0.0, 1.0);
-  }
+  double _fill(Product p) => restockFill(p);
 
-  // ── Update sheet ─────────────────────────────────────────────────────────
-  void _openUpdateSheet(Product product) {
-    final suggested = _suggested(product);
-    final qtyCtrl = TextEditingController(text: '$suggested');
-    int addQty = suggested;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setSheet) {
-          void setQty(int v) {
-            addQty = v.clamp(0, 99999);
-            qtyCtrl.text = '$addQty';
-            qtyCtrl.selection = TextSelection.collapsed(offset: qtyCtrl.text.length);
-            setSheet(() {});
-          }
-
-          final newStock = product.stock + addQty;
-          final canSave = addQty > 0;
-
-          return Container(
-            padding: EdgeInsets.fromLTRB(
-              AppSpace.sheetPad,
-              14,
-              AppSpace.sheetPad,
-              MediaQuery.of(ctx).viewInsets.bottom + 20,
-            ),
-            decoration: const BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                          color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      ProductThumb(product: product, size: 48, radius: 12),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(product.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppText.sectionTitle().copyWith(fontSize: 18)),
-                            const SizedBox(height: 2),
-                            Text('${product.category} · ${tr('min {n}', {'n': product.minStock})}',
-                                style: AppText.caption()),
-                          ],
-                        ),
-                      ),
-                      StatusPill(
-                        label: StockStatus.label(product.stock, product.minStock),
-                        fg: StockStatus.text(product.stock, product.minStock),
-                        bg: StockStatus.fill(product.stock, product.minStock),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      Expanded(child: _stockTile(tr('Current stock'), '${product.stock}', AppColors.ink)),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 6),
-                        child: Icon(Icons.arrow_forward_rounded, size: 18, color: AppColors.faint),
-                      ),
-                      Expanded(
-                          child: _stockTile(tr('After restock'), '$newStock', AppColors.primary,
-                              tint: true)),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Text(tr('Add quantity'), style: AppText.body()),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: AppColors.canvas,
-                      borderRadius: BorderRadius.circular(AppRadius.input),
-                      border: Border.all(color: AppColors.hairline),
-                    ),
-                    child: Row(
-                      children: [
-                        _stepBtn(Icons.remove_rounded, addQty > 0 ? () => setQty(addQty - 1) : null),
-                        Expanded(
-                          child: TextField(
-                            controller: qtyCtrl,
-                            textAlign: TextAlign.center,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(5),
-                            ],
-                            style: AppText.largeFigure().copyWith(fontSize: 30),
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              isCollapsed: true,
-                              contentPadding: EdgeInsets.symmetric(vertical: 6),
-                            ),
-                            onChanged: (v) => setSheet(() => addQty = int.tryParse(v) ?? 0),
-                          ),
-                        ),
-                        _stepBtn(Icons.add_rounded, () => setQty(addQty + 1)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  // Sari-sari deliveries come by the pack and the dozen; typing
-                  // 24 one tap at a time is the thing this row exists to skip.
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _quickChip(tr('Suggested +{n}', {'n': suggested}), addQty == suggested,
-                          () => setQty(suggested)),
-                      for (final n in const [5, 10, 12, 24])
-                        _quickChip('+$n', false, () => setQty(addQty + n)),
-                    ],
-                  ),
-                  const SizedBox(height: 22),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: AppColors.disabledFill,
-                        disabledForegroundColor: AppColors.muted,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.cta)),
-                      ),
-                      onPressed: !canSave
-                          ? null
-                          : () async {
-                              // Relative, so a sale rung while this sheet was
-                              // open is not overwritten by a stale total.
-                              await _productService.addStock(product.id!, addQty);
-                              if (ctx.mounted) Navigator.pop(ctx);
-                              _load();
-                            },
-                      child: Text(
-                        canSave ? tr('Add {n} to stock', {'n': addQty}) : tr('Enter a quantity'),
-                        style: AppText.chip(color: canSave ? Colors.white : AppColors.muted)
-                            .copyWith(fontSize: 15),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    ).whenComplete(qtyCtrl.dispose);
-  }
-
-  Widget _stockTile(String label, String value, Color color, {bool tint = false}) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: tint ? AppColors.primaryTint : AppColors.canvas,
-        borderRadius: BorderRadius.circular(AppRadius.input),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: AppText.caption()),
-          const SizedBox(height: 4),
-          Text(value, style: AppText.largeFigure(color: color).copyWith(fontSize: 22)),
-        ],
-      ),
-    );
-  }
-
-  Widget _stepBtn(IconData icon, VoidCallback? onTap) {
-    final enabled = onTap != null;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.hairline),
-        ),
-        child: Icon(icon, color: enabled ? AppColors.ink : AppColors.faint, size: 20),
-      ),
-    );
-  }
-
-  Widget _quickChip(String label, bool selected, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.ink : AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.chip),
-          border: Border.all(color: selected ? AppColors.ink : AppColors.hairline),
-        ),
-        child: Text(label, style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
-      ),
-    );
+  /// The shared add-stock sheet, with this product's suggestion one tap away.
+  Future<void> _restock(Product p) async {
+    final added = await showAddStockSheet(context, p, suggested: _suggested(p));
+    if (added == null || !mounted) return;
+    await _load(quiet: true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(
+            tr('Added {n} · {name} now {after}', {'n': added, 'name': p.name, 'after': p.stock + added}),
+            style: AppText.body(color: Colors.white)),
+        backgroundColor: AppColors.ink,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+        // Sit above the raised Sell button rather than under it.
+        margin: EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH,
+            12 + MediaQuery.paddingOf(context).bottom),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
+        action: undoAddedStock(p.id!, added, onUndone: () => _load(quiet: true)),
+      ));
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
@@ -311,7 +118,7 @@ class _RestockScreenState extends State<RestockScreen> {
             ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
             : RefreshIndicator(
                 color: AppColors.primary,
-                onRefresh: _load,
+                onRefresh: () => _load(quiet: true),
                 child: Breakpoints.isTablet(context) ? _tabletBody() : _phoneBody(),
               ),
       ),
@@ -366,13 +173,42 @@ class _RestockScreenState extends State<RestockScreen> {
           cell('${_low.length}', tr('Running low'),
               _low.isEmpty ? AppColors.ink : AppColors.warningText),
           rule(),
-          cell('+$_suggestedTotal', tr('Units to order'), AppColors.primary),
+          // Was "+404 Units to order": sachets, cans and bottles added
+          // together, a number nobody could act on. Now the way to the list.
+          Expanded(
+            child: Semantics(
+              button: true,
+              label: tr('Share shopping list'),
+              child: GestureDetector(
+                onTap: _products.isEmpty ? null : _shareList,
+                behavior: HitTestBehavior.opaque,
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('${_products.length}',
+                            style: AppText.statFigure(color: AppColors.primary, size: 19)),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.ios_share_rounded, size: 15, color: AppColors.primary),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(tr('Shopping list'), style: AppText.caption(color: AppColors.primary)),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _lowStockCard() {
+  /// Out of stock and running low share one compact row; the out-of-stock
+  /// ones were full cards of about 200px each, so a dozen of them pushed
+  /// everything running low several screens down.
+  Widget _needCard(List<Product> items) {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -383,9 +219,9 @@ class _RestockScreenState extends State<RestockScreen> {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          for (int i = 0; i < _low.length; i++) ...[
-            _lowRow(_low[i]),
-            if (i != _low.length - 1) const Divider(color: AppColors.divider, height: 1),
+          for (int i = 0; i < items.length; i++) ...[
+            _needRow(items[i]),
+            if (i != items.length - 1) const Divider(color: AppColors.divider, height: 1),
           ],
         ],
       ),
@@ -413,16 +249,13 @@ class _RestockScreenState extends State<RestockScreen> {
           if (_critical.isNotEmpty) ...[
             _groupHeading(tr('Critical'), AppColors.danger, _critical.length),
             const SizedBox(height: 10),
-            for (final p in _critical) ...[
-              _criticalCard(p),
-              const SizedBox(height: 10),
-            ],
-            const SizedBox(height: AppSpace.gapSection),
+            _needCard(_critical),
+            const SizedBox(height: AppSpace.gapBlock),
           ],
           if (_low.isNotEmpty) ...[
             _groupHeading(tr('Low stock'), AppColors.warning, _low.length),
             const SizedBox(height: 10),
-            _lowStockCard(),
+            _needCard(_low),
           ],
         ],
       ],
@@ -430,9 +263,9 @@ class _RestockScreenState extends State<RestockScreen> {
   }
 
   /// Tablet: the two urgencies sit side by side rather than stacked, so a
-  /// long list of low stock no longer buries the out-of-stock cards that
-  /// actually cost a sale. Critical takes the wider column because its cards
-  /// carry the stat rule and the restock button.
+  /// long list of low stock no longer buries the out-of-stock rows that
+  /// actually cost a sale. Both use the same compact row, so the columns
+  /// split evenly.
   Widget _tabletBody() {
     if (_products.isEmpty) {
       return ListView(
@@ -461,7 +294,6 @@ class _RestockScreenState extends State<RestockScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              flex: 3,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -470,16 +302,12 @@ class _RestockScreenState extends State<RestockScreen> {
                   if (_critical.isEmpty)
                     _columnEmpty(tr('Nothing is out of stock'))
                   else
-                    for (final p in _critical) ...[
-                      _criticalCard(p),
-                      const SizedBox(height: 10),
-                    ],
+                    _needCard(_critical),
                 ],
               ),
             ),
             const SizedBox(width: 16),
             Expanded(
-              flex: 2,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -488,7 +316,7 @@ class _RestockScreenState extends State<RestockScreen> {
                   if (_low.isEmpty)
                     _columnEmpty(tr('Nothing is running low'))
                   else
-                    _lowStockCard(),
+                    _needCard(_low),
                 ],
               ),
             ),
@@ -533,90 +361,16 @@ class _RestockScreenState extends State<RestockScreen> {
     );
   }
 
-  Widget _criticalCard(Product p) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpace.cardPad),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: AppColors.dangerBorder),
-        boxShadow: AppShadows.card,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              ProductThumb(product: p, size: 48, radius: 12),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(p.name, style: AppText.cardTitle(), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    const SizedBox(height: 2),
-                    Text(p.category, style: AppText.caption()),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              StatusPill(label: tr('Out of stock'), fg: AppColors.dangerText, bg: AppColors.dangerFill),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: AppColors.divider), bottom: BorderSide(color: AppColors.divider)),
-            ),
-            child: Row(
-              children: [
-                _ruleStat(tr('Current'), '${p.stock}', AppColors.dangerText),
-                _ruleStat(tr('Minimum'), '${p.minStock}', AppColors.ink),
-                _ruleStat(tr('Suggested'), '+${_suggested(p)}', AppColors.primary),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: ElevatedButton(
-              onPressed: () => _openUpdateSheet(p),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.ink,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: Text(tr('Restock now'), style: AppText.chip(color: Colors.white)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _ruleStat(String label, String value, Color color) {
-    return Expanded(
-      child: Column(
-        children: [
-          Text(value, style: AppText.statFigure(color: color, size: 16)),
-          const SizedBox(height: 2),
-          Text(label, style: AppText.caption()),
-        ],
-      ),
-    );
-  }
-
   /// Thumbnail, name, a thin bar of stock against the healthy level (twice
-  /// the minimum), and a restock button.
-  Widget _lowRow(Product p) {
+  /// the minimum), and the suggested order. Red when out, amber when low.
+  Widget _needRow(Product p) {
     final fill = _fill(p);
+    final out = p.stock <= 0;
+    final text = out ? AppColors.dangerText : AppColors.warningText;
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => _openUpdateSheet(p),
+        onTap: () => _restock(p),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
           child: Row(
@@ -629,11 +383,20 @@ class _RestockScreenState extends State<RestockScreen> {
                   children: [
                     Text(p.name, style: AppText.cardTitle(), maxLines: 1, overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Text(tr('{n} left', {'n': p.stock}), style: AppText.caption(color: AppColors.warningText)),
-                        Text(' · ${tr('min {n}', {'n': p.minStock})}', style: AppText.caption()),
-                      ],
+                    // One line that trims, not a Row that overflows: the
+                    // column is narrow beside the suggestion pill, and the
+                    // Filipino runs longer.
+                    Text.rich(
+                      TextSpan(children: [
+                        TextSpan(
+                            text: tr('{n} left', {'n': p.stock}),
+                            style: AppText.caption(color: text)),
+                        TextSpan(
+                            text: ' · ${tr('min {n}', {'n': p.minStock})}',
+                            style: AppText.caption()),
+                      ]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 7),
                     ClipRRect(
@@ -654,11 +417,11 @@ class _RestockScreenState extends State<RestockScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: AppColors.warningFill,
+                  color: out ? AppColors.dangerFill : AppColors.warningFill,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: AppColors.warningBorder),
+                  border: Border.all(color: out ? AppColors.dangerBorder : AppColors.warningBorder),
                 ),
-                child: Text('+${_suggested(p)}', style: AppText.chip(color: AppColors.warningText)),
+                child: Text('+${_suggested(p)}', style: AppText.chip(color: text)),
               ),
             ],
           ),
@@ -743,7 +506,7 @@ class _RestockScreenState extends State<RestockScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => _openUpdateSheet(p),
+        onTap: () => _restock(p),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
@@ -785,4 +548,32 @@ class _RestockScreenState extends State<RestockScreen> {
       ),
     );
   }
+}
+
+/// The restock list as a message: by category, out of stock first within
+/// each, with the suggested amount. Plain text, so it reads the same in
+/// Messenger, SMS or a notes app.
+String restockListText({
+  required String store,
+  required DateTime date,
+  required List<Product> items,
+  required int Function(Product) suggested,
+}) {
+  final byCategory = <String, List<Product>>{};
+  for (final p in items) {
+    byCategory.putIfAbsent(p.category.trim(), () => []).add(p);
+  }
+  final categories = byCategory.keys.toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+  final out = StringBuffer('$store · ${tr('Restock list')} · ${trDay(date)}');
+  for (final c in categories) {
+    final list = byCategory[c]!..sort(byRestockUrgency);
+    out.write('\n\n${c.toUpperCase()}');
+    for (final p in list) {
+      out.write('\n${p.name} — ${suggested(p)}');
+      if (p.stock <= 0) out.write(' (${tr('out')})');
+    }
+  }
+  return out.toString();
 }
