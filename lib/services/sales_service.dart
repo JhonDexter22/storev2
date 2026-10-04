@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
+import '../models/product_model.dart';
+import '../models/payment_type.dart';
 import '../models/cart_line.dart';
 import '../models/discount.dart';
 import '../models/refund_model.dart';
@@ -182,6 +184,38 @@ class SalesService {
   /// The latest sales, each with its lines attached — one query for the
   /// sales and one for all their items, so a list of receipts can say what
   /// was bought without a query per row.
+  /// Sales newest first, a page at a time, for Returns: [query] matches a
+  /// receipt number ("0012", "#0012") or the name of anything on the sale.
+  Future<List<Sale>> findSales({String query = '', int limit = 20, int offset = 0}) async {
+    final db = await dbHelper.database;
+    final q = query.trim().toLowerCase().replaceFirst('#', '');
+    final result = await db.query(
+      'sales',
+      where: q.isEmpty
+          ? null
+          : 'LOWER(reference) LIKE ? OR id IN '
+              '(SELECT sale_id FROM sale_items WHERE LOWER(name) LIKE ?)',
+      whereArgs: q.isEmpty ? null : ['%$q%', '%$q%'],
+      orderBy: 'id DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return _withItems(db, result.map((m) => Sale.fromMap(m)).toList());
+  }
+
+  /// How much of each sale has been refunded so far.
+  Future<Map<int, double>> refundedBySale(Iterable<int> saleIds) async {
+    final ids = saleIds.toSet().toList();
+    if (ids.isEmpty) return const {};
+    final db = await dbHelper.database;
+    final rows = await db.rawQuery(
+      'SELECT sale_id, SUM(amount) AS v FROM refunds '
+      'WHERE sale_id IN (${List.filled(ids.length, '?').join(',')}) GROUP BY sale_id',
+      ids,
+    );
+    return {for (final r in rows) (r['sale_id'] as num).toInt(): (r['v'] as num).toDouble()};
+  }
+
   Future<List<Sale>> getRecentSales({int limit = 10}) async {
     final db = await dbHelper.database;
     final result = await db.query('sales', orderBy: 'id DESC', limit: limit);
@@ -336,6 +370,45 @@ class SalesService {
       LIMIT ?
     ''', [windowStart(days).toIso8601String(), limit]);
     return [for (final r in rows) (r['id'] as num).toInt()];
+  }
+
+  /// Sales in each hour of the day (0–23) over the period: how many, and how
+  /// much. When the counter is busy, for when to be at it.
+  Future<List<({int hour, int count, double revenue})>> salesByHour(int days) async {
+    final db = await dbHelper.database;
+    // Timestamps are stored in local time, ISO-formatted: the hour is
+    // characters 12–13.
+    final rows = await db.rawQuery(
+      'SELECT CAST(substr(created_at, 12, 2) AS INTEGER) AS h, '
+      'COUNT(*) AS n, COALESCE(SUM(total), 0) AS v '
+      'FROM sales WHERE created_at >= ? GROUP BY h',
+      [windowStart(days).toIso8601String()],
+    );
+    final byHour = {
+      for (final r in rows)
+        (r['h'] as num).toInt(): (count: (r['n'] as num).toInt(), revenue: (r['v'] as num).toDouble()),
+    };
+    return [
+      for (var h = 0; h < 24; h++)
+        (hour: h, count: byHour[h]?.count ?? 0, revenue: byHour[h]?.revenue ?? 0),
+    ];
+  }
+
+  /// Products with stock on the shelf that sold nothing in the period, the
+  /// most money tied up first — what not to reorder. [total] is how many
+  /// there are in all, when [limit] shows only the top few.
+  Future<({List<Product> items, int total})> notSelling(int days, {int limit = 5}) async {
+    final db = await dbHelper.database;
+    const where = 'stock > 0 AND id NOT IN ('
+        'SELECT DISTINCT si.product_id FROM sale_items si '
+        'JOIN sales s ON s.id = si.sale_id WHERE s.created_at >= ?)';
+    final since = windowStart(days).toIso8601String();
+    final rows = await db.query('products',
+        where: where, whereArgs: [since], orderBy: 'price * stock DESC', limit: limit);
+    final total = Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM products WHERE $where', [since])) ??
+        0;
+    return (items: rows.map(Product.fromMap).toList(), total: total);
   }
 
   /// Products by revenue over the period, highest first, so bar length and
@@ -522,6 +595,11 @@ class SalesService {
     final db = await dbHelper.database;
     final items = await getSaleItems(sale.id!);
     final now = DateTime.now();
+    // A sale that went on a tab was never paid: its refund comes off the
+    // customer's balance, and no money moves. It used to default to Cash —
+    // handing out money that never came in, and leaving the debt standing.
+    final onTab = sale.paymentMethod == PaymentType.utangName;
+    if (onTab) method = PaymentType.utangName;
 
     double amount = 0;
     final refundItems = <Map<String, dynamic>>[];
@@ -558,6 +636,24 @@ class SalesService {
         'cashier': cashier,
       });
 
+      if (onTab) {
+        final charge = await txn.query('utang_entries',
+            columns: ['customer_id'],
+            where: "sale_id = ? AND kind = 'charge'",
+            whereArgs: [sale.id],
+            limit: 1);
+        if (charge.isNotEmpty) {
+          await txn.insert('utang_entries', {
+            'customer_id': charge.first['customer_id'],
+            'sale_id': sale.id,
+            'created_at': now.toIso8601String(),
+            'amount': -amount,
+            'kind': 'return',
+            'note': sale.reference,
+          });
+        }
+      }
+
       for (final ri in refundItems) {
         await txn.insert('refund_items', {...ri, 'refund_id': refundId});
         if (restock) {
@@ -577,9 +673,12 @@ class SalesService {
 
   /// Cash taken today. Only cash counts toward the drawer — GCash and card
   /// never land in it.
-  Future<double> cashSalesToday() async {
+  Future<double> cashSalesToday() => cashSalesSince(windowStart(1));
+
+  /// Cash sales net of cash refunds from [since] on.
+  Future<double> cashSalesSince(DateTime since) async {
     final db = await dbHelper.database;
-    final start = windowStart(1).toIso8601String();
+    final start = since.toIso8601String();
 
     final sold = await db.rawQuery(
       "SELECT SUM(total) AS v FROM sales WHERE payment_method = 'Cash' AND created_at >= ?",
