@@ -132,13 +132,13 @@ class ReceiptDocument {
     ];
   }
 
-  /// The end-of-shift cash count — for the shopkeeper, not a customer.
+  /// The cash count at a day close — for the shopkeeper, not a customer.
   static List<ReceiptBlock> shift(Shift s, {required String storeName}) {
     final over = s.variance > 0;
     final short = s.variance < 0;
     return [
       ReceiptTitle(storeName),
-      const ReceiptCentred('SHIFT SUMMARY'),
+      const ReceiptCentred('CASH COUNT'),
       ReceiptCentred(_stamp(s.closedAtDate)),
       const ReceiptRule(),
       ReceiptRow('Cashier', s.cashier),
@@ -151,6 +151,9 @@ class ReceiptDocument {
       const ReceiptGap(),
       ReceiptRow('Opening float', formatPeso(s.openingFloat)),
       ReceiptRow('Cash sales', formatPeso(s.cashSales)),
+      // Without it, float + cash sales did not add up to Expected on a day
+      // someone paid off utang in cash.
+      if (s.utangCash > 0) ReceiptRow('Utang paid in cash', formatPeso(s.utangCash)),
       ReceiptRow('Expected', formatPeso(s.expected)),
       ReceiptRow('Counted', formatPeso(s.counted)),
       const ReceiptRule(),
@@ -210,6 +213,7 @@ class ReceiptDocument {
         const ReceiptNote('Cash drawer:'),
         ReceiptRow('Opening float', formatPeso(shift.openingFloat)),
         ReceiptRow('Cash sales', formatPeso(shift.cashSales)),
+        if (shift.utangCash > 0) ReceiptRow('Utang paid in cash', formatPeso(shift.utangCash)),
         ReceiptRow('Expected', formatPeso(shift.expected)),
         ReceiptRow('Counted', formatPeso(shift.counted)),
         ReceiptRow(
