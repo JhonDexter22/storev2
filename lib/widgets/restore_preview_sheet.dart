@@ -203,7 +203,7 @@ class RestorePreviewSheet extends StatelessWidget {
         'sale_items' => tr('Sale lines'),
         'refunds' => tr('Refunds'),
         'refund_items' => tr('Refund lines'),
-        'shifts' => tr('Shifts'),
+        'shifts' => tr('Closed days'),
         'customers' => tr('Utang customers'),
         'utang_entries' => tr('Utang entries'),
         _ => table,
