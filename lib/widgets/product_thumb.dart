@@ -16,6 +16,7 @@ class ProductThumb extends StatelessWidget {
     this.size,
     this.radius = 12,
     this.iconSize = 18,
+    this.tinted = true,
   });
 
   final Product product;
@@ -23,10 +24,19 @@ class ProductThumb extends StatelessWidget {
   final double radius;
   final double iconSize;
 
+  /// With no photo, fill with the category's colour rather than stripes —
+  /// everywhere, so "blue is noodles" holds from the till to Restock.
+  final bool tinted;
+
   @override
   Widget build(BuildContext context) {
     final path = product.imagePath;
-    final placeholder = PhotoPlaceholder(borderRadius: radius, iconSize: iconSize);
+    final placeholder = PhotoPlaceholder(
+      borderRadius: radius,
+      iconSize: iconSize,
+      name: product.name,
+      tint: tinted ? CategoryTint.of(product.category) : null,
+    );
     if (path == null || path.isEmpty) {
       return size == null
           ? placeholder
