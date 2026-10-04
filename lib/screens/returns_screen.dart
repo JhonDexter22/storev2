@@ -7,6 +7,8 @@ import '../models/refund_model.dart';
 import '../models/sale_model.dart';
 import '../services/sales_service.dart';
 import '../services/settings_service.dart';
+import '../services/staff_service.dart';
+import '../widgets/change_pin_flow.dart';
 import '../l10n/tr.dart';
 
 /// Returns & voids — reverse part or all of a completed sale.
@@ -21,7 +23,12 @@ class ReturnsScreen extends StatefulWidget {
 
 class _ReturnsScreenState extends State<ReturnsScreen> {
   final SalesService _sales = SalesService();
+  static const _page = 20;
+
   List<Sale> _recent = [];
+  Map<int, double> _refunded = const {};
+  String _search = '';
+  bool _hasMore = false;
   bool _loading = true;
 
   /// Tablet only: the sale whose return is being built in the right pane.
@@ -33,14 +40,96 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    final sales = await _sales.getRecentSales(limit: 20);
+  /// Only the last twenty used to be reachable, with no way to look further
+  /// back: a customer returning yesterday's item after a busy day could not
+  /// be found. Now searchable, and paged.
+  Future<void> _load({bool quiet = false}) async {
+    if (!quiet) setState(() => _loading = true);
+    final sales = await _sales.findSales(query: _search, limit: _page);
+    final refunded = await _sales.refundedBySale(sales.map((s) => s.id!));
     if (!mounted) return;
     setState(() {
       _recent = sales;
+      _refunded = refunded;
+      _hasMore = sales.length == _page;
       _loading = false;
     });
+  }
+
+  Future<void> _loadOlder() async {
+    final more = await _sales.findSales(query: _search, limit: _page, offset: _recent.length);
+    final refunded = await _sales.refundedBySale(more.map((s) => s.id!));
+    if (!mounted) return;
+    setState(() {
+      _recent = [..._recent, ...more];
+      _refunded = {..._refunded, ...refunded};
+      _hasMore = more.length == _page;
+    });
+  }
+
+  /// Fully returned, partly returned, or neither.
+  ({bool all, bool some}) _returnState(Sale sale) {
+    final r = _refunded[sale.id] ?? 0;
+    return (all: r >= sale.total - 0.005 && r > 0, some: r > 0.005);
+  }
+
+  Widget _searchField() {
+    return Container(
+      height: 46,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.input),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: TextField(
+        onChanged: (v) {
+          _search = v;
+          _load(quiet: true);
+        },
+        style: AppText.body(color: AppColors.ink),
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          isCollapsed: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          hintText: tr('Search receipt number or item'),
+          hintStyle: AppText.body(color: AppColors.faint),
+          prefixIcon: const Icon(Icons.search_rounded, color: AppColors.muted, size: 20),
+          prefixIconConstraints: const BoxConstraints(minWidth: 42),
+        ),
+      ),
+    );
+  }
+
+  Widget _olderButton() => SizedBox(
+        height: 46,
+        child: OutlinedButton(
+          onPressed: _loadOlder,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.body,
+            side: const BorderSide(color: AppColors.hairline),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
+          ),
+          child: Text(tr('Show older'), style: AppText.chip(color: AppColors.body)),
+        ),
+      );
+
+  Widget _noMatch() => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: Text(tr('No sales match'), style: AppText.body())),
+      );
+
+  Widget _returnPill(Sale sale) {
+    final state = _returnState(sale);
+    if (!state.some) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: StatusPill(
+        label: state.all ? tr('Returned') : tr('Partly returned'),
+        fg: AppColors.body,
+        bg: AppColors.divider,
+        dot: false,
+      ),
+    );
   }
 
   Future<void> _open(Sale sale, {required bool startAsVoid}) async {
@@ -48,7 +137,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
       context,
       MaterialPageRoute(builder: (_) => ReturnDetailScreen(sale: sale, startAsVoid: startAsVoid)),
     );
-    if (done == true) _load();
+    if (done == true) _load(quiet: true);
   }
 
   @override
@@ -65,17 +154,21 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-                  : _recent.isEmpty
+                  : _recent.isEmpty && _search.isEmpty
                       ? _empty()
                       : ListView(
                           padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 6, AppSpace.screenH, 32),
                           children: [
+                            _searchField(),
+                            const SizedBox(height: AppSpace.gapSection),
                             _note(),
                             const SizedBox(height: AppSpace.gapSection),
+                            if (_recent.isEmpty) _noMatch(),
                             for (final sale in _recent) ...[
                               _saleCard(sale),
                               const SizedBox(height: 10),
                             ],
+                            if (_hasMore) _olderButton(),
                           ],
                         ),
             ),
@@ -98,7 +191,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-                  : _recent.isEmpty
+                  : _recent.isEmpty && _search.isEmpty
                       ? _empty()
                       : Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -114,7 +207,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                                       embedded: true,
                                       onDone: () {
                                         setState(() => _selected = null);
-                                        _load();
+                                        _load(quiet: true);
                                       },
                                     ),
                             ),
@@ -136,12 +229,16 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
         children: [
+          _searchField(),
+          const SizedBox(height: AppSpace.gapSection),
           _note(),
           const SizedBox(height: AppSpace.gapSection),
+          if (_recent.isEmpty) _noMatch(),
           for (final sale in _recent) ...[
             _selectableSaleRow(sale),
             const SizedBox(height: 8),
           ],
+          if (_hasMore) _olderButton(),
         ],
       ),
     );
@@ -180,7 +277,13 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            Text(formatPeso(sale.total), style: AppText.cardTitle()),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(formatPeso(sale.total), style: AppText.cardTitle()),
+                _returnPill(sale),
+              ],
+            ),
           ],
         ),
       ),
@@ -269,28 +372,37 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
     );
   }
 
+  /// One tap opens the return; "Void all" is inside. Every card used to
+  /// carry its own red Void button — a list of them, each one mis-tap from
+  /// voiding the wrong sale.
   Widget _saleCard(Sale sale) {
     final t = TimeOfDay.fromDateTime(sale.createdAtDate);
-    return Container(
-      padding: const EdgeInsets.all(AppSpace.cardPad),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
+    final state = _returnState(sale);
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadius.card),
+      child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: AppColors.hairline),
-        boxShadow: AppShadows.card,
-      ),
-      child: Column(
-        children: [
-          Row(
+        onTap: () => _open(sale, startAsVoid: false),
+        child: Container(
+          padding: const EdgeInsets.all(AppSpace.cardPad),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: AppColors.hairline),
+          ),
+          child: Row(
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(sale.summary(), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
+                    Text(sale.summary(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.cardTitle(color: state.all ? AppColors.muted : AppColors.ink)),
                     const SizedBox(height: 2),
                     Text(
-                      '${t.format(context)} · ${trCount(sale.itemCount, '{n} item', '{n} items')} · ${sale.paymentMethod} · ${sale.shortRef}',
+                      '${t.format(context)} · ${trCount(sale.itemCount, '{n} item', '{n} items')} · ${tr(sale.paymentMethod)} · ${sale.shortRef}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.caption(),
@@ -298,45 +410,19 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                   ],
                 ),
               ),
-              Text(formatPeso(sale.total), style: AppText.cardTitle()),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(formatPeso(sale.total), style: AppText.cardTitle()),
+                  _returnPill(sale),
+                ],
+              ),
+              const SizedBox(width: 2),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.faint, size: 20),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 42,
-                  child: ElevatedButton(
-                    onPressed: () => _open(sale, startAsVoid: false),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primaryTint,
-                      foregroundColor: AppColors.primary,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: Text(tr('Return items'), style: AppText.chip(color: AppColors.primary)),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: SizedBox(
-                  height: 42,
-                  child: OutlinedButton(
-                    onPressed: () => _open(sale, startAsVoid: true),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.danger,
-                      side: const BorderSide(color: AppColors.dangerBorder),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: Text(tr('Void whole sale'), style: AppText.chip(color: AppColors.danger)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -393,20 +479,36 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
   final SalesService _sales = SalesService();
 
   static const _reasons = ['Damaged', 'Wrong item', 'Expired', 'Changed mind'];
+
+  /// The sale went on a customer's tab, so it was never paid for.
+  bool get _onTab => widget.sale.paymentMethod == PaymentType.utangName;
+
   /// Refund routes follow the same configuration as checkout: a store that
-  /// does not take GCash should not be offering a GCash refund. Utang is not
-  /// among them — money goes back, it does not go on a tab — and store credit
+  /// does not take GCash should not be offering a GCash refund. Store credit
   /// is added because it is a refund route rather than a payment type.
-  static List<String> get _methods => [
-        for (final t in SettingsService.instance.paymentTypes)
-          if (t.kind != PaymentKind.utang) t.name,
-        'Store credit',
-      ];
+  ///
+  /// A tab sale has one route: off the tab. Money cannot go back for goods
+  /// that were never paid for.
+  List<String> get _methods => _onTab
+      ? [PaymentType.utangName]
+      : [
+          for (final t in SettingsService.instance.paymentTypes)
+            if (t.kind != PaymentKind.utang) t.name,
+          'Store credit',
+        ];
+
+  /// How the sale was paid, where that is still a way to refund — not Cash
+  /// for everything, which took a GCash sale's refund out of the drawer.
+  late String _method =
+      _methods.contains(widget.sale.paymentMethod) ? widget.sale.paymentMethod : _methods.first;
+
+  /// What a refund route is called on screen.
+  static String _methodLabel(String m) =>
+      m == PaymentType.utangName ? tr('Take off their tab') : tr(m);
 
   List<ReturnableLine> _lines = [];
   final Map<int, int> _selected = {}; // productId -> qty
   String _reason = _reasons.first;
-  String _method = _methods.first;
   bool _returnToStock = true;
   bool _loading = true;
   bool _saving = false;
@@ -464,9 +566,12 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
         title: Text(isVoid ? tr('Void this whole sale?') : tr('Confirm this return?'),
             style: AppText.sectionTitle().copyWith(fontSize: 17)),
         content: Text(
-          isVoid
-              ? tr('Every line on {ref} will be reversed and {amount} refunded by {method}.', {'ref': widget.sale.reference, 'amount': formatPeso(_refundDue), 'method': tr(_method)})
-              : tr('{amount} will be refunded by {method} and recorded against {ref}.', {'ref': widget.sale.reference, 'amount': formatPeso(_refundDue), 'method': tr(_method)}),
+          _onTab
+              ? tr('{amount} will come off the customer\'s tab, recorded against {ref}. No money changes hands.',
+                  {'ref': widget.sale.reference, 'amount': formatPeso(_refundDue)})
+              : isVoid
+                  ? tr('Every line on {ref} will be reversed and {amount} refunded by {method}.', {'ref': widget.sale.reference, 'amount': formatPeso(_refundDue), 'method': tr(_method)})
+                  : tr('{amount} will be refunded by {method} and recorded against {ref}.', {'ref': widget.sale.reference, 'amount': formatPeso(_refundDue), 'method': tr(_method)}),
           style: AppText.body(),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -484,6 +589,18 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+
+    // Cash out of the drawer needs a manager, as closing the day does: ring
+    // up, take the money, void, keep it, is the classic way a till leaks.
+    if (_method == PaymentType.cashName) {
+      final approved = await authoriseAsManager(
+        context,
+        staff: StaffService(),
+        hint: tr('Enter the manager PIN to refund cash.'),
+        confirmLabel: tr('Continue'),
+      );
+      if (!approved || !mounted) return;
+    }
 
     setState(() => _saving = true);
     final refund = await _sales.recordRefund(
@@ -729,7 +846,8 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
             ),
             // Reasons and methods are stored in English; only the label is
             // translated.
-            child: Text(tr(o), style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
+            child: Text(_methods.contains(o) ? _methodLabel(o) : tr(o),
+                style: AppText.chip(color: selected ? Colors.white : AppColors.body)),
           ),
         );
       }).toList(),
@@ -892,7 +1010,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                     const SizedBox(height: 10),
                     _resultRow(tr('Reason'), refund.reason),
                     const SizedBox(height: 8),
-                    _resultRow(tr('Refund method'), refund.method),
+                    _resultRow(tr('Refund method'), _methodLabel(refund.method)),
                     const SizedBox(height: 8),
                     _resultRow(tr('Stock effect'), refund.restocked ? tr('Returned to stock') : tr('Written off')),
                     const SizedBox(height: 10),
