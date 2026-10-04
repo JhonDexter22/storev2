@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/design_tokens.dart';
 import '../l10n/tr.dart';
+import '../models/staff.dart';
 import '../services/settings_service.dart';
 import '../services/staff_service.dart';
 import '../widgets/language_switch.dart';
@@ -17,9 +18,13 @@ import '../services/error_log.dart';
 /// ready" does not run it a second time — and the last screen still has to be
 /// seen.
 class FirstRunGate extends StatefulWidget {
-  const FirstRunGate({super.key, required this.child});
+  const FirstRunGate({super.key, required this.child, this.restoredChild});
 
   final Widget child;
+
+  /// Shown instead of [child] when setup began from a restored backup: the
+  /// products are already there, so the till is the place to land.
+  final Widget? restoredChild;
 
   @override
   State<FirstRunGate> createState() => _FirstRunGateState();
@@ -27,11 +32,18 @@ class FirstRunGate extends StatefulWidget {
 
 class _FirstRunGateState extends State<FirstRunGate> {
   bool _finished = false;
+  bool _restored = false;
 
   @override
   Widget build(BuildContext context) => _finished
-      ? widget.child
-      : SetupScreen(onFinished: () => setState(() => _finished = true));
+      ? (_restored ? widget.restoredChild ?? widget.child : widget.child)
+      : SetupScreen(
+          onFinished: () => setState(() => _finished = true),
+          onStartSelling: () => setState(() {
+            _finished = true;
+            _restored = true;
+          }),
+        );
 }
 
 enum _Step { welcome, store, owner, cash, done }
@@ -44,9 +56,22 @@ enum _Step { welcome, store, owner, cash, done }
 /// deliberately not a step: the Products screen is where they are added, and
 /// setup ends there.
 class SetupScreen extends StatefulWidget {
-  const SetupScreen({super.key, this.onFinished, this.staff});
+  const SetupScreen({
+    super.key,
+    this.onFinished,
+    this.onStartSelling,
+    this.staff,
+    @visibleForTesting this.debugRestored = false,
+  });
+
+  /// Starts as though a backup had just been restored — the restore itself
+  /// goes through the phone's file picker, which a test cannot drive.
+  final bool debugRestored;
 
   final VoidCallback? onFinished;
+
+  /// After a restore: straight to the till rather than to adding products.
+  final VoidCallback? onStartSelling;
 
   /// Injectable for tests.
   final StaffService? staff;
@@ -73,6 +98,10 @@ class _SetupScreenState extends State<SetupScreen> {
 
   /// Held only until setup is saved, then hashed by [StaffService].
   String? _pin;
+
+  /// Setup began by restoring a backup, so products and sales are already
+  /// here — and staff are not, since backups leave PINs out.
+  late bool _restored = widget.debugRestored;
 
   @override
   void initState() {
@@ -137,6 +166,7 @@ class _SetupScreenState extends State<SetupScreen> {
     try {
       final done = await runRestoreFlow(context);
       if (done == null || !mounted) return;
+      _restored = true;
       if (done.hadSettings) {
         _storeName.text = _settings.storeName;
         _float.text = _plain(_settings.openingFloat);
@@ -156,7 +186,7 @@ class _SetupScreenState extends State<SetupScreen> {
   Future<void> _choosePin() async {
     final initials = _ownerName.text.trim().isEmpty
         ? null
-        : _ownerName.text.trim()[0].toUpperCase();
+        : Staff.initialsOf(_ownerName.text);
     final first = await PinSheet.capture(
       context,
       title: tr('Your PIN'),
@@ -471,8 +501,12 @@ class _SetupScreenState extends State<SetupScreen> {
         Text(tr("You're ready, {name}", {'name': owner}),
             style: AppText.screenTitle()),
         const SizedBox(height: 8),
+        // After a restore the books are already back; the thing to know is
+        // that the staff are not. Otherwise, products come next.
         Text(
-          tr('Next, add what you sell — a name and a price are enough to start. Cashiers can be added any time from More.'),
+          _restored
+              ? tr('Your products and sales are back. Cashiers from your old phone need adding again: More → Staff.')
+              : tr('Next, add what you sell — a name and a price are enough to start. Cashiers can be added any time from More → Staff.'),
           style: AppText.body().copyWith(fontSize: 13.5, height: 1.4),
         ),
         const SizedBox(height: 24),
@@ -550,7 +584,9 @@ class _SetupScreenState extends State<SetupScreen> {
               _floatValue == null || _busy ? null : _finish),
         ],
       _Step.done => [
-          _primary(tr('Add my products'), widget.onFinished),
+          _restored
+              ? _primary(tr('Start selling'), widget.onStartSelling ?? widget.onFinished)
+              : _primary(tr('Add my products'), widget.onFinished),
         ],
     };
   }
