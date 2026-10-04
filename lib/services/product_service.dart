@@ -47,6 +47,13 @@ class ProductService {
     );
   }
 
+  /// Sets every product's minimum at once — the "apply to every product"
+  /// choice beside the default.
+  Future<int> setAllMinStock(int minStock) async {
+    final db = await dbHelper.database;
+    return db.rawUpdate('UPDATE products SET min_stock = ?', [minStock]);
+  }
+
   Future<int> updateProduct(Product product) async {
     final db = await dbHelper.database;
     return await db.update(
@@ -64,6 +71,20 @@ class ProductService {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  /// Another product already on [sku], if any. A barcode must point at one
+  /// product, or the scanner at the till picks between them.
+  Future<Product?> otherWithSku(String sku, {int? exceptId}) async {
+    final db = await dbHelper.database;
+    final result = await db.query(
+      'products',
+      where: exceptId == null ? 'LOWER(sku) = ?' : 'LOWER(sku) = ? AND id != ?',
+      whereArgs: [sku.toLowerCase(), ?exceptId],
+      limit: 1,
+    );
+    if (result.isEmpty) return null;
+    return Product.fromMap(result.first);
   }
 
   /// Returns products whose SKU matches [sku] (case-insensitive).
