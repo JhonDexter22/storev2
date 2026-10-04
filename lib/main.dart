@@ -129,14 +129,20 @@ class RestockApp extends StatelessWidget {
         ),
       ),
       home: firstRun
-          ? const FirstRunGate(child: HomeScreen())
+          // A fresh store has nothing to sell yet: setup ends on Products.
+          // A restored one does, so it opens on the till like any other day.
+          ? const FirstRunGate(restoredChild: HomeScreen(), child: HomeScreen(startOnProducts: true))
           : const HomeScreen(),
     );
   }
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.startOnProducts = false});
+
+  /// Opens on Products instead of the till — straight after a fresh setup,
+  /// when there is nothing to sell yet.
+  final bool startOnProducts;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -144,7 +150,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  int _currentIndex = _kProducts;
+  // The till: what a cashier opens the app to do. It used to open on
+  // Products every time.
+  late int _currentIndex = widget.startOnProducts ? _kProducts : _kSell;
 
   // One AnimationController per tab for the press/tap scale effect
   late final List<AnimationController> _scaleControllers;
