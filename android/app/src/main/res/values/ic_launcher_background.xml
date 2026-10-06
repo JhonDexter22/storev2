@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- AppColors.ink: the same mark as the welcome screen and tablet rail. -->
-    <color name="ic_launcher_background">#0D0F1A</color>
+    <!-- AppColors.primary: the same mark as BrandMark on the welcome screen
+         and tablet rail. Icons are drawn by tool/make_icons.py. -->
+    <color name="ic_launcher_background">#2554E8</color>
 </resources>

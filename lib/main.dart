@@ -25,6 +25,7 @@ import 'screens/product_screen.dart';
 import 'screens/restock_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/setup_screen.dart';
+import 'widgets/brand_mark.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -445,15 +446,7 @@ class _NavRail extends StatelessWidget {
               child: Column(
                 children: [
                   const SizedBox(height: 18),
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: AppColors.ink,
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: const Icon(Icons.storefront_rounded, color: Colors.white, size: 21),
-                  ),
+                  const BrandMark(size: 44, radius: 13),
                   const SizedBox(height: 22),
                   for (int i = 0; i < tabs.length; i++) ...[
                     _railItem(i),
@@ -697,7 +690,10 @@ class _BottomNav extends StatelessWidget {
       offset: Offset(0, selected ? -0.1 : 0),
       child: AnimatedDefaultTextStyle(
         duration: const Duration(milliseconds: 180),
-        style: TextStyle(
+        // Names the font itself: a default text style replaces the inherited
+        // one rather than adding to it, so a bare TextStyle here drew the
+        // labels in the phone's system font.
+        style: GoogleFonts.plusJakartaSans(
           color: selected ? _accent : _inkLight,
           fontSize: 11,
           fontWeight: selected ? FontWeight.w700 : FontWeight.w500,

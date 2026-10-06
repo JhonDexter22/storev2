@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:storev2/core/app_info.dart';
+import 'package:storev2/core/design_tokens.dart';
 import 'package:storev2/database/database_helper.dart';
 import 'package:storev2/services/demo_data.dart';
 import 'package:storev2/services/sales_service.dart';
@@ -13,10 +14,10 @@ void main() {
   group('what goes out with the app', () {
     test('the version shown in Settings is the one being built', () {
       final pubspec = File('pubspec.yaml').readAsStringSync();
-      final version = RegExp(r'^version:\s*([0-9.]+)', multiLine: true)
-          .firstMatch(pubspec)!
-          .group(1);
-      expect(AppInfo.version, version);
+      final match = RegExp(r'^version:\s*([0-9.]+)\+(\d+)', multiLine: true)
+          .firstMatch(pubspec)!;
+      expect(AppInfo.version, match.group(1));
+      expect(AppInfo.build, int.parse(match.group(2)!));
     });
 
     test('the Android app id is ours, not the template\'s', () {
@@ -29,6 +30,19 @@ void main() {
       final manifest =
           File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
       expect(manifest, contains('android:label="${AppInfo.name}"'));
+    });
+
+    test('the launcher icon is ours on every platform, in the app\'s blue', () {
+      final hex = AppColors.primary.toARGB32().toRadixString(16).substring(2).toUpperCase();
+      final android = File('android/app/src/main/res/values/ic_launcher_background.xml')
+          .readAsStringSync();
+      expect(android, contains('#$hex'));
+      expect(File('web/manifest.json').readAsStringSync(), contains('"theme_color": "#$hex"'));
+      // App Store Connect rejects an app icon with an alpha channel. Byte 25
+      // of a PNG is the IHDR colour type: 2 is plain RGB.
+      final store = File('ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png')
+          .readAsBytesSync();
+      expect(store[25], 2);
     });
   });
 

@@ -3,9 +3,9 @@
     "short_name": "BasePoint",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#2554E8",
+    "theme_color": "#2554E8",
+    "description": "Point of sale, stock and utang for small stores.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

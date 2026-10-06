@@ -6,6 +6,7 @@ import '../l10n/tr.dart';
 import '../models/staff.dart';
 import '../services/settings_service.dart';
 import '../services/staff_service.dart';
+import '../widgets/brand_mark.dart';
 import '../widgets/language_switch.dart';
 import '../widgets/pin_sheet.dart';
 import '../widgets/restore_flow.dart';
@@ -399,15 +400,7 @@ class _SetupScreenState extends State<SetupScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 24),
-        Container(
-          width: 64,
-          height: 64,
-          decoration: BoxDecoration(
-            color: AppColors.ink,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: const Icon(Icons.storefront_rounded, color: Colors.white, size: 30),
-        ),
+        const BrandMark(size: 64, radius: 18),
         const SizedBox(height: 24),
         Text(tr('Welcome'), style: AppText.screenTitle().copyWith(fontSize: 30)),
         const SizedBox(height: 8),
