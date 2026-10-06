@@ -470,6 +470,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _periodChips(),
         const SizedBox(height: AppSpace.gapSection),
         _salesCard(),
+        // Under the day's figures it closes, rather than below everything:
+        // it was the last thing on the screen, under five sales and a
+        // "Start a new sale" card that only repeated the Sell button in the
+        // bar — which is why that card is gone from the phone.
+        if (_openShift != null && _openShift!.count > 0) ...[
+          const SizedBox(height: AppSpace.gapGrid),
+          _closeDayCard(),
+        ],
         const SizedBox(height: AppSpace.gapBlock),
         _statGrid(),
         const SizedBox(height: AppSpace.gapBlock),
@@ -481,17 +489,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
         // An empty list would only repeat what the sales card already says.
         if (_recentSales.isNotEmpty) ...[
-          _sectionTitle(tr('Recent sales')),
+          _recentHeading(),
           const SizedBox(height: 10),
-          _recentSalesList(),
-          const SizedBox(height: AppSpace.gapBlock),
-        ],
-        // The empty sales card carries its own button; a second one below it
-        // (plus the Sell tab) was three ways to do the same thing.
-        if (_stats!.transactions > 0) _startSaleCard(),
-        if (_openShift != null && _openShift!.count > 0) ...[
-          const SizedBox(height: AppSpace.gapGrid),
-          _closeDayCard(),
+          // Three on the phone, where five full rows were most of a screen.
+          _recentSalesList(limit: 3),
         ],
       ],
     );
@@ -556,7 +557,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionTitle(tr('Recent sales')),
+                  _recentHeading(),
                   const SizedBox(height: 10),
                   _recentSalesList(),
                 ],
@@ -923,13 +924,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(greeting, style: AppText.caption()),
-              const SizedBox(height: 2),
-              Text(tr('Store Overview'), style: AppText.screenTitle()),
-            ],
+          // The store's own name and whoever is at the till, where a fixed
+          // "Store Overview" said the same thing in every shop.
+          child: ListenableBuilder(
+            listenable: SettingsService.instance,
+            builder: (context, _) {
+              final cashier = SettingsService.instance.cashier.trim();
+              final store = SettingsService.instance.storeName.trim();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(cashier.isEmpty ? greeting : '$greeting, $cashier',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption()),
+                  const SizedBox(height: 2),
+                  Text(store.isEmpty ? tr('Store Overview') : store,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.screenTitle()),
+                ],
+              );
+            },
           ),
         ),
         // Both were pictures from the mockup: a bell with its red dot painted
@@ -1439,8 +1451,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ));
   }
 
-  Widget _recentSalesList() {
-    if (_recentSales.isEmpty) {
+  /// "See all" goes to the month's sales: the recent ones can be from any
+  /// day, so the chips' period would sometimes open on an empty list.
+  Widget _recentHeading() {
+    return Row(
+      children: [
+        Expanded(child: _sectionTitle(tr('Recent sales'))),
+        GestureDetector(
+          onTap: () => _push(const SalesListScreen(days: 30)),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(tr('See all'), style: AppText.chip(color: AppColors.primary)),
+                const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.primary),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _recentSalesList({int? limit}) {
+    final sales = limit == null ? _recentSales : _recentSales.take(limit).toList();
+    if (sales.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(20),
         alignment: Alignment.center,
@@ -1461,9 +1498,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          for (int i = 0; i < _recentSales.length; i++) ...[
-            _saleRow(_recentSales[i]),
-            if (i != _recentSales.length - 1) const Divider(color: AppColors.divider, height: 1),
+          for (int i = 0; i < sales.length; i++) ...[
+            _saleRow(sales[i]),
+            if (i != sales.length - 1) const Divider(color: AppColors.divider, height: 1),
           ],
         ],
       ),
