@@ -6,6 +6,7 @@ import '../core/app_info.dart';
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../database/database_helper.dart';
+import '../models/backup_status.dart';
 import '../services/backup_share.dart';
 import '../services/demo_data.dart';
 import '../services/export_service.dart';
@@ -311,9 +312,25 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
               ),
             ]),
             const SizedBox(height: AppSpace.gapBlock),
-            _overline(tr('Sales')),
+            // Was one "Sales" group of six: printing, the scanner's beep and
+            // the money settings under one heading. Printing now has its own,
+            // printer first — the switch below it was asking to print
+            // automatically before there was anything to print to.
+            _overline(tr('Receipts')),
             const SizedBox(height: 8),
             _group([
+              _navRow(
+                tr('Receipt printer'),
+                _settings.printerAddress == null
+                    ? tr('None chosen')
+                    : '${_settings.printerName} · ${_settings.paperWidth.label}',
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PrinterScreen()),
+                ).then((_) {
+                  if (mounted) setState(() {});
+                }),
+              ),
               _toggleRow(
                 tr('Print receipt'),
                 // Was a flat "Automatically print after checkout", which was
@@ -328,20 +345,11 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
                   if (mounted) setState(() {});
                 },
               ),
-              _navRow(
-                tr('Receipt printer'),
-                _settings.printerAddress == null
-                    ? tr('None chosen')
-                    : '${_settings.printerName} · ${_settings.paperWidth.label}',
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PrinterScreen()),
-                ).then((_) {
-                  if (mounted) setState(() {});
-                }),
-              ),
-              _toggleRow(tr('Scan sound'), tr('Beep when the scanner reads a code'),
-                  _settings.scanSound, _settings.setScanSound),
+            ]),
+            const SizedBox(height: AppSpace.gapBlock),
+            _overline(tr('At the till')),
+            const SizedBox(height: 8),
+            _group([
               _navRow(
                 tr('Payment types'),
                 // A live summary rather than a fixed string: the old one read
@@ -367,6 +375,8 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
                     : tr('{amount} unless set per customer', {'amount': formatPeso(_settings.creditLimit)}),
                 _editCreditLimit,
               ),
+              _toggleRow(tr('Scan sound'), tr('Beep when the scanner reads a code'),
+                  _settings.scanSound, _settings.setScanSound),
             ]),
             const SizedBox(height: AppSpace.gapBlock),
             _overline(tr('Inventory')),
@@ -385,6 +395,20 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
             _overline(tr('Data')),
             const SizedBox(height: 8),
             _group([
+              // The thing people come here to do, first; the reminder switch
+              // used to sit above it.
+              _navRow(
+                _exporting ? tr('Exporting…') : tr('Export a backup'),
+                tr('Last export: {when}', {'when': _lastBackupLabel()}),
+                _exporting ? null : _exportBackup,
+                // Amber, as on Home, once it is never or over a week old.
+                subtitleColor: _backupIsStale ? AppColors.warningText : null,
+              ),
+              _navRow(
+                _restoring ? tr('Restoring…') : tr('Restore from a backup'),
+                tr('Replaces everything on this device'),
+                _restoring ? null : _restoreBackup,
+              ),
               // Was "Automatic backup / Backing up every night", which nothing
               // did. Telling a shopkeeper their data is safe when it is not is
               // worse than an off switch, so this is a reminder — which is what
@@ -396,16 +420,6 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
                     : tr('No reminders — export when you remember'),
                 _settings.autoBackup,
                 _settings.setAutoBackup,
-              ),
-              _navRow(
-                _exporting ? tr('Exporting…') : tr('Export a backup'),
-                tr('Last export: {when}', {'when': _lastBackupLabel()}),
-                _exporting ? null : _exportBackup,
-              ),
-              _navRow(
-                _restoring ? tr('Restoring…') : tr('Restore from a backup'),
-                tr('Replaces everything on this device'),
-                _restoring ? null : _restoreBackup,
               ),
             ]),
             const SizedBox(height: AppSpace.gapBlock),
@@ -698,6 +712,12 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
         {'n': log.count, 'when': trWhen(context, log.entries.first.lastAt ?? log.entries.first.at)});
   }
 
+  bool get _backupIsStale {
+    final raw = _settings.lastBackup;
+    final at = raw == null ? null : DateTime.tryParse(raw);
+    return BackupStatus.from(at).level != BackupLevel.fresh;
+  }
+
   String _lastBackupLabel() {
     final raw = _settings.lastBackup;
     if (raw == null) return tr('never');
@@ -815,7 +835,8 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
     );
   }
 
-  Widget _navRow(String title, String subtitle, VoidCallback? onTap, {bool danger = false}) {
+  Widget _navRow(String title, String subtitle, VoidCallback? onTap,
+      {bool danger = false, Color? subtitleColor}) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -830,7 +851,8 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
                   children: [
                     Text(title, style: AppText.cardTitle(color: danger ? AppColors.danger : AppColors.ink)),
                     const SizedBox(height: 2),
-                    Text(subtitle, style: AppText.caption()),
+                    Text(subtitle,
+                        style: subtitleColor == null ? AppText.caption() : AppText.caption(color: subtitleColor)),
                   ],
                 ),
               ),
