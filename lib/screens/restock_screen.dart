@@ -11,6 +11,7 @@ import '../services/stock_alerts.dart';
 import '../widgets/add_stock_sheet.dart';
 import '../widgets/product_thumb.dart';
 import '../l10n/tr.dart';
+import 'stock_in_screen.dart';
 
 class RestockScreen extends StatefulWidget {
   const RestockScreen({super.key});
@@ -127,21 +128,81 @@ class _RestockScreenState extends State<RestockScreen> {
 
   Widget _header() {
     final n = _products.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Text(tr('Restock center'), style: AppText.screenTitle()),
-        const SizedBox(height: 4),
-        Text(
-          n == 0
-              ? tr('Every product is above its minimum')
-              : n == 1
-                  ? tr('1 product needs attention')
-                  : tr('{n} products need attention', {'n': n}),
-          style: AppText.body(),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(tr('Restock center'), style: AppText.screenTitle()),
+              const SizedBox(height: 4),
+              Text(
+                n == 0
+                    ? tr('Every product is above its minimum')
+                    : n == 1
+                        ? tr('1 product needs attention')
+                        : tr('{n} products need attention', {'n': n}),
+                style: AppText.body(),
+              ),
+            ],
+          ),
+        ),
+        // Always offered: a delivery can come in when nothing is low.
+        GestureDetector(
+          onTap: _stockIn,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(AppRadius.iconBtn),
+              boxShadow: AppShadows.primaryCta,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.move_to_inbox_rounded, color: Colors.white, size: 17),
+                const SizedBox(width: 6),
+                Text(tr('Stock in'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 13)),
+              ],
+            ),
+          ),
         ),
       ],
     );
+  }
+
+  /// Everything bought, on one screen. Announced with one Undo for the lot.
+  Future<void> _stockIn() async {
+    final added = await Navigator.push<Map<int, int>>(
+      context,
+      MaterialPageRoute(builder: (_) => StockInScreen(products: _products)),
+    );
+    if (added == null || added.isEmpty || !mounted) return;
+    await _load(quiet: true);
+    if (!mounted) return;
+    final units = added.values.fold(0, (a, b) => a + b);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(
+            trCount(added.length, 'Added {units} to {n} product', 'Added {units} to {n} products',
+                {'units': units}),
+            style: AppText.body(color: Colors.white)),
+        backgroundColor: AppColors.ink,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 6),
+        margin: EdgeInsets.fromLTRB(AppSpace.screenH, 0, AppSpace.screenH,
+            12 + MediaQuery.paddingOf(context).bottom),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
+        action: SnackBarAction(
+          label: tr('Undo'),
+          textColor: AppColors.primary,
+          onPressed: () async {
+            await _productService.addStockBatch({for (final e in added.entries) e.key: -e.value});
+            if (mounted) _load(quiet: true);
+          },
+        ),
+      ));
   }
 
   /// One ruled row, the same shape as the Products screen's stat card.
@@ -421,7 +482,9 @@ class _RestockScreenState extends State<RestockScreen> {
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(color: out ? AppColors.dangerBorder : AppColors.warningBorder),
                 ),
-                child: Text('+${_suggested(p)}', style: AppText.chip(color: text)),
+                // "+7" read as a tag — or as "7 extra". It is how many to
+                // buy, the same figure as on the shared shopping list.
+                child: Text(tr('Buy {n}', {'n': _suggested(p)}), style: AppText.chip(color: text)),
               ),
             ],
           ),

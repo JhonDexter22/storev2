@@ -193,10 +193,12 @@ Future<int?> showAddStockSheet(BuildContext context, Product p, {int? suggested}
                         borderRadius: BorderRadius.circular(AppRadius.cta),
                       ),
                     ),
+                    // Says what is missing while it cannot be pressed, as
+                    // checkout does.
                     child: Text(
-                      amount > 0 ? tr('Add {n}', {'n': amount}) : tr('Add stock'),
+                      amount > 0 ? tr('Add {n}', {'n': amount}) : tr('Enter an amount'),
                       style: AppText.chip(
-                        color: Colors.white,
+                        color: amount > 0 ? Colors.white : AppColors.muted,
                       ).copyWith(fontSize: 15),
                     ),
                   ),

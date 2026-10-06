@@ -37,6 +37,22 @@ class ProductService {
     );
   }
 
+  /// [addStock] for several products at once — a delivery, a market run —
+  /// in one transaction, so a save either lands whole or not at all.
+  /// [deltas] is productId → units; a negative delta takes them back (Undo).
+  Future<void> addStockBatch(Map<int, int> deltas) async {
+    if (deltas.isEmpty) return;
+    final db = await dbHelper.database;
+    await db.transaction((txn) async {
+      for (final e in deltas.entries) {
+        await txn.rawUpdate(
+          'UPDATE products SET stock = MAX(0, stock + ?) WHERE id = ?',
+          [e.value, e.key],
+        );
+      }
+    });
+  }
+
   Future<int> updateStock(int id, int newStock) async {
     final db = await dbHelper.database;
     return await db.update(
