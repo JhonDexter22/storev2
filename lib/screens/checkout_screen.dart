@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../core/change_breakdown.dart';
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/cart_line.dart';
@@ -13,6 +14,7 @@ import '../services/receipt_document.dart';
 import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../services/utang_service.dart';
+import 'printer_screen.dart';
 import '../widgets/discount_sheet.dart';
 import '../l10n/tr.dart';
 import '../models/sale_model.dart';
@@ -51,6 +53,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String _customerSearch = '';
 
   Discount _discount = Discount.none;
+  bool _showAllLines = false;
 
   double get _subtotal => widget.lines.fold(0, (s, l) => s + l.lineTotal);
   double get _discountAmount => _discount.amountOn(_subtotal);
@@ -116,6 +119,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (!_canComplete || _saving) return;
     setState(() => _saving = true);
     final methodLabel = _method.name;
+    final isCash = _method.kind == PaymentKind.cash;
     final onCredit = _method.kind == PaymentKind.utang;
     // A failure used to leave the button spinning for good, with no message
     // and no way to try again — a frozen sale at the till.
@@ -132,6 +136,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         discount: _discount,
         cashier: SettingsService.instance.cashier,
       );
+      Customer? tab;
       if (onCredit && _chargeTo?.id != null) {
         await _utang.charge(
           customerId: _chargeTo!.id!,
@@ -139,9 +144,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           saleId: sale.id,
           note: sale.reference,
         );
+        tab = await _tabAfterCharge(_chargeTo!);
       }
       if (!mounted) return;
-      _finish(sale, methodLabel, onCredit);
+      _finish(sale, methodLabel, isCash: isCash, tab: tab);
     } catch (e, st) {
       ErrorLog.caught(e, st, 'checkout: saving the sale');
       if (!mounted) return;
@@ -156,7 +162,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
-  void _finish(Sale sale, String methodLabel, bool onCredit) {
+  /// The customer as they stand after this sale, for the balance on the done
+  /// screen. The sale and the charge are already saved, so a failure here
+  /// must not surface as "could not save" — it falls back to adding this sale
+  /// to the balance the picker showed.
+  Future<Customer> _tabAfterCharge(Customer c) async {
+    try {
+      final fresh = await _utang.getCustomer(c.id!);
+      if (fresh != null) return fresh;
+    } catch (e, st) {
+      ErrorLog.caught(e, st, 'checkout: reading the tab after a charge');
+    }
+    return c.copyWith(balance: c.balance + _due);
+  }
+
+  void _finish(Sale sale, String methodLabel, {required bool isCash, Customer? tab}) {
     // The one moment on this screen that deserves a thump.
     HapticFeedback.mediumImpact();
     setState(() {
@@ -164,8 +184,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _done = _CompletedSale(
         reference: sale.reference,
         method: methodLabel,
+        isCash: isCash,
         time: DateTime.now(),
-        chargedTo: onCredit ? _chargeTo?.name : null,
+        tab: tab,
         subtotal: _subtotal,
         discountAmount: _discountAmount,
         discountLabel: _discount.label(_subtotal),
@@ -245,7 +266,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _orderSummaryCard(),
+          _orderSummaryCard(fold: true),
           const SizedBox(height: AppSpace.gapSection),
           ..._paymentSection(),
         ],
@@ -385,7 +406,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
-  Widget _orderSummaryCard() {
+  /// [fold] shortens a long basket to its first few lines. The phone wants it:
+  /// fifteen lines pushed Cash received off the screen on every big sale. The
+  /// tablet does not — its summary scrolls on its own, beside the payment.
+  Widget _orderSummaryCard({bool fold = false}) {
+    const folded = 4;
+    // Folding away a single line saves nothing.
+    final lines = !fold || _showAllLines || widget.lines.length <= folded + 1
+        ? widget.lines
+        : widget.lines.take(folded).toList();
+    final hidden = widget.lines.length - lines.length;
     return Container(
       padding: const EdgeInsets.all(AppSpace.cardPad),
       decoration: BoxDecoration(
@@ -396,7 +426,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       ),
       child: Column(
         children: [
-          for (final line in widget.lines) ...[
+          for (final line in lines) ...[
             Row(
               children: [
                 Container(
@@ -422,16 +452,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                Flexible(
+                const SizedBox(width: 12),
+                // Its own width, against the right edge. It used to be
+                // Flexible, which gave the price half the row: names were cut
+                // short and prices floated mid-card.
+                Text(formatPeso(line.lineTotal), style: AppText.cardTitle()),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (hidden > 0) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: InkWell(
+                onTap: () => setState(() => _showAllLines = true),
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Text(
-                    formatPeso(line.lineTotal),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right,
-                    style: AppText.cardTitle(),
+                    trCount(hidden, '+{n} more item', '+{n} more items'),
+                    style: AppText.chip(color: AppColors.primary),
                   ),
                 ),
-              ],
+              ),
             ),
             const SizedBox(height: 10),
           ],
@@ -576,26 +619,30 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
 
     // Wraps rather than a fixed row: a shopkeeper who adds Maya and a bank
-    // transfer would otherwise squeeze six buttons into four widths.
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final type in _methods)
-          SizedBox(
-            width: _optionWidth(context, _methods.length),
-            child: Row(children: [option(type)]),
-          ),
-      ],
+    // transfer would otherwise squeeze six buttons into four widths. Sized
+    // from the space it is given, not the screen: on a tablet that is the
+    // right-hand panel, and screen-width buttons wrapped two to a row there.
+    return LayoutBuilder(
+      builder: (context, box) => Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final type in _methods)
+            SizedBox(
+              width: _optionWidth(box.maxWidth, _methods.length),
+              child: Row(children: [option(type)]),
+            ),
+        ],
+      ),
     );
   }
 
   /// Four across at most, so the buttons stay a comfortable tap target however
   /// many types the store has switched on.
-  static double _optionWidth(BuildContext context, int count) {
-    final available = MediaQuery.sizeOf(context).width - AppSpace.screenH * 2;
+  static double _optionWidth(double available, int count) {
     final perRow = count <= 4 ? count : 4;
-    return (available - 8 * (perRow - 1)) / perRow;
+    // Floored: a fraction of a pixel over would wrap the last button.
+    return ((available - 8 * (perRow - 1)) / perRow).floorToDouble();
   }
 
   /// Each row shows the balance now and the balance this sale would create, so
@@ -808,7 +855,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      tr('Owes {owes} · Becomes {becomes}', {'owes': formatPeso(c.balance), 'becomes': formatPeso(becomes)}),
+                      // Short enough to fit beside "Over limit", which used
+                      // to cut off the very figure it was warning about.
+                      tr('Owes {owes} → {becomes}', {'owes': formatPeso(c.balance), 'becomes': formatPeso(becomes)}),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.caption(),
@@ -873,10 +922,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 _quickAmountChip(
                   _note(amount),
                   () => _setReceived(amount),
+                  selected: _isReceived(amount),
                 ),
                 const SizedBox(width: 8),
               ],
-              _quickAmountChip(tr('Exact'), () => _setReceived(_due)),
+              _quickAmountChip(tr('Exact'), () => _setReceived(_due),
+                  selected: _isReceived(_due)),
             ],
           ),
         ],
@@ -884,7 +935,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  Widget _quickAmountChip(String label, VoidCallback onTap) {
+  /// Lights the chip matching what is in the box, typed or tapped, so the
+  /// cashier can see which note they took without reading the figure.
+  bool _isReceived(double amount) =>
+      _received > 0 && (_received - amount).abs() < 0.005;
+
+  Widget _quickAmountChip(String label, VoidCallback onTap, {bool selected = false}) {
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -892,11 +948,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           padding: const EdgeInsets.symmetric(vertical: 10),
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: AppColors.canvas,
+            color: selected ? AppColors.primaryTint : AppColors.canvas,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.hairline),
+            border: Border.all(
+              color: selected ? AppColors.primary : AppColors.hairline,
+              width: selected ? 1.5 : 1,
+            ),
           ),
-          child: Text(label, style: AppText.chip()),
+          child: Text(label,
+              style: AppText.chip(color: selected ? AppColors.primary : AppColors.ink)),
         ),
       ),
     );
@@ -945,11 +1005,25 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  Widget _ctaBar() {
+  /// What the button says. While it cannot be pressed it says what is
+  /// missing: a greyed-out "Complete sale" left the cashier to work out why.
+  String get _ctaLabel {
     final onCredit = _method.kind == PaymentKind.utang;
-    final label = onCredit
+    if (!_canComplete) {
+      if (onCredit) return tr('Pick a customer');
+      if (_received > 0) {
+        return tr('Short by {amount}', {'amount': formatPeso(_due - _received)});
+      }
+      return tr('Enter cash received');
+    }
+    return onCredit
         ? tr('Charge to utang · {amount}', {'amount': formatPeso(_due)})
         : tr('Complete sale · {amount}', {'amount': formatPeso(_due)});
+  }
+
+  Widget _ctaBar() {
+    final onCredit = _method.kind == PaymentKind.utang;
+    final label = _ctaLabel;
 
     return Container(
       padding: EdgeInsets.fromLTRB(
@@ -1031,7 +1105,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               )
             : Text(
                 label,
-                style: AppText.chip(color: Colors.white).copyWith(fontSize: 15),
+                // Muted rather than white while disabled: it is an
+                // instruction now, and white on the grey fill barely read.
+                style: AppText.chip(
+                  color: _canComplete ? Colors.white : AppColors.muted,
+                ).copyWith(fontSize: 15),
               ),
       ),
     );
@@ -1042,14 +1120,18 @@ class _CompletedSale {
   _CompletedSale({
     required this.reference,
     required this.method,
+    required this.isCash,
     required this.time,
-    this.chargedTo,
+    this.tab,
     this.subtotal = 0,
     this.discountAmount = 0,
     this.discountLabel = '',
   });
   final String reference;
   final String method;
+
+  /// From the payment type's kind, not its name: a store can rename "Cash".
+  final bool isCash;
   final DateTime time;
 
   /// Kept for the receipt: a customer given a senior or PWD discount should be
@@ -1060,10 +1142,12 @@ class _CompletedSale {
 
   bool get hasDiscount => discountAmount > 0;
 
-  /// Set only on the credit path — whose tab this landed on.
-  final String? chargedTo;
+  /// Set only on the credit path: whose tab this landed on, with the balance
+  /// after this sale.
+  final Customer? tab;
 
-  bool get onCredit => chargedTo != null;
+  String? get chargedTo => tab?.name;
+  bool get onCredit => tab != null;
 }
 
 class _SuccessView extends StatefulWidget {
@@ -1087,6 +1171,7 @@ class _SuccessView extends StatefulWidget {
 
 class _SuccessViewState extends State<_SuccessView> {
   bool _printing = false;
+  bool _showAll = false;
 
   _CompletedSale get done => widget.done;
   double get due => widget.due;
@@ -1159,155 +1244,399 @@ class _SuccessViewState extends State<_SuccessView> {
 
   @override
   Widget build(BuildContext context) {
+    final time = TimeOfDay.fromDateTime(done.time).format(context);
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.screenH,
-            32,
-            AppSpace.screenH,
-            24,
-          ),
-          child: Column(
-            children: [
-              Container(
-                width: 84,
-                height: 84,
-                decoration: const BoxDecoration(
-                  color: AppColors.successFill,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.check_rounded,
-                  color: AppColors.success,
-                  size: 44,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                // Nothing was paid on the credit path — saying "payment
-                // successful" there would misreport what happened.
-                done.onCredit ? tr('Charged to utang') : tr('Payment successful'),
-                style: AppText.sectionTitle().copyWith(fontSize: 19),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                done.onCredit
-                    ? tr("On {name}'s tab · {ref} · {time}", {'name': done.chargedTo, 'ref': done.reference, 'time': TimeOfDay.fromDateTime(done.time).format(context)})
-                    : '${done.method} · ${done.reference} · ${TimeOfDay.fromDateTime(done.time).format(context)}',
-                textAlign: TextAlign.center,
-                style: AppText.caption(),
-              ),
-              const SizedBox(height: 22),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(AppSpace.cardPad),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(AppRadius.card),
-                  border: Border.all(color: AppColors.hairline),
-                ),
-                child: Column(
-                  children: [
-                    if (done.hasDiscount) ...[
-                      _receiptRow(tr('Subtotal'), formatPeso(done.subtotal)),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(done.discountLabel,
-                                style: AppText.body(color: AppColors.successText),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis),
-                          ),
-                          const SizedBox(width: 8),
-                          Text('-${formatPeso(done.discountAmount)}',
-                              style: AppText.cardTitle(color: AppColors.successText)),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      const Divider(color: AppColors.divider, height: 1),
-                      const SizedBox(height: 8),
-                    ],
-                    _receiptRow(
-                      done.onCredit ? tr('Added to tab') : tr('Amount due'),
-                      formatPeso(due),
-                    ),
-                    if (done.method == 'Cash') ...[
-                      const SizedBox(height: 8),
-                      _receiptRow(tr('Received'), formatPeso(received)),
-                      const SizedBox(height: 8),
-                      const Divider(color: AppColors.divider, height: 1),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(tr('Change'), style: AppText.body()),
-                          Text(
-                            formatPeso(change),
-                            style: AppText.largeFigure().copyWith(fontSize: 30),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const Spacer(),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: () =>
-                      Navigator.pop(context, CheckoutOutcome.completed),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.cta),
+        child: Center(
+          child: ConstrainedBox(
+            // A tablet gets the phone's column rather than a stretched one, so
+            // the change figure and the buttons stay where the eye expects.
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(
+                        AppSpace.screenH, 24, AppSpace.screenH, 16),
+                    child: Column(
+                      children: [
+                        _statusPill(time),
+                        const SizedBox(height: 20),
+                        ..._hero(),
+                        const SizedBox(height: 22),
+                        _itemsCard(),
+                      ],
                     ),
                   ),
-                  child: Text(
-                    tr('New sale'),
-                    style: AppText.chip(
-                      color: Colors.white,
-                    ).copyWith(fontSize: 15),
-                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _secondaryBtn(
-                      _printing ? tr('Printing…') : tr('Print receipt'),
-                      Icons.print_outlined,
-                      _printing ? null : _print,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _secondaryBtn(
-                      tr('Share'),
-                      Icons.ios_share_rounded,
-                      () => SharePlus.instance.share(
-                        ShareParams(
-                          text: buildReceipt(),
-                          subject: '${SettingsService.instance.storeName} · ${done.reference}',
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpace.screenH, 8, AppSpace.screenH, 24),
+                  child: _actions(),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  /// What happened, in one line. It used to be the screen's headline, but the
+  /// cashier already knows the sale went through — they pressed the button.
+  /// The pop is for the corner of the eye: their attention is on the customer.
+  Widget _statusPill(String time) {
+    final credit = done.onCredit;
+    final fg = credit ? AppColors.primary : AppColors.successText;
+    final bg = credit ? AppColors.primaryTint : AppColors.successFill;
+    final still = MediaQuery.of(context).disableAnimations;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: still ? 1 : 0.6, end: 1),
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutBack,
+      builder: (context, t, child) => Transform.scale(
+        scale: t,
+        child: Opacity(opacity: ((t - 0.6) / 0.4).clamp(0.0, 1.0), child: child),
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(6, 6, 14, 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(color: fg, shape: BoxShape.circle),
+              child: Icon(
+                credit ? Icons.receipt_long_rounded : Icons.check_rounded,
+                size: 14,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                // Nothing was paid on the credit path — "paid" there would
+                // misreport what happened.
+                credit
+                    ? tr('Charged to utang · {time}', {'time': time})
+                    : tr('Paid · {method} · {time}',
+                        {'method': done.method, 'time': time}),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.chip(color: fg),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The one figure the cashier needs next. On cash that is the change, with
+  /// the bills and coins that make it; elsewhere it is what was paid or put
+  /// on the tab.
+  List<Widget> _hero() {
+    if (done.onCredit) return _tabHero(done.tab!);
+    if (!done.isCash) {
+      return [
+        Text(tr('Paid with {method}', {'method': done.method}),
+            style: AppText.body()),
+        const SizedBox(height: 2),
+        _bigFigure(formatPeso(due)),
+      ];
+    }
+    if (change < 0.005) {
+      // A big ₱0.00 reads, at a glance, like "something is owed".
+      return [
+        Text(tr('Change to give'), style: AppText.body()),
+        const SizedBox(height: 2),
+        _bigFigure(tr('No change'), color: AppColors.body),
+        const SizedBox(height: 6),
+        Text(tr('{amount} paid exactly', {'amount': formatPeso(received)}),
+            style: AppText.caption()),
+      ];
+    }
+    return [
+      Text(tr('Change to give'), style: AppText.body()),
+      const SizedBox(height: 2),
+      _bigFigure(formatPeso(change)),
+      const SizedBox(height: 10),
+      Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        alignment: WrapAlignment.center,
+        children: [for (final p in changeBreakdown(change)) _pieceChip(p)],
+      ),
+      const SizedBox(height: 10),
+      Text(
+        tr('{due} total · {received} received',
+            {'due': formatPeso(due), 'received': formatPeso(received)}),
+        style: AppText.caption(),
+      ),
+    ];
+  }
+
+  /// Where the customer's tab stands now. Seen here, at the counter, rather
+  /// than discovered on their next visit.
+  List<Widget> _tabHero(Customer c) {
+    final limit = creditLimitFor(c);
+    final over = isOverLimit(c);
+    final tone = over ? AppColors.warningText : AppColors.ink;
+    return [
+      Text(tr("Added to {name}'s tab", {'name': c.name}),
+          textAlign: TextAlign.center, style: AppText.body()),
+      const SizedBox(height: 2),
+      _bigFigure(formatPeso(due)),
+      const SizedBox(height: 16),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: over ? AppColors.warningFill : AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          border: Border.all(
+              color: over ? AppColors.warningBorder : AppColors.hairline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(tr('{name} now owes', {'name': c.name}),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body()),
+                ),
+                const SizedBox(width: 8),
+                Text(formatPeso(c.balance), style: AppText.cardTitle(color: tone)),
+              ],
+            ),
+            if (limit > 0) ...[
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  value: (c.balance / limit).clamp(0.0, 1.0),
+                  minHeight: 6,
+                  backgroundColor: AppColors.divider,
+                  color: over ? AppColors.warning : AppColors.primary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                over
+                    ? tr('Over the {limit} limit by {amount}', {
+                        'limit': formatPeso(limit),
+                        'amount': formatPeso(c.balance - limit),
+                      })
+                    : tr('{left} left of the {limit} limit', {
+                        'left': formatPeso(limit - c.balance),
+                        'limit': formatPeso(limit),
+                      }),
+                style: AppText.caption(
+                    color: over ? AppColors.warningText : AppColors.muted),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Widget _bigFigure(String text, {Color color = AppColors.ink}) => FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          text,
+          style: AppText.heroFigure(color: color).copyWith(fontSize: 46),
+        ),
+      );
+
+  /// Bills in blue, coins in amber — the split a hand reaches for first.
+  Widget _pieceChip(ChangePiece p) {
+    final money = p.centavos >= 100
+        ? formatPeso(p.value).replaceAll('.00', '')
+        : '${p.centavos}¢';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: p.isBill ? AppColors.primaryTint : AppColors.warningFill,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        p.count > 1 ? '$money ×${p.count}' : money,
+        style: AppText.chip(
+            color: p.isBill ? AppColors.primaryPressed : AppColors.warningText),
+      ),
+    );
+  }
+
+  /// What was sold, so the customer can check it before walking off. Long
+  /// baskets fold after a few lines; the reference sits here because it is
+  /// for disputes, not for reading at the counter.
+  Widget _itemsCard() {
+    const folded = 4;
+    final count = lines.fold<int>(0, (s, l) => s + l.qty);
+    // Folding away a single line saves nothing.
+    final shown = _showAll || lines.length <= folded + 1
+        ? lines
+        : lines.take(folded).toList();
+    final hidden = lines.length - shown.length;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpace.cardPad),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(trCount(count, '{n} item', '{n} items'),
+                  style: AppText.caption()),
+              const Spacer(),
+              Text(done.reference, style: AppText.mono()),
+            ],
+          ),
+          const SizedBox(height: 10),
+          for (final l in shown)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 7),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${l.qty} × ${l.product.name}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body(color: AppColors.ink),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(formatPeso(l.lineTotal), style: AppText.cardTitle()),
+                ],
+              ),
+            ),
+          if (hidden > 0)
+            InkWell(
+              onTap: () => setState(() => _showAll = true),
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  trCount(hidden, '+{n} more item', '+{n} more items'),
+                  style: AppText.chip(color: AppColors.primary),
+                ),
+              ),
+            ),
+          const SizedBox(height: 6),
+          const Divider(color: AppColors.divider, height: 1),
+          const SizedBox(height: 10),
+          // A senior or PWD discount is itemised: the customer may be asked
+          // to show it was applied, not just a smaller number.
+          if (done.hasDiscount) ...[
+            _receiptRow(tr('Subtotal'), formatPeso(done.subtotal)),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(done.discountLabel,
+                      style: AppText.body(color: AppColors.successText),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: 8),
+                Text('-${formatPeso(done.discountAmount)}',
+                    style: AppText.cardTitle(color: AppColors.successText)),
+              ],
+            ),
+            const SizedBox(height: 6),
+          ],
+          _receiptRow(tr('Total'), formatPeso(due)),
+        ],
+      ),
+    );
+  }
+
+  Widget _actions() {
+    final hasPrinter = PrinterService.instance.hasPrinter;
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, CheckoutOutcome.completed),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.cta),
+              ),
+            ),
+            icon: const Icon(Icons.add_rounded, size: 20),
+            label: Text(
+              tr('New sale'),
+              style: AppText.chip(color: Colors.white).copyWith(fontSize: 15),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              // With no printer chosen, Print used to fail with a message
+              // pointing at Settings. Now it goes there.
+              child: hasPrinter
+                  ? _secondaryBtn(
+                      _printing ? tr('Printing…') : tr('Print receipt'),
+                      Icons.print_outlined,
+                      _printing ? null : _print,
+                    )
+                  : _secondaryBtn(
+                      tr('Set up printer'),
+                      Icons.print_outlined,
+                      _setUpPrinter,
+                    ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _secondaryBtn(
+                tr('Share'),
+                Icons.ios_share_rounded,
+                () => SharePlus.instance.share(
+                  ShareParams(
+                    text: buildReceipt(),
+                    subject:
+                        '${SettingsService.instance.storeName} · ${done.reference}',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _setUpPrinter() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const PrinterScreen()),
+    );
+    // Back with a printer: the button becomes Print for this same sale.
+    if (mounted) setState(() {});
   }
 
   Widget _receiptRow(String label, String value) => Row(

@@ -68,6 +68,9 @@ void main() {
         (tester) async {
       final p = await addProduct(price: 50);
       await pump(tester, CheckoutScreen(lines: [CartLine(product: p, qty: 2)]));
+      // Paid up front, so the button shows its amount rather than what is missing.
+      await tester.tap(find.text('Exact'));
+      await tester.pumpAndSettle();
 
       expect(find.text('Add a discount'), findsOneWidget);
       expect(find.textContaining('Complete sale'), findsOneWidget);
@@ -91,6 +94,8 @@ void main() {
     testWidgets('removing it puts the full price back', (tester) async {
       final p = await addProduct(price: 50);
       await pump(tester, CheckoutScreen(lines: [CartLine(product: p, qty: 2)]));
+      await tester.tap(find.text('Exact'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Add a discount'));
       await tester.pumpAndSettle();
@@ -165,7 +170,7 @@ void main() {
       await tester.tap(find.textContaining('Complete sale'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Payment successful'), findsOneWidget);
+      expect(find.textContaining('Paid · Cash'), findsOneWidget);
       expect(find.text('Subtotal'), findsNothing);
     });
   });
@@ -182,7 +187,7 @@ void main() {
       );
 
       await pump(tester, const ReturnsScreen());
-      await tester.tap(find.text('Return items').first);
+      await tester.tap(find.textContaining('×2').first);
       await tester.pumpAndSettle();
 
       // Regression: this row quoted the undiscounted ₱50.00 while the refund
@@ -200,7 +205,7 @@ void main() {
       );
 
       await pump(tester, const ReturnsScreen());
-      await tester.tap(find.text('Return items').first);
+      await tester.tap(find.textContaining('×2').first);
       await tester.pumpAndSettle();
 
       expect(find.textContaining('₱50.00'), findsWidgets);
