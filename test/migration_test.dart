@@ -180,6 +180,14 @@ class _Historical {
       await db.execute('CREATE INDEX idx_refunds_created ON refunds(created_at)');
       await db.execute('CREATE INDEX idx_refund_items_refund ON refund_items(refund_id)');
     }
+
+    if (version >= 12) {
+      await db.execute('ALTER TABLE shifts ADD COLUMN utang_cash REAL NOT NULL DEFAULT 0');
+    }
+
+    if (version >= 13) {
+      await db.execute('ALTER TABLE customers ADD COLUMN credit_limit REAL');
+    }
   }
 
   /// Puts one representative row in every table that exists at [version], so
@@ -342,11 +350,11 @@ void main() {
       0;
 
   group('every shipped version upgrades to the current one', () {
-    for (var from = 1; from <= 10; from++) {
-      test('v$from reaches v11 with its data intact', () async {
+    for (var from = 1; from <= 12; from++) {
+      test('v$from reaches v13 with its data intact', () async {
         final db = await upgradeFrom(from);
 
-        expect(await db.getVersion(), 11);
+        expect(await db.getVersion(), 13);
         expect(await indexesOf(db), containsAll(v11Indexes),
             reason: 'an upgraded store needs the indexes as much as a new one');
 
@@ -492,15 +500,27 @@ void main() {
       await DatabaseHelper.resetForTests();
 
       final again = await DatabaseHelper.instance.database;
-      expect(await again.getVersion(), 11);
+      expect(await again.getVersion(), 13);
       expect(await again.query('products'), before);
     });
 
-    test('a database already at v11 is left alone', () async {
-      final db = await upgradeFrom(11);
-      expect(await db.getVersion(), 11);
+    test('a database already at v13 is left alone', () async {
+      final db = await upgradeFrom(13);
+      expect(await db.getVersion(), 13);
       expect((await db.query('products')).single['price'], 17.5);
       expect(await indexesOf(db), containsAll(v11Indexes));
+    });
+
+    test('a customer from before v13 follows the store default', () async {
+      final db = await upgradeFrom(12);
+      expect(await columnsOf(db, 'customers'), contains('credit_limit'));
+      expect((await db.query('customers')).single['credit_limit'], isNull);
+    });
+
+    test('a day closed before v12 counted no utang cash', () async {
+      final db = await upgradeFrom(11);
+      expect(await columnsOf(db, 'shifts'), contains('utang_cash'));
+      expect((await db.query('shifts')).single['utang_cash'], 0);
     });
   });
 }

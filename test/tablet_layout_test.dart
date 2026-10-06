@@ -131,6 +131,11 @@ void main() {
 
     testWidgets('utang', (tester) async {
       await seedCustomers(['Aling Nena', 'Mang Tonyo', 'Ate Baby']);
+      // Each owing something: customers who owe nothing fold under Settled.
+      final utang = UtangService();
+      for (final c in await utang.getCustomers()) {
+        await utang.charge(customerId: c.id!, amount: 120);
+      }
       await pumpAt(tester, const UtangScreen(), _tablet);
 
       for (final name in ['Aling Nena', 'Mang Tonyo', 'Ate Baby']) {
@@ -165,7 +170,10 @@ void main() {
       // which is right but pushes this section off a phone's first screen.
       await SettingsService.instance.markBackedUp();
       await pumpAt(tester, const DashboardScreen(), _phone);
-      expect(find.text('Recent sales'), findsOneWidget);
+      // No sales yet, so the phone leaves the empty list out; the sales card
+      // already says so.
+      expect(find.text('Stock alerts'), findsOneWidget);
+      expect(find.text('Recent sales'), findsNothing);
       // The phone drops the attention block when nothing is low, and shows no
       // placeholder — that behaviour is unchanged by the tablet work.
       expect(find.text('Everything is stocked'), findsNothing);

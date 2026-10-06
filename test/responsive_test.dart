@@ -62,12 +62,12 @@ void main() {
 
       await tester.tap(find.text('More'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Shift history'));
+      await tester.tap(find.text('Closed days'));
       await tester.pumpAndSettle();
 
       // The whole point of a rail: you can jump straight to POS from a screen
       // opened out of the More hub, without backing out first.
-      expect(find.text('Shift history'), findsWidgets);
+      expect(find.text('Closed days'), findsWidgets);
       for (final label in ['Home', 'Sell', 'Restock', 'More']) {
         expect(find.text(label), findsOneWidget, reason: '$label left the rail');
       }
@@ -80,7 +80,7 @@ void main() {
 
       await tester.tap(find.text('More'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Shift history'));
+      await tester.tap(find.text('Closed days'));
       await tester.pumpAndSettle();
 
       // Unchanged on a phone: the bottom bar gets out of the way, which is
@@ -96,7 +96,7 @@ void main() {
 
       await tester.tap(find.text('More'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Shift history'));
+      await tester.tap(find.text('Closed days'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Restock'));

@@ -58,7 +58,11 @@ class _EmptySalesService extends SalesService {
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+    // No-isolate, so a query finishes on the microtask queue the tester
+    // drains. On the isolate factory, Home's shift and utang reads could
+    // still be in flight when a test ended, failing it now and then with
+    // "a Timer is still pending".
+    databaseFactory = databaseFactoryFfiNoIsolate;
     // Each suite gets its own in-memory store; sharing one file makes
     // suites clobber each other when they run in parallel.
     DatabaseHelper.testDatabasePath = inMemoryDatabasePath;
@@ -116,8 +120,25 @@ void main() {
 
     expect(find.text('No sales yet today'), findsOneWidget);
     expect(find.text('Start a sale'), findsOneWidget);
-    // The misleading zero hero should not be rendered at all.
-    expect(find.text('₱0.00'), findsNothing);
+    // The misleading zero hero should not be rendered at all. (The tiles
+    // may say ₱0.00 owed; the hero card is what must not.)
+    expect(find.text('SALES TODAY'), findsNothing);
+    // One way to start a sale on the card, not a second big one below it, and
+    // no empty Recent sales list repeating "no sales".
+    expect(find.text('Start a new sale'), findsNothing);
+    expect(find.text('Recent sales'), findsNothing);
+  });
+
+  testWidgets('a store with no products does not claim to be all stocked',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(wrap(DashboardScreen(
+      productService: _EmptyProductService(),
+      salesService: _EmptySalesService(),
+    )));
+    await tester.pumpAndSettle();
+
+    expect(find.text('All stocked'), findsNothing);
+    expect(find.text('No products yet'), findsOneWidget);
   });
 
   testWidgets('Try again re-runs the load', (WidgetTester tester) async {

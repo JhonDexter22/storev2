@@ -197,8 +197,43 @@ void main() {
           reason: 'saved before the last screen, so closing the app there '
               'does not run setup again');
 
+      expect(find.textContaining('More → Staff'), findsOneWidget,
+          reason: 'says where cashiers are added, now that More has the row');
       await tap(tester, 'Add my products');
       expect(finished, isTrue);
+    });
+
+    testWidgets('after a restore, it says the books are back and the staff are not',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 812);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      fake = _FakeStaff();
+      var sellNow = false;
+      await tester.pumpWidget(MaterialApp(
+        home: SetupScreen(
+          staff: fake,
+          onFinished: () {},
+          onStartSelling: () => sellNow = true,
+          debugRestored: true,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tap(tester, 'Set up my store');
+      await type(tester, 'Tindahan ni Lito');
+      await tap(tester, 'Next');
+      await type(tester, 'Lito');
+      await tap(tester, 'Choose a PIN');
+      await enterPin(tester, '4826', 'Continue');
+      await enterPin(tester, '4826', 'Save PIN');
+      await tap(tester, 'Finish setup');
+
+      expect(find.textContaining('Your products and sales are back'), findsOneWidget);
+      expect(find.textContaining('Cashiers from your old phone need adding again'), findsOneWidget);
+      expect(find.text('Add my products'), findsNothing);
+      await tap(tester, 'Start selling');
+      expect(sellNow, isTrue);
     });
 
     testWidgets('two different PINs are caught and nothing moves on',

@@ -101,7 +101,7 @@ void main() {
           MaterialApp(home: ReturnsScreen(key: UniqueKey())));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Return items').first);
+      await tester.tap(find.text('SkyFlakes').first);
       await tester.pumpAndSettle();
 
       expect(find.textContaining('already been returned'), findsOneWidget);

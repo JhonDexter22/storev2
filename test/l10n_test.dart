@@ -132,14 +132,15 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
       expect(find.text('Sell'), findsOneWidget);
-      expect(find.text('Search name or SKU'), findsOneWidget);
+      // The app opens on the till.
+      expect(find.text('Search products'), findsOneWidget);
 
       await SettingsService.instance.setLanguage(AppLanguage.fil);
       await tester.pumpAndSettle();
 
       expect(find.text('Benta'), findsOneWidget);
       expect(find.text('Paninda'), findsWidgets);
-      expect(find.text('Hanapin ang pangalan o SKU'), findsOneWidget);
+      expect(find.text('Maghanap ng paninda'), findsOneWidget);
       expect(find.text('Sell'), findsNothing);
 
       // The tab the shopkeeper was on is still the one showing.
