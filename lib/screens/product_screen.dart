@@ -790,6 +790,29 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   Widget _listBody(List<Product> items) {
+    // Two rows side by side on a tablet: one row stretched across the screen
+    // put the stock figure a hand's width from the name it belongs to.
+    if (Breakpoints.isTablet(context)) {
+      return SliverList.separated(
+        itemCount: (items.length + 1) ~/ 2,
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        itemBuilder: (_, i) {
+          final left = items[i * 2];
+          final right = i * 2 + 1 < items.length ? items[i * 2 + 1] : null;
+          // Same height across the pair, so the rows line up as a grid.
+          return IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: _listRow(left)),
+                const SizedBox(width: AppSpace.gapGrid),
+                Expanded(child: right == null ? const SizedBox.shrink() : _listRow(right)),
+              ],
+            ),
+          );
+        },
+      );
+    }
     return SliverList.separated(
       itemCount: items.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -868,8 +891,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Two lines when it needs attention: "+ Stock" takes the
+                    // room, and those are the names that must be recognised.
                     Text(p.name,
-                        maxLines: 1,
+                        maxLines: attention ? 2 : 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppText.cardTitle(color: attention ? tone : AppColors.ink)),
                     const SizedBox(height: 3),
@@ -877,22 +902,27 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppText.caption(color: attention ? tone : AppColors.muted)),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(2),
-                      child: SizedBox(
-                        height: 4,
-                        child: Stack(
-                          children: [
-                            Container(color: attention ? AppColors.surface : AppColors.divider),
-                            FractionallySizedBox(
-                              widthFactor: fraction,
-                              child: Container(color: StockStatus.dot(p.stock, p.minStock)),
-                            ),
-                          ],
+                    // Only once stock dips under the comfortable mark. A full
+                    // green bar on nearly every row said nothing, and drowned
+                    // out the few that were running down.
+                    if (fraction < 1) ...[
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: SizedBox(
+                          height: 4,
+                          child: Stack(
+                            children: [
+                              Container(color: attention ? AppColors.surface : AppColors.divider),
+                              FractionallySizedBox(
+                                widthFactor: fraction,
+                                child: Container(color: StockStatus.dot(p.stock, p.minStock)),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
