@@ -9,13 +9,23 @@ import 'error_log.dart';
 /// change on the product is picked up on resume, the way it would be if the
 /// items were re-rung.
 class HeldSale {
-  const HeldSale({required this.id, required this.heldAt, required this.lines, this.label = ''});
+  const HeldSale({
+    required this.id,
+    required this.heldAt,
+    required this.lines,
+    this.label = '',
+    this.quick = const {},
+  });
 
   final String id;
   final DateTime heldAt;
 
-  /// productId → qty.
+  /// productId → qty. A negative id is a quick item, described in [quick].
   final Map<int, int> lines;
+
+  /// Quick items have no product to look up on resume, so their name and
+  /// price are kept here, by the same negative id as in [lines].
+  final Map<int, ({String name, double price})> quick;
 
   /// First product or two, captured at hold time so the list can describe
   /// the sale without a product lookup.
@@ -28,6 +38,10 @@ class HeldSale {
         'heldAt': heldAt.toIso8601String(),
         'label': label,
         'lines': {for (final e in lines.entries) '${e.key}': e.value},
+        if (quick.isNotEmpty)
+          'quick': {
+            for (final e in quick.entries) '${e.key}': {'name': e.value.name, 'price': e.value.price},
+          },
       };
 
   static HeldSale fromJson(Map<String, dynamic> m) => HeldSale(
@@ -37,6 +51,14 @@ class HeldSale {
         lines: {
           for (final e in (m['lines'] as Map<String, dynamic>).entries)
             int.parse(e.key): (e.value as num).toInt(),
+        },
+        // Absent on sales held before quick items existed.
+        quick: {
+          for (final e in ((m['quick'] as Map<String, dynamic>?) ?? const {}).entries)
+            int.parse(e.key): (
+              name: (e.value as Map<String, dynamic>)['name'] as String,
+              price: ((e.value as Map<String, dynamic>)['price'] as num).toDouble(),
+            ),
         },
       );
 }
@@ -74,13 +96,21 @@ class HeldSales extends ChangeNotifier {
     }
   }
 
-  Future<void> hold(Map<int, int> lines, {String label = ''}) async {
+  Future<void> hold(
+    Map<int, int> lines, {
+    String label = '',
+    Map<int, ({String name, double price})> quick = const {},
+  }) async {
     if (lines.isEmpty) return;
     final sale = HeldSale(
       id: DateTime.now().microsecondsSinceEpoch.toRadixString(36),
       heldAt: DateTime.now(),
       lines: Map.of(lines),
       label: label,
+      quick: {
+        for (final e in quick.entries)
+          if (lines.containsKey(e.key)) e.key: e.value,
+      },
     );
     _sales = [sale, ..._sales];
     notifyListeners();

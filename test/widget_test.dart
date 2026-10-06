@@ -34,15 +34,34 @@ void main() {
     expect(find.text('Sell'), findsOneWidget);
     expect(find.text('Restock'), findsOneWidget);
     expect(find.text('More'), findsOneWidget);
-    // "Products" is the default tab, so it also appears as the screen title
-    // and as a stat label — one match is not the right expectation.
-    expect(find.text('Products'), findsWidgets);
+    expect(find.text('Products'), findsOneWidget);
+  });
+
+  testWidgets('the tab labels are in the app font, not the system one', (WidgetTester tester) async {
+    await tester.pumpWidget(const RestockApp());
+    await tester.pump();
+
+    for (final label in ['Home', 'Sell', 'More']) {
+      final style = DefaultTextStyle.of(tester.element(find.text(label))).style;
+      expect(style.fontFamily, startsWith('PlusJakartaSans'), reason: label);
+    }
+  });
+
+  testWidgets('the app opens on the till', (WidgetTester tester) async {
+    await tester.pumpWidget(const RestockApp());
+    await tester.pump();
+    // Sell's own search box, and its tab drawn as the selected one.
+    expect(find.text('Search products'), findsOneWidget);
+    expect(find.byIcon(Icons.point_of_sale_rounded), findsOneWidget);
   });
 
   testWidgets('Products screen shows the inventory summary', (WidgetTester tester) async {
     await tester.pumpWidget(const RestockApp());
     await tester.pump();
+    // The app opens on Sell; go to Products.
+    await tester.tap(find.text('Products'));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('Products'), findsWidgets);
     // The header carries the summary subtitle (still loading on frame one,
@@ -60,12 +79,17 @@ void main() {
 
     await tester.pumpWidget(const RestockApp());
     await tester.pump();
+    // The app opens on Sell; start from Home so there is somewhere to come from.
+    await tester.tap(find.text('Home'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
-    // The circle's centre is its icon's centre. A regular tab's icon sits 26
+    // The circle's centre is its icon's centre. An unselected tab's icon sits 26
     // below the bar's top edge (9 to the pill, half its 34 height), which
     // locates the edge without reaching into the bar's private layout.
     final sell = tester.getCenter(find.byIcon(Icons.point_of_sale_outlined));
-    final barTop = tester.getCenter(find.byIcon(Icons.home_outlined)).dy - 26;
+    // Home is selected now, so measure from an unselected tab: More.
+    final barTop = tester.getCenter(find.byIcon(Icons.grid_view_outlined)).dy - 26;
     final aboveBar = Offset(sell.dx, sell.dy - 20);
     expect(aboveBar.dy, lessThan(barTop), reason: 'the tap must land above the bar');
 
@@ -105,6 +129,12 @@ void main() {
     test('a single-word name has one initial', () {
       expect(const Staff(name: 'May', role: 'Cashier').initials, 'M');
       expect(const Staff(name: 'Ana Reyes', role: 'Cashier').initials, 'AR');
+    });
+
+    test('a name that is already initials stays whole', () {
+      expect(Staff.initialsOf('JD'), 'JD');
+      expect(Staff.initialsOf('Jo'), 'J');
+      expect(Staff.initialsOf('  '), '?');
     });
 
     test('notifies listeners when a setting changes', () async {

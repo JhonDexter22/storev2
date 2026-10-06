@@ -17,6 +17,7 @@ import '../widgets/cart_bar.dart';
 import '../widgets/fly_to_cart.dart';
 import '../widgets/product_card.dart';
 import '../widgets/product_thumb.dart';
+import '../widgets/quick_item_sheet.dart';
 import 'barcode_scanner_screen.dart';
 import 'checkout_screen.dart';
 import 'product_screen.dart';
@@ -39,6 +40,11 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   final _searchCtrl = TextEditingController();
   String _category = 'All';
   final Map<int, int> _cart = {}; // productId -> qty
+
+  /// Quick items in the cart, by their negative id. Kept after a line is
+  /// removed (Undo can bring it back) and dropped once the sale is done.
+  final Map<int, Product> _quick = {};
+  int _nextQuickId = -1;
 
   // ── Speed ────────────────────────────────────────────────────────────────
   /// A pseudo-category of the products sold most this fortnight. Most of a
@@ -171,16 +177,43 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     return withPhoto * 2 < _products.length;
   }
 
-  List<CartLine> get _cartLines => _cart.entries
-      .map((e) {
-        final product = _products.firstWhere(
-          (p) => p.id == e.key,
-          orElse: () => Product(name: '', stock: 0, minStock: 0, category: '', createdAt: ''),
-        );
-        return CartLine(product: product, qty: e.value);
-      })
-      .where((l) => l.product.id != null)
-      .toList();
+  Product? _productById(int id) =>
+      Product.isQuickId(id) ? _quick[id] : _products.where((p) => p.id == id).firstOrNull;
+
+  List<CartLine> get _cartLines => [
+        for (final e in _cart.entries)
+          if (_productById(e.key) case final product?) CartLine(product: product, qty: e.value),
+      ];
+
+  /// Rings up something that is not in the catalog. [name] pre-fills the
+  /// sheet — the search that found nothing, usually.
+  Future<void> _addQuickItem({String name = ''}) async {
+    final item = await QuickItemSheet.show(context, name: name);
+    if (item == null || !mounted) return;
+    _settleFlights();
+    final id = _nextQuickId--;
+    setState(() {
+      _quick[id] = Product.quick(id: id, name: item.name, price: item.price);
+      _cart[id] = item.qty;
+    });
+    // Found what they were looking for: back to the full grid.
+    if (_search.isNotEmpty) _clearSearch();
+    HapticFeedback.lightImpact();
+    _bar.bump();
+  }
+
+  /// A quick item brought back from a held or repeated sale, under a fresh
+  /// id: one saved before a restart can share an id with one in the cart.
+  void _restoreQuick(String name, double price, int qty) {
+    final id = _nextQuickId--;
+    _quick[id] = Product.quick(id: id, name: name, price: price);
+    _cart[id] = qty;
+  }
+
+  /// The sale is over — paid, voided or held — so its quick items go too.
+  void _forgetQuick() {
+    _quick.removeWhere((id, _) => !_cart.containsKey(id));
+  }
 
   int get _cartCount => _cart.values.fold(0, (a, b) => a + b);
   double get _cartTotal => _cartLines.fold(0, (s, l) => s + l.lineTotal);
@@ -408,6 +441,11 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     var skipped = 0;
     setState(() {
       for (final item in sale.items) {
+        // A quick item comes back as it was rung: same name, same price.
+        if (Product.isQuickId(item.productId)) {
+          _restoreQuick(item.name, item.unitPrice, item.qty);
+          continue;
+        }
         final product = _products.where((p) => p.id == item.productId).firstOrNull;
         if (product == null || product.stock <= 0) {
           skipped++;
@@ -437,9 +475,16 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     _settleFlights();
     final label = _cartLines.take(2).map((l) => l.qty > 1 ? '${l.product.name} ×${l.qty}' : l.product.name).join(', ');
     final more = _cartLines.length - 2;
-    await HeldSales.instance.hold(_cart, label: more > 0 ? '$label +$more' : label);
+    await HeldSales.instance.hold(
+      _cart,
+      label: more > 0 ? '$label +$more' : label,
+      quick: {for (final e in _quick.entries) e.key: (name: e.value.name, price: e.value.price)},
+    );
     if (!mounted) return;
-    setState(_cart.clear);
+    setState(() {
+      _cart.clear();
+      _forgetQuick();
+    });
     HapticFeedback.mediumImpact();
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -455,7 +500,13 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     if (!mounted) return;
     setState(() {
       _cart.clear();
+      _forgetQuick();
       held.lines.forEach((id, qty) {
+        if (Product.isQuickId(id)) {
+          final q = held.quick[id];
+          if (q != null) _restoreQuick(q.name, q.price, qty);
+          return;
+        }
         final product = _products.where((p) => p.id == id).firstOrNull;
         if (product == null || product.stock <= 0) return;
         _cart[id] = qty.clamp(1, product.stock);
@@ -476,7 +527,11 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           final held = HeldSales.instance.sales;
           if (held.isEmpty) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (ctx.mounted) Navigator.pop(ctx);
+              // Only while this sheet is still the top route. Resuming the
+              // last held sale closes the sheet first and empties the list
+              // after, and an unguarded pop here then closed whatever was
+              // underneath — the till itself.
+              if (ctx.mounted && (ModalRoute.of(ctx)?.isCurrent ?? false)) Navigator.pop(ctx);
             });
           }
           return Container(
@@ -515,8 +570,10 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   Widget _heldRow(BuildContext sheetCtx, HeldSale h) {
     final t = TimeOfDay.fromDateTime(h.heldAt).format(context);
     final total = h.lines.entries.fold<double>(0, (sum, e) {
-      final p = _products.where((p) => p.id == e.key).firstOrNull;
-      return sum + (p?.price ?? 0) * e.value;
+      final price = Product.isQuickId(e.key)
+          ? h.quick[e.key]?.price
+          : _products.where((p) => p.id == e.key).firstOrNull?.price;
+      return sum + (price ?? 0) * e.value;
     });
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -602,9 +659,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
   void _incrementLine(int productId) {
     _settleFlights();
-    final product = _products.firstWhere((p) => p.id == productId);
+    final product = _productById(productId);
     final qty = _cart[productId] ?? 0;
-    if (qty >= product.stock) return;
+    if (product == null || qty >= product.stock) return;
     setState(() => _cart[productId] = qty + 1);
   }
 
@@ -684,9 +741,15 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     _searchCtrl.clear();
     setState(() {
       _cart.clear();
+      _forgetQuick();
       _search = '';
     });
     if (outcome == CheckoutOutcome.completed) _load();
+  }
+
+  void _clearSearch() {
+    _searchCtrl.clear();
+    setState(() => _search = '');
   }
 
   /// The cart bar's body opens the line editor; its Checkout button goes
@@ -1036,10 +1099,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                       : IconButton(
                           tooltip: tr('Clear'),
                           icon: const Icon(Icons.close_rounded, color: AppColors.muted, size: 18),
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            setState(() => _search = '');
-                          },
+                          onPressed: _clearSearch,
                         ),
                   suffixIconConstraints: const BoxConstraints(minWidth: 44),
                 ),
@@ -1166,8 +1226,10 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Two lines: the pane is narrow beside the stepper, and one
+                // line cut "Lucky Me Pancit Canton" to "Lucky Me Pancit Can…".
                 Text(line.product.name,
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
+                    maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.cardTitle()),
                 const SizedBox(height: 2),
                 Text(formatPeso(line.product.price), style: AppText.caption()),
               ],
@@ -1260,9 +1322,17 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   /// "Repeat last sale" while the cart is empty, and the held-sales chip
   /// whenever there is something held. Collapses to nothing otherwise, so
   /// the grid keeps its height on a store with no history.
+  ///
+  /// Repeat steps aside while a search is typed: the cashier is after one
+  /// product, and the row only pushed the results down. Held stays — a
+  /// parked sale is not something to lose sight of.
   Widget _quickRow() {
     final last = _lastSale;
-    final canRepeat = _cart.isEmpty && last != null && last.items.isNotEmpty && !_loading;
+    final canRepeat = _cart.isEmpty &&
+        last != null &&
+        last.items.isNotEmpty &&
+        !_loading &&
+        _search.trim().isEmpty;
     final heldCount = HeldSales.instance.count;
     if (!canRepeat && heldCount == 0) return const SizedBox.shrink();
 
@@ -1293,6 +1363,31 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     );
   }
 
+  /// An action, not a filter, so it is drawn as one: blue outline and a plus,
+  /// where the categories beside it are plain.
+  Widget _quickItemChip() {
+    return GestureDetector(
+      onTap: () => _addQuickItem(name: _search.trim()),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.primaryTint,
+          borderRadius: BorderRadius.circular(AppRadius.chip),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.add_rounded, size: 16, color: AppColors.primary),
+            const SizedBox(width: 3),
+            Text(tr('Quick item'), style: AppText.chip(color: AppColors.primary)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _categoryChips() {
     final cats = _categories;
     return SizedBox(
@@ -1300,10 +1395,14 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: AppSpace.screenH),
-        itemCount: cats.length,
+        // One more than the categories: the Quick item chip leads the row.
+        // It lives here, in a row every store already has, rather than in a
+        // row of its own that would cost every store a line of products.
+        itemCount: cats.length + 1,
         separatorBuilder: (_, __) => const SizedBox(width: AppSpace.gapChip),
-        itemBuilder: (_, i) {
-          final c = cats[i];
+        itemBuilder: (_, index) {
+          if (index == 0) return _quickItemChip();
+          final c = cats[index - 1];
           final selected = c == _category;
           return GestureDetector(
             onTap: () => setState(() => _category = c),
@@ -1336,11 +1435,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
   Widget _grid({int columns = 2, double bottomPadding = 140}) {
     final items = _filtered;
-    if (items.isEmpty) {
-      return Center(
-        child: Text(tr('No products found'), style: AppText.body()),
-      );
-    }
+    if (items.isEmpty) return _noMatch();
+    final query = _search.trim();
     return GridView.builder(
       padding: EdgeInsets.fromLTRB(AppSpace.screenH, 10, AppSpace.screenH, bottomPadding),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -1355,22 +1451,96 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
             ? MediaQuery.textScalerOf(context).scale(ProductCard.textBlockHeight(showCategory: false)) + 56
             : null,
       ),
-      itemCount: items.length,
-      itemBuilder: (_, i) => Listener(
-        // Remember where the finger went down so the flight to the bag can
-        // start from under it rather than from the card's corner.
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: (e) => _lastTapAt = e.position,
-        child: ProductCard(
-          product: items[i],
-          qtyInCart: _cart[items[i].id] ?? 0,
-          dimWhenOut: true,
-          showLowStock: false,
-          showCategory: false,
-          onQtyTap: () => _showQtySheet(items[i]),
-          onTap: items[i].stock <= 0 ? null : () => _addToCart(items[i]),
-          onLongPress: items[i].stock <= 0 ? null : () => _showQtySheet(items[i]),
-        ),
+      // A search that found something may still not be it — "candy" finds
+      // Candy Max, not the loose one. The tile after the results covers that.
+      itemCount: items.length + (query.isEmpty ? 0 : 1),
+      itemBuilder: (_, i) {
+        if (i == items.length) {
+          return _QuickItemTile(query: query, onTap: () => _addQuickItem(name: query));
+        }
+        return Listener(
+          // Remember where the finger went down so the flight to the bag can
+          // start from under it rather than from the card's corner.
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (e) => _lastTapAt = e.position,
+          child: ProductCard(
+            product: items[i],
+            qtyInCart: _cart[items[i].id] ?? 0,
+            dimWhenOut: true,
+            showLowStock: false,
+            showCategory: false,
+            onQtyTap: () => _showQtySheet(items[i]),
+            onTap: items[i].stock <= 0 ? null : () => _addToCart(items[i]),
+            onLongPress: items[i].stock <= 0 ? null : () => _showQtySheet(items[i]),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Nothing to show. Says what was looked for and offers the way back,
+  /// rather than a bare "No products found" in the middle of an empty screen.
+  Widget _noMatch() {
+    final q = _search.trim();
+    // An empty category with no search typed: the chip is the only filter.
+    final title = q.isEmpty
+        ? tr('No products found')
+        : tr('No match for "{query}"', {'query': q});
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(AppSpace.screenH * 2, 48, AppSpace.screenH * 2, 140),
+      child: Column(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: const BoxDecoration(color: AppColors.divider, shape: BoxShape.circle),
+            child: const Icon(Icons.search_off_rounded, color: AppColors.muted, size: 26),
+          ),
+          const SizedBox(height: 14),
+          Text(title,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.sectionTitle()),
+          if (q.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              tr('Check the spelling, or scan the barcode instead.'),
+              textAlign: TextAlign.center,
+              style: AppText.caption(),
+            ),
+            const SizedBox(height: 16),
+            // Not on the list is often not a typo: ice, a single candy, load.
+            ElevatedButton.icon(
+              onPressed: () => _addQuickItem(name: q),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
+              ),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: Text(tr('Sell "{query}" as a quick item', {'query': q}),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.chip(color: Colors.white)),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _clearSearch,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.hairline),
+                backgroundColor: AppColors.surface,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
+              ),
+              icon: const Icon(Icons.close_rounded, size: 17),
+              label: Text(tr('Clear search'), style: AppText.chip(color: AppColors.primary)),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -1408,6 +1578,55 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 }
 
 /// A slim action above the chips: repeat the last sale, or open held sales.
+/// The last cell of a search's results: ring up what was typed as a quick
+/// item. Outlined and empty where a product card is filled, so it reads as
+/// "not a product" at a glance.
+class _QuickItemTile extends StatelessWidget {
+  const _QuickItemTile({required this.query, required this.onTap});
+
+  final String query;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: AppColors.primary.withValues(alpha: 0.35), width: 1.5),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: const BoxDecoration(color: AppColors.primaryTint, shape: BoxShape.circle),
+                child: const Icon(Icons.add_rounded, color: AppColors.primary, size: 20),
+              ),
+              const SizedBox(height: 8),
+              Text(tr('Quick item'), style: AppText.chip(color: AppColors.primary)),
+              const SizedBox(height: 2),
+              Text(
+                tr('Sell "{query}" by price', {'query': query}),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.caption(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _QuickPill extends StatelessWidget {
   const _QuickPill({
     required this.icon,

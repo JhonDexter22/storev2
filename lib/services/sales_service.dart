@@ -167,6 +167,8 @@ class SalesService {
           'line_total': line.lineTotal,
           'discount': shares[i],
         });
+        // A quick item has no shelf to take from.
+        if (line.product.isQuick) continue;
         // Decrement relative to the stored value, not the copy POS loaded.
         // Writing an absolute `loadedStock - qty` would clobber any change made
         // in between — a restock, or a return going back on the shelf.
@@ -196,7 +198,10 @@ class SalesService {
           : 'LOWER(reference) LIKE ? OR id IN '
               '(SELECT sale_id FROM sale_items WHERE LOWER(name) LIKE ?)',
       whereArgs: q.isEmpty ? null : ['%$q%', '%$q%'],
-      orderBy: 'id DESC',
+      // By time, not by receipt number: Returns groups these under day
+      // headings, and a phone clock put right after the fact makes the two
+      // disagree. The id breaks ties within the same instant.
+      orderBy: 'created_at DESC, id DESC',
       limit: limit,
       offset: offset,
     );
@@ -364,7 +369,8 @@ class SalesService {
       SELECT si.product_id AS id, SUM(si.qty) AS units
       FROM sale_items si
       JOIN sales s ON s.id = si.sale_id
-      WHERE s.created_at >= ?
+      -- Quick items (negative ids) are not products to put a tile up for.
+      WHERE s.created_at >= ? AND si.product_id > 0
       GROUP BY si.product_id
       ORDER BY units DESC, MAX(s.created_at) DESC
       LIMIT ?
@@ -656,7 +662,8 @@ class SalesService {
 
       for (final ri in refundItems) {
         await txn.insert('refund_items', {...ri, 'refund_id': refundId});
-        if (restock) {
+        // A quick item has no shelf to go back on.
+        if (restock && !Product.isQuickId(ri['product_id'] as int)) {
           await txn.rawUpdate(
             'UPDATE products SET stock = stock + ? WHERE id = ?',
             [ri['qty'], ri['product_id']],
