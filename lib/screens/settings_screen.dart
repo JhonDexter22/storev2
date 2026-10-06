@@ -35,8 +35,11 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  /// Two columns of about a phone's width each.
+  static const _tabletWidth = 920.0;
+
   // Not final: reloaded on the way back from any row, or closing the day in
-  // Cash count and taking a payment in Credit left them showing the old
+  // Close day and taking a payment in Credit left them showing the old
   // figures until the tab was left and reopened.
   late Future<double> _owed = _loadOwed();
   late Future<double> _drawer = _loadDrawer();
@@ -123,7 +126,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           _MoreItem(
             icon: Icons.payments_outlined,
-            title: tr('Cash count'),
+            // The name Home's card and the screen itself use.
+            title: tr('Close day'),
             subtitle: tr('Count and close the day'),
             trailing: _DrawerMeta(future: _drawer),
             onTap: () => _open(const CashCountScreen()),
@@ -177,41 +181,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     ];
 
+    final header = <Widget>[
+      // Language lives in Settings only: a set-once choice, and a pill
+      // up here was one stray tap from flipping the app mid-shift.
+      Text(tr('More'), style: AppText.screenTitle()),
+      const SizedBox(height: 16),
+      _CashierCard(
+        name: settings.cashier,
+        // No terminal: a store with one phone never sees a second, and it
+        // cut the line off on a phone. Day closes and receipts keep it.
+        detail: '${settings.storeName} · ${_todayLabel()}',
+        onSwitch: () => _open(const CashierSwitchScreen()),
+      ),
+      const SizedBox(height: 24),
+    ];
+
+    List<Widget> column(Iterable<_Section> list, {bool lock = false}) => [
+          for (final s in list) ...[
+            _SectionCard(section: s),
+            const SizedBox(height: 20),
+          ],
+          if (lock) _LockRow(onTap: _confirmSignOut),
+        ];
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(
         bottom: false,
         child: LayoutBuilder(
-          builder: (context, constraints) => ListView(
-            padding: Breakpoints.pagePadding(
-              context,
-              constraints.maxWidth,
-              top: 24,
-              // Clear the Sell button that rises out of the bottom bar.
-              bottom: 32 + MediaQuery.paddingOf(context).bottom,
-              phoneSide: 24,
-            ),
-            children: [
-              // Language lives in Settings only: a set-once choice, and a pill
-              // up here was one stray tap from flipping the app mid-shift.
-              Text(tr('More'), style: AppText.screenTitle()),
-              const SizedBox(height: 16),
-
-              _CashierCard(
-                name: settings.cashier,
-                detail: '${settings.storeName} · ${settings.terminal} · ${_todayLabel()}',
-                onSwitch: () => _open(const CashierSwitchScreen()),
+          builder: (context, constraints) {
+            // Tablet: two columns, so the whole menu — Lock till included —
+            // is on one screen, where a lone 720px column left it below the
+            // fold with empty space either side.
+            if (Breakpoints.isTablet(context)) {
+              final side = ((constraints.maxWidth - _tabletWidth) / 2).clamp(24.0, double.infinity);
+              return ListView(
+                padding: EdgeInsets.fromLTRB(side, 24, side, 32),
+                children: [
+                  ...header,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: Column(children: column(sections.take(1)))),
+                      const SizedBox(width: 20),
+                      Expanded(child: Column(children: column(sections.skip(1), lock: true))),
+                    ],
+                  ),
+                ],
+              );
+            }
+            return ListView(
+              padding: Breakpoints.pagePadding(
+                context,
+                constraints.maxWidth,
+                top: 24,
+                // Clear the Sell button that rises out of the bottom bar.
+                bottom: 32 + MediaQuery.paddingOf(context).bottom,
+                phoneSide: 24,
               ),
-              const SizedBox(height: 24),
-
-              for (final s in sections) ...[
-                _SectionCard(section: s),
-                const SizedBox(height: 20),
-              ],
-
-              _LockRow(onTap: _confirmSignOut),
-            ],
-          ),
+              children: [...header, ...column(sections, lock: true)],
+            );
+          },
         ),
       ),
     );

@@ -73,7 +73,7 @@ void main() {
     await tab(tr('More'));
 
     // Every hub destination opens and comes back.
-    for (final item in [for (final k in ['Reports', 'Cash count', 'Shift history', 'Returns & voids', 'Credit', 'Settings']) tr(k)]) {
+    for (final item in [for (final k in ['Reports', 'Close day', 'Closed days', 'Returns & voids', 'Credit', 'Settings']) tr(k)]) {
       await tester.ensureVisible(find.text(item).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text(item).first);
