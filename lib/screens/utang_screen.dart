@@ -668,37 +668,42 @@ class _UtangScreenState extends State<UtangScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _tile(
-                tr('Total owed'),
-                formatPeso(_totalOwed),
-                AppColors.ink,
-                AppColors.surface,
+        // One height for all three, figures on one line: "Collected today"
+        // wraps on a phone, and its tile used to stand taller than the rest.
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _tile(
+                  tr('Total owed'),
+                  formatPeso(_totalOwed),
+                  AppColors.ink,
+                  AppColors.surface,
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _tile(
-                tr('Overdue'),
-                formatPeso(_overdue),
-                _overdue > 0 ? AppColors.dangerText : AppColors.ink,
-                _overdue > 0 ? AppColors.dangerFill : AppColors.surface,
+              const SizedBox(width: 10),
+              Expanded(
+                child: _tile(
+                  tr('Overdue'),
+                  formatPeso(_overdue),
+                  _overdue > 0 ? AppColors.dangerText : AppColors.ink,
+                  _overdue > 0 ? AppColors.dangerFill : AppColors.surface,
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _tile(
-                tr('Collected today'),
-                formatPeso(_collected.amount),
-                _collected.amount > 0 ? AppColors.successText : AppColors.ink,
-                _collected.amount > 0
-                    ? AppColors.successFill
-                    : AppColors.surface,
+              const SizedBox(width: 10),
+              Expanded(
+                child: _tile(
+                  tr('Collected today'),
+                  formatPeso(_collected.amount),
+                  _collected.amount > 0 ? AppColors.successText : AppColors.ink,
+                  _collected.amount > 0
+                      ? AppColors.successFill
+                      : AppColors.surface,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         if (overdueToRemind > 0) ...[
           const SizedBox(height: 10),
@@ -757,6 +762,9 @@ class _UtangScreenState extends State<UtangScreen> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        // Label up top, figure along the bottom edge, so the three figures
+        // line up whatever their labels do.
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: AppText.caption()),
           const SizedBox(height: 4),
@@ -846,6 +854,22 @@ class _UtangScreenState extends State<UtangScreen> {
     return tr('Paid {amount}', money);
   }
 
+  /// The last movement on the tab, and when — on its own line under it, as
+  /// one line beside Remind and Payment cut the day off. Whether someone
+  /// still pays now and then is what decides who to remind.
+  Widget _activity(Customer c) {
+    final at = c.lastActivityAt;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(_activityLabel(c), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption()),
+        if (at != null)
+          Text(trRelativeDay(at),
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption(color: AppColors.faint)),
+      ],
+    );
+  }
+
   Widget _customerCard(Customer c) {
     final status = c.status;
     return Material(
@@ -907,6 +931,23 @@ class _UtangScreenState extends State<UtangScreen> {
                                   : AppColors.muted,
                             ),
                           ),
+                          // Only checkout used to say so, at the moment of a
+                          // sale. By how much, under the name rather than as
+                          // a second tag: a few pesos over and a few hundred
+                          // over looked the same, and the tag's width cut the
+                          // phone number off.
+                          if (isOverLimit(c)) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              tr('Over the {limit} limit by {amount}', {
+                                'limit': formatPeso(creditLimitFor(c)),
+                                'amount': formatPeso(c.balance - creditLimitFor(c)),
+                              }),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.caption(color: AppColors.dangerText),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -933,16 +974,6 @@ class _UtangScreenState extends State<UtangScreen> {
                             bg: AppColors.successFill,
                             dot: false,
                           ),
-                        // Only checkout used to say so, at the moment of a sale.
-                        if (isOverLimit(c)) ...[
-                          const SizedBox(height: 4),
-                          StatusPill(
-                            label: tr('Over limit'),
-                            fg: AppColors.dangerText,
-                            bg: AppColors.dangerFill,
-                            dot: false,
-                          ),
-                        ],
                       ],
                     ),
                   ],
@@ -958,14 +989,7 @@ class _UtangScreenState extends State<UtangScreen> {
                 ),
                 child: Row(
                   children: [
-                    Expanded(
-                      child: Text(
-                        _activityLabel(c),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.caption(),
-                      ),
-                    ),
+                    Expanded(child: _activity(c)),
                     if (c.balance > 0) ...[
                       _pill(
                         c.remindedToday
