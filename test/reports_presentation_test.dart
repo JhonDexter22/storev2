@@ -48,7 +48,9 @@ void main() {
   }
 
   Future<void> pump(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(390, 900);
+    // Tall enough for the whole report: a list builds only what is on
+    // screen, and Returns sits below Busiest hours.
+    tester.view.physicalSize = const Size(390, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(MaterialApp(home: ReportsScreen(key: UniqueKey())));
@@ -219,6 +221,41 @@ void main() {
       // An overflow throws in a test, so simply arriving here is the assertion.
       await pump(tester);
       expect(find.text('Reports'), findsOneWidget);
+    });
+  });
+
+  group('layout', () {
+    double y(WidgetTester tester, String text) => tester.getTopLeft(find.text(text)).dy;
+
+    testWidgets('what sold sits together, and Returns comes last', (tester) async {
+      final p = await addProduct();
+      await sales.recordSale(lines: [CartLine(product: p, qty: 1)], paymentMethod: 'Cash');
+      await pump(tester);
+
+      expect(y(tester, 'By category'), greaterThan(y(tester, 'Top products')));
+      expect(y(tester, 'By category'), lessThan(y(tester, 'Payment mix')));
+      expect(y(tester, 'Returns'), greaterThan(y(tester, 'Credit')));
+    });
+
+    testWidgets('no returns is one line', (tester) async {
+      await pump(tester);
+      expect(find.text('No returns in this range'), findsOneWidget);
+      expect(find.textContaining('Returns are recorded'), findsNothing);
+    });
+
+    testWidgets('a tablet shows each figure once, with busiest hours up top', (tester) async {
+      final p = await addProduct();
+      await sales.recordSale(lines: [CartLine(product: p, qty: 1)], paymentMethod: 'Cash');
+      tester.view.physicalSize = const Size(1194, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(home: ReportsScreen(key: UniqueKey())));
+      await tester.pumpAndSettle();
+
+      // Once, in the revenue card's footer: there were tiles beside it too.
+      expect(find.text('Transactions'), findsOneWidget);
+      expect(find.text('Avg sale'), findsOneWidget);
+      expect(y(tester, 'Busiest hours'), lessThan(y(tester, 'Top products')));
     });
   });
 }

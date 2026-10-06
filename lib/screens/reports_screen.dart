@@ -135,8 +135,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
         const SizedBox(height: AppSpace.gapSection),
         _revenueCard(),
         const SizedBox(height: AppSpace.gapBlock),
+        // What sold, then what did not, together: By category used to be
+        // the last section, five below Top products.
         _section(tr('Top products')),
         _topProducts(),
+        const SizedBox(height: AppSpace.gapBlock),
+        _section(tr('By category')),
+        _byCategory(),
         const SizedBox(height: AppSpace.gapBlock),
         if (_days > 1) ...[
           _section(tr('Not selling')),
@@ -158,23 +163,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
           const SizedBox(height: AppSpace.gapBlock),
         ],
-        _section(tr('Returns')),
-        _returns(),
-        const SizedBox(height: AppSpace.gapBlock),
         _section(tr('Credit')),
         _utangBlock(),
         const SizedBox(height: AppSpace.gapBlock),
-        _section(tr('By category')),
-        _byCategory(),
+        _section(tr('Returns')),
+        _returns(),
       ],
     );
   }
 
-  /// Tablet: revenue card at 1.5fr beside the stat tiles and payment mix, then
-  /// the two leaderboards side by side, so the week, what sells and how people
-  /// pay are all readable at once.
+  /// Tablet: revenue card at 1.5fr beside payment mix and busiest hours, then
+  /// the two leaderboards side by side, so the week, what sells, how people
+  /// pay and when they come are all readable at once.
+  ///
+  /// The right column used to open with Transactions, Avg sale and Items
+  /// tiles — the same three figures the revenue card's footer shows beside
+  /// them. Busiest hours, which was the last row, took their place.
   Widget _tabletBody() {
-    final s = _stats!;
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
       children: [
@@ -193,18 +198,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(child: _statTile(tr('Transactions'), '${s.transactions}')),
-                        const SizedBox(width: 10),
-                        Expanded(child: _statTile(tr('Avg sale'), formatPeso(s.avgSale))),
-                        const SizedBox(width: 10),
-                        Expanded(child: _statTile(tr('Items'), '${s.itemsSold}')),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
                     _section(tr('Payment mix')),
                     _paymentMix(),
+                    const SizedBox(height: 12),
+                    _section(tr('Busiest hours')),
+                    _busiestHours(),
                   ],
                 ),
               ),
@@ -244,6 +242,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (_days > 1) ...[
+                    _section(tr('Not selling')),
+                    _notSelling(),
+                    const SizedBox(height: AppSpace.gapBlock),
+                  ],
                   if (_discounts.isNotEmpty) ...[
                     _section(tr('Discounts')),
                     DiscountAudit(
@@ -265,33 +268,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 children: [
                   _section(tr('Credit')),
                   _utangBlock(),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpace.gapBlock),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _section(tr('Busiest hours')),
-                  _busiestHours(),
-                ],
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_days > 1) ...[
-                    _section(tr('Not selling')),
-                    _notSelling(),
-                  ],
                 ],
               ),
             ),
@@ -393,25 +369,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Text(tr('+{n} more not selling', {'n': idle.total - idle.items.length}),
                 style: AppText.caption()),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _statTile(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpace.cardPad),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: AppColors.hairline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: AppText.caption()),
-          const SizedBox(height: 4),
-          _figure(value, size: 19),
         ],
       ),
     );
@@ -996,9 +953,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _returns() {
+    // One line: most days have none, and three lines of "none, and here is
+    // where they would be recorded" was a lot of screen for nothing.
     if (_refunds.isEmpty) {
-      return _emptyCard(
-        tr('No returns in this range.\nReturns are recorded from More → Returns & voids.'),
+      return _card(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpace.cardPad, vertical: 14),
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle_outline_rounded, size: 18, color: AppColors.muted),
+            const SizedBox(width: 10),
+            Expanded(child: Text(tr('No returns in this range'), style: AppText.body())),
+          ],
+        ),
       );
     }
     return _card(
