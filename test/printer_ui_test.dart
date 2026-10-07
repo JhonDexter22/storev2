@@ -55,8 +55,10 @@ void main() {
 
       expect(find.text('RPP02N'), findsOneWidget);
       expect(find.text('00:11:22:33:44:55'), findsOneWidget);
-      // A printer that reports no name is still usable, listed by address.
-      expect(find.text('AA:BB:CC:DD:EE:FF'), findsNWidgets(2));
+      // A printer that reports no name is still usable: called "Unnamed
+      // device", its address under it once rather than twice.
+      expect(find.text('Unnamed device'), findsOneWidget);
+      expect(find.text('AA:BB:CC:DD:EE:FF'), findsOneWidget);
 
       await tester.tap(find.text('RPP02N'));
       await tester.pumpAndSettle();
@@ -87,20 +89,73 @@ void main() {
       await pumpPrinterScreen(tester);
       // ElevatedButton.icon builds a private subclass, which find.byType —
       // an exact runtime-type match — does not see.
+      // Until then it says why it cannot be pressed.
       final button = find.ancestor(
-        of: find.text('Print a test receipt'),
+        of: find.text('Pick a printer above'),
         matching: find.byWidgetPredicate((w) => w is ElevatedButton),
       );
       expect(tester.widget<ElevatedButton>(button).onPressed, isNull);
 
+      // Choosing prints a test at once, so a wrong pick shows itself here.
       await tester.tap(find.text('RPP02N'));
-      await tester.pumpAndSettle();
-      expect(tester.widget<ElevatedButton>(button).onPressed, isNotNull);
-
-      await tester.tap(button);
       await tester.pumpAndSettle();
       expect(hasText(fake.written.single, 'Printer test'), isTrue);
       expect(find.text('Printed'), findsOneWidget);
+      final ready = find.ancestor(
+        of: find.text('Print a test receipt'),
+        matching: find.byWidgetPredicate((w) => w is ElevatedButton),
+      );
+      expect(tester.widget<ElevatedButton>(ready).onPressed, isNotNull);
+
+      await tester.tap(ready);
+      await tester.pumpAndSettle();
+      expect(fake.written.length, 2);
+    });
+
+    // OutlinedButton.icon is a private subclass; find.byType would miss it.
+    Finder refreshButton() => find.ancestor(
+        of: find.text('Refresh'), matching: find.byWidgetPredicate((w) => w is OutlinedButton));
+
+    testWidgets('a message that says "tap Refresh" has the button in it', (tester) async {
+      fake.bluetoothOn = false;
+      await pumpPrinterScreen(tester);
+      expect(find.textContaining('then tap Refresh'), findsOneWidget);
+      expect(refreshButton(), findsOneWidget);
+
+      // Switched on and refreshed from there: the printers appear.
+      fake.bluetoothOn = true;
+      await tester.tap(refreshButton());
+      await tester.pumpAndSettle();
+      expect(find.text('RPP02N'), findsOneWidget);
+    });
+
+    testWidgets('a phone that cannot print gets no Refresh to tap in vain', (tester) async {
+      fake.supported = false;
+      await pumpPrinterScreen(tester);
+      expect(find.text('This device cannot print to a Bluetooth printer.'), findsOneWidget);
+      expect(refreshButton(), findsNothing);
+    });
+
+    testWidgets('choosing something that is not a printer says so at once',
+        (tester) async {
+      fake.connectSucceeds = false;
+      await pumpPrinterScreen(tester);
+      await tester.tap(find.text('RPP02N'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Is it switched on?'), findsOneWidget);
+    });
+
+    testWidgets('likely printers come first, the rest under Other devices',
+        (tester) async {
+      printer.resetForTests(_MixedTransport());
+      await pumpPrinterScreen(tester);
+
+      final y = {
+        for (final n in ['RPP02N', 'OTHER DEVICES', 'JBL Go 3'])
+          n: tester.getTopLeft(find.text(n)).dy,
+      };
+      expect(y['RPP02N']!, lessThan(y['OTHER DEVICES']!));
+      expect(y['OTHER DEVICES']!, lessThan(y['JBL Go 3']!));
     });
 
     testWidgets('a failed test print says what to do about it', (tester) async {
@@ -187,14 +242,25 @@ void main() {
       expect(hasText(fake.written.single, 'P450.00'), isTrue); // change
     });
 
-    testWidgets('with no printer it says where to set one up', (tester) async {
+    testWidgets('with no printer the button goes to set one up', (tester) async {
       await settings.setPrintReceipt(false);
       await sell(tester);
 
+      // A Print button that can only fail used to point at Settings in a
+      // toast. It now opens the printer screen itself.
+      expect(find.text('Print receipt'), findsNothing);
+      await tester.tap(find.text('Set up printer'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PrinterScreen), findsOneWidget);
+      expect(fake.written, isEmpty);
+
+      // Back with a printer chosen: the same sale can now be printed.
+      await settings.setPrinter('00:11:22:33:44:55', name: 'RPP02N');
+      Navigator.of(tester.element(find.byType(PrinterScreen))).pop();
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Print receipt'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('pick one in Settings'), findsOneWidget);
-      expect(fake.written, isEmpty);
+      expect(fake.written, hasLength(1));
     });
 
     testWidgets('"print automatically" prints without being asked',
@@ -225,6 +291,24 @@ void main() {
       expect(fake.written, isEmpty);
     });
   });
+
+  test('the printer guess goes by the name', () {
+    for (final name in ['RPP02N', 'MTP-II', 'POS-58', 'PT-210', 'Bluetooth Printer', 'XPrinter XP-58']) {
+      expect(looksLikePrinter(name), isTrue, reason: name);
+    }
+    for (final name in ['JBL Go 3', 'Galaxy Buds2', 'Toyota Car Kit', 'Possum speaker', '']) {
+      expect(looksLikePrinter(name), isFalse, reason: name);
+    }
+  });
+}
+
+/// A phone with earbuds paired before the printer, the usual order.
+class _MixedTransport extends FakeTransport {
+  @override
+  Future<List<PrinterDevice>> paired() async => const [
+        PrinterDevice(name: 'JBL Go 3', address: '11:11:11:11:11:11'),
+        PrinterDevice(name: 'RPP02N', address: '00:11:22:33:44:55'),
+      ];
 }
 
 class _EmptyTransport extends FakeTransport {

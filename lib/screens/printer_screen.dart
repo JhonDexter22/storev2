@@ -29,6 +29,10 @@ class _PrinterScreenState extends State<PrinterScreen> {
   bool _testing = false;
   String? _problem;
 
+  /// A phone that cannot print over Bluetooth at all: refreshing changes
+  /// nothing, so its message gets no Refresh button.
+  bool _unsupported = false;
+
   @override
   void initState() {
     super.initState();
@@ -43,8 +47,10 @@ class _PrinterScreenState extends State<PrinterScreen> {
     final t = _printer.transport;
     List<PrinterDevice> found = const [];
     String? problem;
+    var unsupported = false;
     try {
       if (!await t.isSupported) {
+        unsupported = true;
         problem = tr('This device cannot print to a Bluetooth printer.');
       } else if (!await t.hasPermission) {
         // The check also raises Android's permission dialog, so the honest
@@ -63,6 +69,7 @@ class _PrinterScreenState extends State<PrinterScreen> {
     setState(() {
       _devices = found;
       _problem = problem;
+      _unsupported = unsupported;
       _loading = false;
     });
   }
@@ -160,9 +167,13 @@ class _PrinterScreenState extends State<PrinterScreen> {
                   child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
                 )
               else if (_problem != null)
-                _message(_problem!)
+                // Every problem but an unsupported phone ends "then tap
+                // Refresh"; the button is in the message, not only in the
+                // corner as an unlabelled icon.
+                _message(_problem!, refresh: !_unsupported)
               else if (_devices.isEmpty)
-                _message(tr("Nothing paired yet. Pair the printer in your phone's Bluetooth settings, then tap Refresh."))
+                _message(tr("Nothing paired yet. Pair the printer in your phone's Bluetooth settings, then tap Refresh."),
+                    refresh: true)
               else
                 _deviceList(chosen),
               const SizedBox(height: AppSpace.gapSection),
@@ -183,8 +194,14 @@ class _PrinterScreenState extends State<PrinterScreen> {
                   icon: Icon(
                       _testing ? Icons.hourglass_top_rounded : Icons.print_outlined,
                       size: 18),
-                  label: Text(_testing ? tr('Printing…') : tr('Print a test receipt'),
-                      style: AppText.chip(color: Colors.white)
+                  // Says why while it cannot be pressed.
+                  label: Text(
+                      chosen == null
+                          ? tr('Pick a printer above')
+                          : _testing
+                              ? tr('Printing…')
+                              : tr('Print a test receipt'),
+                      style: AppText.chip(color: chosen == null ? AppColors.muted : Colors.white)
                           .copyWith(fontSize: 15)),
                 ),
               ),
@@ -270,7 +287,9 @@ class _PrinterScreenState extends State<PrinterScreen> {
             color: d.address == chosen ? AppColors.success : AppColors.muted,
             size: 22,
           ),
-          title: Text(d.label, style: AppText.cardTitle()),
+          // A device that reports no name showed its address twice, as the
+          // title and again under it.
+          title: Text(d.name.trim().isEmpty ? tr('Unnamed device') : d.label, style: AppText.cardTitle()),
           subtitle: Text(d.address, style: AppText.caption()),
         );
 
@@ -313,14 +332,36 @@ class _PrinterScreenState extends State<PrinterScreen> {
     );
   }
 
-  Widget _message(String text) => Container(
+  Widget _message(String text, {bool refresh = false}) => Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(AppRadius.card),
           border: Border.all(color: AppColors.hairline),
         ),
-        child: Text(text, style: AppText.body()),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(text, style: AppText.body()),
+            if (refresh) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 38,
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : _load,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.hairline),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
+                  ),
+                  icon: const Icon(Icons.refresh_rounded, size: 17),
+                  label: Text(tr('Refresh'), style: AppText.chip(color: AppColors.primary)),
+                ),
+              ),
+            ],
+          ],
+        ),
       );
 
   Widget _note() => Container(
