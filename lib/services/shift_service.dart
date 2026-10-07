@@ -120,6 +120,20 @@ class ShiftService {
     return Shift.fromMap(row.first);
   }
 
+  /// Takes back a close made a moment ago, so the drawer can be counted again.
+  ///
+  /// Recount used to go back to the count leaving this close saved, and the
+  /// second close recorded the same day again — twice in Closed days, its
+  /// sales and any shortage counted twice in the totals. With the close
+  /// gone, the day is open again from the close before it, as if it had not
+  /// been made. Only the latest close can be taken back.
+  Future<void> undoClose(Shift shift) async {
+    final db = await dbHelper.database;
+    final latest = await db.query('shifts', columns: ['id'], orderBy: 'id DESC', limit: 1);
+    if (latest.isEmpty || latest.first['id'] != shift.id) return;
+    await db.delete('shifts', where: 'id = ?', whereArgs: [shift.id]);
+  }
+
   /// Newest first, a page at a time. [outcome] narrows to drawers that came
   /// up `short` or `over`.
   /// [cashier] narrows to the closes one person made.

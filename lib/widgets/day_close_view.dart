@@ -92,7 +92,10 @@ class _DayCloseViewState extends State<DayCloseView> {
                       width: 72,
                       height: 72,
                       decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
-                      child: Icon(Icons.check_rounded, color: tone, size: 38),
+                      // A check only when the drawer balanced: a short drawer
+                      // got a red tick, which said "fine" and "wrong" at once.
+                      child: Icon(balanced ? Icons.check_rounded : Icons.priority_high_rounded,
+                          color: tone, size: 38),
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -106,6 +109,45 @@ class _DayCloseViewState extends State<DayCloseView> {
                     ),
                   ),
                   const SizedBox(height: 22),
+
+                  // ── Cash drawer ────────────────────────────────────────
+                  // First: whether the drawer balanced is the one result of a
+                  // close. It used to come after sales, payments and top
+                  // sellers — below the fold on a phone.
+                  if (shift != null) ...[
+                    _card(
+                      tint: fill,
+                      border: tone.withValues(alpha: 0.25),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(tr('CASH DRAWER'), style: AppText.overline(color: tone)),
+                          const SizedBox(height: 8),
+                          _row(tr('Opening float'), formatPeso(shift.openingFloat)),
+                          _row(tr('Cash sales'), formatPeso(shift.cashSales)),
+                          if (shift.utangCash > 0)
+                            _row(tr('Utang paid in cash'), formatPeso(shift.utangCash)),
+                          _row(tr('Expected'), formatPeso(shift.expected)),
+                          _row(tr('Counted'), formatPeso(shift.counted)),
+                          const SizedBox(height: 6),
+                          Divider(color: tone.withValues(alpha: 0.2), height: 1),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(balanced ? tr('Balanced') : (variance < 0 ? tr('Short') : tr('Over')),
+                                  style: AppText.cardTitle(color: tone)),
+                              Text(
+                                '${variance > 0 ? '+' : ''}${formatPeso(variance)}',
+                                style: AppText.largeFigure(color: tone).copyWith(fontSize: 26),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
                   // ── Headline ───────────────────────────────────────────
                   _card(
@@ -215,40 +257,6 @@ class _DayCloseViewState extends State<DayCloseView> {
                     ),
                     const SizedBox(height: 12),
                   ],
-
-                  // ── Cash drawer ────────────────────────────────────────
-                  if (shift != null)
-                    _card(
-                      tint: fill,
-                      border: tone.withValues(alpha: 0.25),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(tr('CASH DRAWER'), style: AppText.overline(color: tone)),
-                          const SizedBox(height: 8),
-                          _row(tr('Opening float'), formatPeso(shift.openingFloat)),
-                          _row(tr('Cash sales'), formatPeso(shift.cashSales)),
-                          if (shift.utangCash > 0)
-                            _row(tr('Utang paid in cash'), formatPeso(shift.utangCash)),
-                          _row(tr('Expected'), formatPeso(shift.expected)),
-                          _row(tr('Counted'), formatPeso(shift.counted)),
-                          const SizedBox(height: 6),
-                          Divider(color: tone.withValues(alpha: 0.2), height: 1),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(balanced ? tr('Balanced') : (variance < 0 ? tr('Short') : tr('Over')),
-                                  style: AppText.cardTitle(color: tone)),
-                              Text(
-                                '${variance > 0 ? '+' : ''}${formatPeso(variance)}',
-                                style: AppText.largeFigure(color: tone).copyWith(fontSize: 26),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
                 ],
               ),
             ),

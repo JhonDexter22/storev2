@@ -97,6 +97,15 @@ class _CashCountScreenState extends State<CashCountScreen> {
     });
   }
 
+  /// "9:00 PM" for a day opened today, "Yesterday, 9:00 PM" otherwise — the
+  /// last close can be days back.
+  String get _sinceLabel {
+    final now = DateTime.now();
+    final clock = TimeOfDay.fromDateTime(_openedAt).format(context);
+    final today = _openedAt.year == now.year && _openedAt.month == now.month && _openedAt.day == now.day;
+    return today ? clock : '${trRelativeDay(_openedAt)}, $clock';
+  }
+
   double get _expected => _openingFloat + _cashSales + _utangCash;
   double get _counted =>
       _counts.entries.fold<double>(0, (s, e) => s + e.key * e.value);
@@ -161,10 +170,17 @@ class _CashCountScreenState extends State<CashCountScreen> {
       return DayCloseView(
         summary: _summary!,
         onDone: () => Navigator.pop(context, true),
-        onRecount: () => setState(() {
-          _closed = null;
-          _summary = null;
-        }),
+        // Reopens the day rather than starting a second close of it: the
+        // close just made is taken back, and the count stays as it was.
+        onRecount: () async {
+          await _shifts.undoClose(_closed!);
+          await _load();
+          if (!mounted) return;
+          setState(() {
+            _closed = null;
+            _summary = null;
+          });
+        },
       );
     }
     if (Breakpoints.isTablet(context)) return _tabletLayout();
@@ -366,8 +382,12 @@ class _CashCountScreenState extends State<CashCountScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(tr('Cash count'), style: AppText.screenTitle().copyWith(fontSize: 20)),
-                Text('$_terminal · $_cashier', style: AppText.caption()),
+                // The name Home's card, More and this screen's own button use.
+                Text(tr('Close day'), style: AppText.screenTitle().copyWith(fontSize: 20)),
+                // Which day is being closed, as Home's card puts it; the
+                // terminal is on the record and the receipt.
+                Text(tr('Since {since} · {name}', {'since': _sinceLabel, 'name': _cashier}),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption()),
               ],
             ),
           ),
@@ -458,7 +478,8 @@ class _CashCountScreenState extends State<CashCountScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('₱$value',
+                // "₱1,000", as every other figure in the app writes it.
+                Text(formatPeso(value).replaceAll('.00', ''),
                     style: AppText.cardTitle(color: zero ? AppColors.faint : AppColors.ink)),
                 Text(value >= _notesFrom ? tr('note') : tr('coin'),
                     style: AppText.caption(color: AppColors.faint)),
