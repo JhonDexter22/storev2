@@ -211,5 +211,56 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Nothing has gone wrong'), findsOneWidget);
     });
+
+    testWidgets('the clear dialog can share first, and sharing clears nothing', (tester) async {
+      ErrorLog.caught('printer gone', null, 'printing');
+      await pump(tester);
+
+      await tester.tap(find.byIcon(Icons.delete_outline_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Share first'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Clear the error log?'), findsNothing);
+      expect(ErrorLog.instance.entries, isNotEmpty);
+    });
+
+    testWidgets('sharing is a button in words, only when there is something to share', (tester) async {
+      await pump(tester);
+      expect(find.text('Share the log'), findsNothing);
+
+      ErrorLog.caught('printer gone', null, 'printing');
+      await tester.pumpAndSettle();
+      expect(find.text('Share the log'), findsOneWidget);
+    });
+
+    testWidgets('a repeat says when it last happened', (tester) async {
+      final first = DateTime(2026, 10, 6, 17, 58);
+      for (var k = 0; k < 4; k++) {
+        log.record(kind: 'caught', error: 'host lookup', where: 'backup', now: first.add(Duration(minutes: k)));
+      }
+      await pump(tester);
+      final last = TimeOfDay.fromDateTime(first.add(const Duration(minutes: 3)));
+      expect(find.text('×4 · last ${last.format(tester.element(find.byType(ErrorLogScreen)))}'), findsOneWidget);
+    });
+
+    testWidgets('a closed entry skips blank lines; an open one keeps them', (tester) async {
+      log.record(kind: 'flutter', error: 'A RenderFlex overflowed.\n\nThe widget was: Row', where: 'Reports');
+      await pump(tester);
+      expect(find.text('A RenderFlex overflowed.\nThe widget was: Row'), findsOneWidget);
+
+      await tester.tap(find.textContaining('RenderFlex'));
+      await tester.pumpAndSettle();
+      expect(find.text('A RenderFlex overflowed.\n\nThe widget was: Row'), findsOneWidget);
+    });
+  });
+
+  test('a shared report can say what screen it came from', () {
+    ErrorLog.caught('printer gone', null, 'printing');
+    final report = ErrorLog.instance.toReport(device: 'Screen 390×844 dp · text 1.30× · language fil');
+    final lines = report.split('\n');
+    expect(lines[1], 'Screen 390×844 dp · text 1.30× · language fil');
+    expect(ErrorLog.instance.toReport().split('\n')[1], contains('entries, newest first'),
+        reason: 'without one, the header is as it was');
   });
 }

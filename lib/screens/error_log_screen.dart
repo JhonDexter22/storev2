@@ -137,9 +137,36 @@ class _ErrorLogScreenState extends State<ErrorLogScreen> {
                   if (i == 1) {
                     return Padding(
                       padding: const EdgeInsets.fromLTRB(4, 12, 4, 14),
-                      child: Text(
-                        tr('Kept on this phone only. If something goes wrong, share this with whoever looks after the app.'),
-                        style: AppText.caption(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            tr('Kept on this phone only. If something goes wrong, share this with whoever looks after the app.'),
+                            style: AppText.caption(),
+                          ),
+                          // The one thing a shopkeeper does here, said in
+                          // words under the sentence asking them to — it was
+                          // an unlabelled icon beside the bin.
+                          if (entries.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              height: 46,
+                              child: ElevatedButton.icon(
+                                onPressed: _share,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(AppRadius.input)),
+                                ),
+                                icon: const Icon(Icons.ios_share_rounded, size: 18),
+                                label: Text(tr('Share the log'),
+                                    style: AppText.chip(color: Colors.white).copyWith(fontSize: 14)),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     );
                   }
@@ -181,11 +208,8 @@ class _ErrorLogScreenState extends State<ErrorLogScreen> {
         button(Icons.arrow_back_ios_new_rounded, tr('Back'), () => Navigator.pop(context)),
         const SizedBox(width: 12),
         Expanded(child: Text(tr('Error log'), style: AppText.screenTitle().copyWith(fontSize: 22))),
-        if (hasEntries) ...[
-          button(Icons.ios_share_rounded, tr('Share'), _share),
-          const SizedBox(width: 8),
-          button(Icons.delete_outline_rounded, tr('Clear'), _confirmClear),
-        ],
+        // Sharing has its own button under the introduction now.
+        if (hasEntries) button(Icons.delete_outline_rounded, tr('Clear'), _confirmClear),
       ],
     );
   }
@@ -207,6 +231,13 @@ class _ErrorLogScreenState extends State<ErrorLogScreen> {
         ],
       ),
     );
+  }
+
+  /// The time alone on the day the run began; with the day otherwise.
+  String _lastLabel(ErrorEntry e) {
+    final last = e.lastAt!;
+    final sameDay = last.year == e.at.year && last.month == e.at.month && last.day == e.at.day;
+    return sameDay ? TimeOfDay.fromDateTime(last).format(context) : trWhen(context, last);
   }
 
   Widget _entry(ErrorEntry e) {
@@ -249,13 +280,23 @@ class _ErrorLogScreenState extends State<ErrorLogScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  // And when the last of them was: whether it is still
+                  // happening is the first question about a repeat.
                   if (e.count > 1)
-                    Text('×${e.count}', style: AppText.chip(color: AppColors.body)),
+                    Text(
+                      e.lastAt == null
+                          ? '×${e.count}'
+                          : '×${e.count} · ${tr('last {when}', {'when': _lastLabel(e)})}',
+                      style: AppText.chip(color: AppColors.body),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
               Text(
-                e.message,
+                // Closed, blank lines go: a screen error spent one of its
+                // three lines on nothing, just before the line naming the
+                // widget that failed. Open, and shared, it is as recorded.
+                open ? e.message : e.message.replaceAll(RegExp(r'\n\s*\n'), '\n'),
                 style: AppText.body(color: AppColors.ink),
                 maxLines: open ? null : 3,
                 overflow: open ? null : TextOverflow.ellipsis,
