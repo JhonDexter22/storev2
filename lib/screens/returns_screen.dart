@@ -67,6 +67,28 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
     });
   }
 
+  /// The sales under a heading for each day — Today, Yesterday, 29 Sep. Rows
+  /// gave a time and no day, and the list reaches back weeks: last
+  /// Tuesday's 8:09 PM and tonight's looked the same.
+  List<Widget> _byDay(Widget Function(Sale) row, {required double gap}) {
+    final out = <Widget>[];
+    String? day;
+    for (final sale in _recent) {
+      final label = trRelativeDay(sale.createdAtDate);
+      if (label != day) {
+        day = label;
+        out.add(Padding(
+          padding: EdgeInsets.only(top: out.isEmpty ? 0 : 8, bottom: 8, left: 2),
+          child: Text(label.toUpperCase(), style: AppText.overline(color: AppColors.muted)),
+        ));
+      }
+      out
+        ..add(row(sale))
+        ..add(SizedBox(height: gap));
+    }
+    return out;
+  }
+
   /// Fully returned, partly returned, or neither.
   ({bool all, bool some}) _returnState(Sale sale) {
     final r = _refunded[sale.id] ?? 0;
@@ -164,10 +186,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                             _note(),
                             const SizedBox(height: AppSpace.gapSection),
                             if (_recent.isEmpty) _noMatch(),
-                            for (final sale in _recent) ...[
-                              _saleCard(sale),
-                              const SizedBox(height: 10),
-                            ],
+                            ..._byDay(_saleCard, gap: 10),
                             if (_hasMore) _olderButton(),
                           ],
                         ),
@@ -234,10 +253,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
           _note(),
           const SizedBox(height: AppSpace.gapSection),
           if (_recent.isEmpty) _noMatch(),
-          for (final sale in _recent) ...[
-            _selectableSaleRow(sale),
-            const SizedBox(height: 8),
-          ],
+          ..._byDay(_selectableSaleRow, gap: 8),
           if (_hasMore) _olderButton(),
         ],
       ),
@@ -729,7 +745,14 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(tr('Return items'), style: AppText.sectionTitle().copyWith(fontSize: 18)),
-                Text(widget.sale.reference, style: AppText.caption()),
+                // When and how it was paid, to check it is the right receipt
+                // — and that a GCash sale is not refunded in cash by habit.
+                Text(
+                  '${trWhen(context, widget.sale.createdAtDate)} · ${widget.sale.paymentMethod} · ${widget.sale.shortRef}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.caption(),
+                ),
               ],
             ),
           ),
@@ -929,10 +952,13 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
             children: [
               Text(tr('Refund due'), style: AppText.body()),
               Flexible(
+                // Red once money is going out; a big red ₱0.00 before
+                // anything was picked read as an alarm.
                 child: Text(formatPeso(_refundDue),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppText.largeFigure(color: AppColors.dangerText).copyWith(fontSize: 28)),
+                    style: AppText.largeFigure(color: _anySelected ? AppColors.dangerText : AppColors.faint)
+                        .copyWith(fontSize: 28)),
               ),
             ],
           ),
@@ -954,7 +980,10 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
                   ? const SizedBox(
                       width: 20, height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : Text(tr('Review refund'), style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+                  // Says what is missing while it cannot be pressed.
+                  : Text(_anySelected ? tr('Review refund') : tr('Pick what came back'),
+                      style: AppText.chip(color: _anySelected ? Colors.white : AppColors.muted)
+                          .copyWith(fontSize: 15)),
             ),
           ),
         ],
