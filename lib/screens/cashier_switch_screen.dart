@@ -6,6 +6,7 @@ import '../models/staff.dart';
 import '../services/pin_hasher.dart';
 import '../services/settings_service.dart';
 import '../services/staff_service.dart';
+import '../widgets/brand_mark.dart';
 import '../widgets/change_pin_flow.dart';
 import '../widgets/initials_avatar.dart';
 import '../widgets/pin_sheet.dart';
@@ -194,7 +195,8 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                   title: Text(person.name, style: AppText.cardTitle()),
                   subtitle: Text(
                     person.onStartingPin
-                        ? '${tr(person.role)} · ${tr('still on the starting code')}'
+                        // "PIN", as the warning on the screen behind says it.
+                        ? '${tr(person.role)} · ${tr('still on the starting PIN')}'
                         : person.role,
                     style: AppText.caption(
                         color: person.onStartingPin
@@ -260,6 +262,18 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                   size: 20, color: AppColors.body),
               title: Text(tr('Change PIN'), style: AppText.cardTitle()),
             ),
+            // Was only possible by removing them and adding them back.
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              onTap: () => Navigator.pop(ctx, 'role'),
+              leading: Icon(
+                  person.isManager ? Icons.person_outline_rounded : Icons.admin_panel_settings_outlined,
+                  size: 20,
+                  color: AppColors.body),
+              title: Text(person.isManager ? tr('Make cashier') : tr('Make manager'),
+                  style: AppText.cardTitle()),
+              subtitle: Text(tr('Managers authorise closes and roster changes.'), style: AppText.caption()),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               onTap: signedIn ? null : () => Navigator.pop(ctx, 'remove'),
@@ -292,7 +306,33 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
     );
     if (action == null || !mounted) return;
     if (action == 'pin') return _changePin(person);
+    if (action == 'role') return _changeRole(person);
     await _removeStaff(person);
+  }
+
+  /// Manager or cashier. A roster change, behind the same manager gate as
+  /// adding and removing; the service keeps at least one manager.
+  Future<void> _changeRole(Staff person) async {
+    final authorised = await authoriseAsManager(
+      context,
+      staff: _staff,
+      hint: tr('Enter a manager PIN to change what {name} can do.', {'name': person.name}),
+      confirmLabel: tr('Continue'),
+    );
+    if (!authorised || !mounted) return;
+    final toManager = !person.isManager;
+    try {
+      await _staff.setManager(person.id!, isManager: toManager);
+    } on StaffValidationException catch (e) {
+      if (!mounted) return;
+      _toast(e.message);
+      return;
+    }
+    await _load();
+    if (!mounted) return;
+    _toast(toManager
+        ? tr('{name} is now a manager', {'name': person.name})
+        : tr('{name} is now a cashier', {'name': person.name}));
   }
 
   /// Takes someone off the till.
@@ -385,17 +425,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                   ],
                 ),
               const SizedBox(height: 18),
-              Center(
-                child: Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: AppColors.ink,
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: const Icon(Icons.storefront_rounded, color: Colors.white, size: 24),
-                ),
-              ),
+              const Center(child: BrandMark(size: 52, radius: 15)),
               const SizedBox(height: 14),
               Center(
                   child: Text(tr('Sign in to the till'),
@@ -456,7 +486,7 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                         borderRadius: BorderRadius.circular(AppRadius.cta)),
                   ),
                   icon: const Icon(Icons.person_add_alt_rounded, size: 17),
-                  label: Text(tr('Add a cashier'), style: AppText.chip(color: AppColors.body)),
+                  label: Text(tr('Add staff'), style: AppText.chip(color: AppColors.body)),
                 ),
               ),
             ],
@@ -553,8 +583,26 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                         .copyWith(fontSize: 13)),
                 const SizedBox(height: 2),
                 Text(
-                  tr('Those codes ship with the app, so anyone who has seen it knows them. Change them below.'),
+                  tr('Those codes ship with the app, so anyone who has seen it knows them.'),
                   style: AppText.caption(color: AppColors.warningText),
+                ),
+                // The way to fix it, here — it said "Change them below", and
+                // below were two plain buttons to guess between.
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 36,
+                  child: OutlinedButton.icon(
+                    onPressed: _loading ? null : _manageStaff,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.warningText,
+                      backgroundColor: AppColors.surface,
+                      side: const BorderSide(color: AppColors.warningBorder),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.input)),
+                    ),
+                    icon: const Icon(Icons.password_rounded, size: 16),
+                    label: Text(tr('Change PINs'), style: AppText.chip(color: AppColors.warningText)),
+                  ),
                 ),
               ],
             ),
@@ -668,7 +716,7 @@ class _AddCashierSheetState extends State<_AddCashierSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            Text(tr('Add a cashier'), style: AppText.sectionTitle().copyWith(fontSize: 18)),
+            Text(tr('Add staff'), style: AppText.sectionTitle().copyWith(fontSize: 18)),
             const SizedBox(height: 2),
             Text(tr('They will be able to ring up sales under their own name.'),
                 style: AppText.caption()),

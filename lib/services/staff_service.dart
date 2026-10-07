@@ -391,6 +391,35 @@ class StaffService {
     return own is PinRejected ? own : manager;
   }
 
+  /// Makes [staffId] a manager, or a cashier again. The only other way was
+  /// to remove them and add them back.
+  ///
+  /// Refuses to make the last active manager a cashier, for the same reason
+  /// [deactivate] refuses to remove them: no manager, no day can be closed.
+  Future<void> setManager(int staffId, {required bool isManager}) async {
+    final db = await _db;
+    final rows = await db.query('staff', where: 'id = ?', whereArgs: [staffId], limit: 1);
+    if (rows.isEmpty) return;
+    final wasManager = (rows.first['is_manager'] as int) == 1;
+    if (wasManager == isManager) return;
+    if (wasManager) {
+      final managers = Sqflite.firstIntValue(await db.rawQuery(
+        'SELECT COUNT(*) FROM staff WHERE is_manager = 1 AND active = 1',
+      ));
+      if ((managers ?? 0) <= 1) {
+        throw const StaffValidationException(
+          'This is the only manager. Make someone else a manager first.',
+        );
+      }
+    }
+    await db.update(
+      'staff',
+      {'is_manager': isManager ? 1 : 0, 'role': isManager ? 'Manager' : 'Cashier'},
+      where: 'id = ?',
+      whereArgs: [staffId],
+    );
+  }
+
   /// Takes someone off the till without deleting them, so shifts and sales
   /// already recorded against their name still point at a real person.
   ///

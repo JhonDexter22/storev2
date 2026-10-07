@@ -47,7 +47,54 @@ void main() {
   testWidgets('the roster screen offers staff management', (tester) async {
     await pump(tester);
     expect(find.text('Manage staff'), findsOneWidget);
-    expect(find.text('Add a cashier'), findsOneWidget);
+    // The form can add a manager too, so the button no longer says cashier.
+    expect(find.text('Add staff'), findsOneWidget);
+    expect(find.text('Add a cashier'), findsNothing);
+  });
+
+  testWidgets('the starting-PIN warning has its own way to fix it', (tester) async {
+    await pump(tester);
+    expect(find.textContaining('Change them below'), findsNothing);
+    await tester.tap(find.text('Change PINs'));
+    await tester.pumpAndSettle();
+    // Manage staff, saying "PIN" as the warning does.
+    expect(find.textContaining('still on the starting PIN'), findsWidgets);
+    expect(find.textContaining('starting code'), findsNothing);
+  });
+
+  testWidgets('a cashier is offered Make manager; a manager Make cashier', (tester) async {
+    await pump(tester);
+    await openActionsFor(tester, 'Ronel');
+    expect(find.text('Make manager'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    await openActionsFor(tester, 'Nena');
+    expect(find.text('Make cashier'), findsOneWidget);
+  });
+
+  group('changing a role', () {
+    test('makes a cashier a manager, and back', () async {
+      final ronel = (await staff.byName('Ronel'))!;
+      await staff.setManager(ronel.id!, isManager: true);
+      final promoted = (await staff.byName('Ronel'))!;
+      expect(promoted.isManager, isTrue);
+      expect(promoted.role, 'Manager');
+
+      await staff.setManager(ronel.id!, isManager: false);
+      expect((await staff.byName('Ronel'))!.isManager, isFalse);
+    });
+
+    test('never leaves the store without a manager', () async {
+      final nena = (await staff.byName('Nena'))!;
+      expect(() => staff.setManager(nena.id!, isManager: false), throwsA(isA<StaffValidationException>()));
+      expect((await staff.byName('Nena'))!.isManager, isTrue);
+
+      // With a second manager, the first can step down.
+      await staff.setManager((await staff.byName('Ronel'))!.id!, isManager: true);
+      await staff.setManager(nena.id!, isManager: false);
+      expect((await staff.byName('Nena'))!.isManager, isFalse);
+    });
   });
 
   testWidgets('a person can be picked and acted on', (tester) async {
