@@ -174,6 +174,22 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Puts back a type removed a moment ago — Undo — in the place it had
+  /// among the added ones, and switched on or off as it was. Adding it again
+  /// would put it last, and switched on.
+  Future<void> restorePaymentType(PaymentType type, {required int at, required bool enabled}) async {
+    if (type.builtIn) return;
+    final custom = [...?_prefs?.getStringList(_kCustomPayments)];
+    if (custom.contains(type.name)) return;
+    custom.insert(at.clamp(0, custom.length), type.name);
+    await _prefs?.setStringList(_kCustomPayments, custom);
+    await setPaymentTypeEnabled(type, enabled);
+  }
+
+  /// Whether [name] is taken by a type already in the list, ignoring case.
+  bool hasPaymentType(String name) =>
+      allPaymentTypes.any((t) => t.name.toLowerCase() == name.trim().toLowerCase());
+
   Future<void> setPrintReceipt(bool v) => _setBool(_kPrintReceipt, v);
   Future<void> setScanSound(bool v) => _setBool(_kScanSound, v);
   Future<void> setLowStockAlerts(bool v) => _setBool(_kLowStockAlerts, v);

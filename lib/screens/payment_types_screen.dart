@@ -22,79 +22,100 @@ class PaymentTypesScreen extends StatefulWidget {
 class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
   final _settings = SettingsService.instance;
 
+  /// Says what is wrong inside the sheet and stays open: it used to close on
+  /// any Add and report afterwards — an empty box included, as "That name is
+  /// already in the list", which it was not.
   Future<void> _add() async {
     final controller = TextEditingController();
+    String? error;
     final name = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
-            MediaQuery.of(ctx).viewInsets.bottom + 24),
-        child: Container(
-          padding: const EdgeInsets.all(AppSpace.sheetPad),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(tr('Add a payment type'),
-                  style: AppText.sectionTitle().copyWith(fontSize: 18)),
-              const SizedBox(height: 2),
-              Text(tr('Maya, a bank transfer — whatever you actually take.'),
-                  style: AppText.caption()),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                textCapitalization: TextCapitalization.words,
-                style: AppText.body(color: AppColors.ink),
-                decoration: InputDecoration(
-                  hintText: tr('e.g. Maya'),
-                  hintStyle: AppText.caption(),
-                  filled: true,
-                  fillColor: AppColors.canvas,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.input),
-                    borderSide: const BorderSide(color: AppColors.hairline),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final typed = controller.text.trim();
+        void submit() {
+          if (typed.isEmpty) return;
+          if (_settings.hasPaymentType(typed)) {
+            setSheet(() => error = tr('That name is already in the list.'));
+            return;
+          }
+          Navigator.pop(ctx, typed);
+        }
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
+              MediaQuery.of(ctx).viewInsets.bottom + 24),
+          child: Container(
+            padding: const EdgeInsets.all(AppSpace.sheetPad),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(tr('Add a payment type'),
+                    style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                const SizedBox(height: 2),
+                Text(tr('Maya, a bank transfer — whatever you actually take.'),
+                    style: AppText.caption()),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                  style: AppText.body(color: AppColors.ink),
+                  onChanged: (_) => setSheet(() => error = null),
+                  decoration: InputDecoration(
+                    hintText: tr('e.g. Maya'),
+                    hintStyle: AppText.caption(),
+                    errorText: error,
+                    filled: true,
+                    fillColor: AppColors.canvas,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.input),
+                      borderSide: const BorderSide(color: AppColors.hairline),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.input),
+                      borderSide: const BorderSide(color: AppColors.hairline),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.input),
+                      borderSide: const BorderSide(color: AppColors.primary),
+                    ),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.input),
-                    borderSide: const BorderSide(color: AppColors.hairline),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.input),
-                    borderSide: const BorderSide(color: AppColors.primary),
+                  onSubmitted: (_) => submit(),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: typed.isEmpty ? null : submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      disabledBackgroundColor: AppColors.disabledFill,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.cta)),
+                    ),
+                    // Says what is missing while it cannot be pressed.
+                    child: Text(typed.isEmpty ? tr('Enter a name') : tr('Add'),
+                        style: AppText.chip(color: typed.isEmpty ? AppColors.muted : Colors.white)
+                            .copyWith(fontSize: 15)),
                   ),
                 ),
-                onSubmitted: (v) => Navigator.pop(ctx, v),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, controller.text),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.cta)),
-                  ),
-                  child: Text(tr('Add'),
-                      style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      }),
     );
     if (name == null || !mounted) return;
 
@@ -105,20 +126,37 @@ class _PaymentTypesScreenState extends State<PaymentTypesScreen> {
   }
 
   Future<void> _remove(PaymentType type) async {
+    // Where it was and whether it was on, for Undo: the bin sits a thumb's
+    // width from the switch, and a slip used to mean typing it in again.
+    final at = _settings.allPaymentTypes.where((t) => !t.builtIn).toList().indexWhere((t) => t.name == type.name);
+    final enabled = _settings.isPaymentTypeEnabled(type);
     await _settings.removePaymentType(type);
     if (!mounted) return;
     setState(() {});
     // Past sales keep the name, so this is a change to the till, not the books.
-    _toast(tr('{name} removed. Sales already taken keep it.', {'name': type.name}));
+    _toast(
+      tr('{name} removed. Sales already taken keep it.', {'name': type.name}),
+      action: SnackBarAction(
+        label: tr('Undo'),
+        textColor: AppColors.primary,
+        onPressed: () async {
+          await _settings.restorePaymentType(type, at: at, enabled: enabled);
+          if (mounted) setState(() {});
+        },
+      ),
+    );
   }
 
-  void _toast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      backgroundColor: AppColors.ink,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      content: Text(message, style: const TextStyle(color: Colors.white)),
-    ));
+  void _toast(String message, {SnackBarAction? action}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        backgroundColor: AppColors.ink,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        content: Text(message, style: const TextStyle(color: Colors.white)),
+        action: action,
+      ));
   }
 
   @override

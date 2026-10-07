@@ -8,6 +8,7 @@ import 'package:storev2/models/cart_line.dart';
 import 'package:storev2/models/payment_type.dart';
 import 'package:storev2/models/product_model.dart';
 import 'package:storev2/screens/checkout_screen.dart';
+import 'package:storev2/screens/payment_types_screen.dart';
 import 'package:storev2/services/product_service.dart';
 import 'package:storev2/services/sales_service.dart';
 import 'package:storev2/services/settings_service.dart';
@@ -207,6 +208,73 @@ void main() {
       await settings.removePaymentType(typeNamed('Maya'));
 
       expect((await sales.getRecentSales()).single.paymentMethod, 'Maya');
+    });
+  });
+
+  group('the screen', () {
+    Future<void> pump(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(const MaterialApp(home: PaymentTypesScreen()));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openAdd(WidgetTester tester) async {
+      await tester.tap(find.text('Add a payment type'));
+      await tester.pumpAndSettle();
+    }
+
+    Finder sheetField() => find.descendant(of: find.byType(BottomSheet), matching: find.byType(TextField));
+
+    testWidgets('an empty box cannot be added, and the button says why', (tester) async {
+      await pump(tester);
+      await openAdd(tester);
+      expect(find.text('Enter a name'), findsOneWidget);
+
+      await tester.tap(find.text('Enter a name'));
+      await tester.pumpAndSettle();
+      // Still open, and no false "already in the list".
+      expect(sheetField(), findsOneWidget);
+      expect(find.text('That name is already in the list.'), findsNothing);
+    });
+
+    testWidgets('a name already there is said in the sheet, which stays open', (tester) async {
+      await pump(tester);
+      await openAdd(tester);
+      await tester.enterText(sheetField(), 'gcash');
+      await tester.pump();
+      await tester.tap(find.text('Add').last);
+      await tester.pumpAndSettle();
+
+      expect(sheetField(), findsOneWidget);
+      expect(find.text('That name is already in the list.'), findsOneWidget);
+
+      // Typing again clears it, and a new name goes in.
+      await tester.enterText(sheetField(), 'Maya');
+      await tester.pump();
+      expect(find.text('That name is already in the list.'), findsNothing);
+      await tester.tap(find.text('Add').last);
+      await tester.pumpAndSettle();
+      expect(sheetField(), findsNothing);
+      expect(settings.allPaymentTypes.map((t) => t.name), contains('Maya'));
+    });
+
+    testWidgets('removing an added type can be undone — same place, same switch', (tester) async {
+      await settings.addPaymentType('Maya');
+      await settings.addPaymentType('Bank transfer');
+      await settings.setPaymentTypeEnabled(typeNamed('Maya'), false);
+      await pump(tester);
+
+      await tester.tap(find.byTooltip('Remove Maya'));
+      await tester.pumpAndSettle();
+      expect(find.text('Maya'), findsNothing);
+
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+      final custom = settings.allPaymentTypes.where((t) => !t.builtIn).map((t) => t.name).toList();
+      expect(custom, ['Maya', 'Bank transfer']);
+      expect(settings.isPaymentTypeEnabled(typeNamed('Maya')), isFalse);
     });
   });
 }
