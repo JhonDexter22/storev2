@@ -102,7 +102,9 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
     return v < 0 ? tr('Short') : tr('Over');
   }
 
-  String _dateLabel(DateTime d) => trDay(d);
+  /// "5 Oct", and "5 Oct 2025" once it is from another year: Show older
+  /// reaches back as far as the records go, and a year on "5 Oct" was two.
+  String _dateLabel(DateTime d) => d.year == DateTime.now().year ? trDay(d) : '${trDay(d)} ${d.year}';
   String _weekday(DateTime d) => trWeekday(d.weekday);
 
   /// A day opens at the previous close, so its window can cross midnight.
@@ -135,8 +137,12 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                       ? _empty()
                       : LayoutBuilder(
                           builder: (context, constraints) => ListView(
-                          padding: Breakpoints.pagePadding(
-                              context, constraints.maxWidth, top: 6),
+                          padding: _tablet
+                              // Wider than one reading column: two of them.
+                              ? EdgeInsets.fromLTRB(
+                                  ((constraints.maxWidth - 1000) / 2).clamp(24.0, double.infinity), 6,
+                                  ((constraints.maxWidth - 1000) / 2).clamp(24.0, double.infinity), 32)
+                              : Breakpoints.pagePadding(context, constraints.maxWidth, top: 6),
                           children: [
                             _statTiles(),
                             const SizedBox(height: AppSpace.gapSection),
@@ -154,10 +160,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                                   ),
                                 ),
                               ),
-                            for (final s in _list) ...[
-                              _shiftCard(s),
-                              const SizedBox(height: 10),
-                            ],
+                            ..._cards(),
                             if (_hasMore)
                               SizedBox(
                                 height: 46,
@@ -180,6 +183,33 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
         ),
       ),
     );
+  }
+
+  bool get _tablet => Breakpoints.isTablet(context);
+
+  /// One column on a phone; two on a tablet, where a single narrow column
+  /// left most of the screen empty. Pairs share a height so they line up.
+  List<Widget> _cards() {
+    if (!_tablet) {
+      return [
+        for (final s in _list) ...[_shiftCard(s), const SizedBox(height: 10)],
+      ];
+    }
+    return [
+      for (var i = 0; i < _list.length; i += 2) ...[
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _shiftCard(_list[i])),
+              const SizedBox(width: AppSpace.gapGrid),
+              Expanded(child: i + 1 < _list.length ? _shiftCard(_list[i + 1]) : const SizedBox.shrink()),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+      ],
+    ];
   }
 
   Widget _header() {
@@ -380,10 +410,22 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                                 Text('${_dateLabel(s.closedAtDate)} · ${_weekday(s.closedAtDate)}',
                                     style: AppText.cardTitle()),
                                 const SizedBox(height: 2),
-                                Text('${s.cashier} · ${_hours(s)}', style: AppText.caption()),
+                                Text('${s.cashier} · ${_hours(s)}',
+                                    maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption()),
+                                const SizedBox(height: 6),
+                                // On the card itself, where a divider and a
+                                // "View count ›" row used to sit under it:
+                                // the whole card opens the count already.
+                                Text(
+                                  trCount(s.saleCount, '{total} · {n} sale', '{total} · {n} sales', {'total': formatPeso(s.totalSales)}),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppText.body(),
+                                ),
                               ],
                             ),
                           ),
+                          const SizedBox(width: 8),
                           StatusPill(
                             label:
                                 '${_varianceWord(s.variance)}${s.variance.abs() < 0.005 ? '' : ' ${formatPeso(s.variance.abs())}'}',
@@ -391,23 +433,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                             bg: _varianceFill(s.variance),
                             dot: false,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      const Divider(color: AppColors.divider, height: 1),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              trCount(s.saleCount, '{total} · {n} sale', '{total} · {n} sales', {'total': formatPeso(s.totalSales)}),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.body(),
-                            ),
-                          ),
-                          Text(tr('View count'), style: AppText.chip(color: AppColors.primary)),
-                          const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.primary),
+                          const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.faint),
                         ],
                       ),
                     ],
