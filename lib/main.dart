@@ -26,6 +26,7 @@ import 'screens/restock_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/setup_screen.dart';
 import 'widgets/brand_mark.dart';
+import 'widgets/launch_intro.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,7 +63,13 @@ Future<void> main() async {
     ErrorLog.caught(e, st, 'first-run check');
     return false;
   });
-  runApp(RestockApp(firstRun: firstRun));
+  // Android only: its launch splash is drawn to match the intro's first
+  // frame (res/drawable/splash_mark.xml). Elsewhere the splash is plain, and
+  // the intro would start with a jump.
+  runApp(RestockApp(
+    firstRun: firstRun,
+    intro: !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
+  ));
 }
 
 /// Sends every error nothing else handled to [ErrorLog], and still shows
@@ -91,11 +98,15 @@ Stream<LicenseEntry> _fontLicenses() async* {
 }
 
 class RestockApp extends StatelessWidget {
-  const RestockApp({super.key, this.firstRun = false});
+  const RestockApp({super.key, this.firstRun = false, this.intro = false});
 
   /// Opens on the setup steps instead of the till. Decided once, before the
   /// first frame, so an existing store never flashes a welcome screen.
   final bool firstRun;
+
+  /// Plays [LaunchIntro] over the first screen. Off in tests, which drive the
+  /// screens themselves.
+  final bool intro;
 
   @override
   Widget build(BuildContext context) {
@@ -111,6 +122,7 @@ class RestockApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: AppInfo.name,
+      builder: intro ? (context, child) => LaunchIntro(child: child!) : null,
       // Material's own text — date pickers, the back tooltip, "Cancel" in a
       // system dialog — follows the app language too.
       locale: SettingsService.instance.language.locale,
