@@ -1,8 +1,10 @@
 """Draws the BasePoint launcher icon at every size the platforms ask for.
 
 The mark is a lowercase "b" (Base) with an amber dot (Point) on primary blue.
-All geometry lives in GLYPH below, in a 100-unit design space; lib/widgets/
-brand_mark.dart paints the same shapes in-app, so change both together.
+All geometry lives in GLYPH below, in a 100-unit design space. The same
+shapes are also drawn by lib/widgets/brand_mark.dart and
+lib/widgets/launch_intro.dart in the app, and by the launch splash's vector,
+android/app/src/main/res/drawable/splash_mark.xml: change them all together.
 
 Run from the repo root:  python tool/make_icons.py
 Needs Pillow (pip install pillow).
