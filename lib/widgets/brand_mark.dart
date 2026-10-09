@@ -4,7 +4,8 @@ import '../core/design_tokens.dart';
 
 /// The BasePoint mark: a white "b" with an amber dot on primary blue, the
 /// same drawing as the launcher icon. The shapes mirror tool/make_icons.py,
-/// which generates the platform icons — change both together.
+/// which generates the platform icons, and the launch splash and intro draw
+/// them too (see there) — change them all together.
 class BrandMark extends StatelessWidget {
   const BrandMark({super.key, required this.size, required this.radius});
 
