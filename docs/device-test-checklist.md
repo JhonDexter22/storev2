@@ -33,6 +33,9 @@ profile builds only — never in a release.
 - [ ] **(new)** Launcher shows **BasePoint** with the new icon: white "b" and amber dot on blue (uninstall first — launchers cache icons)
 - [ ] On Android 13+, with themed icons on, the icon takes the theme colour
 - [ ] **(new)** The welcome screen and cashier sign-in show the same "b" mark
+- [ ] **(new)** Opening the app from closed: blue screen with the "b" mark, the amber dot hops and lands, then the screen zooms through the "b" into the till, in about a second. The mark never blinks out between the blue screen and the hop (check on Android 12+ and on an older phone)
+- [ ] **(new)** After the intro the status bar icons are dark and readable on the till
+- [ ] **(new)** With Settings → Accessibility → **Remove animations** on, the app opens straight onto the till with no intro
 - [ ] An old `storev2` install, if any, is a separate app (new app id) — remove it
 - [ ] **(new)** Installing over an earlier BasePoint build keeps all data (the database upgrades to v13); old closed days show no "Utang paid in cash" line, and existing customers follow the store's credit limit
 

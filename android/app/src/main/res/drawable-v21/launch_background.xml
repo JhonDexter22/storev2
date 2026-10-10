@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- The launch splash before Android 12 (12+ uses values-v31/styles.xml):
+     the brand blue with the "b" mark centred at the same size, so the intro
+     animation in lib/widgets/launch_intro.dart starts on the same picture. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item android:drawable="@color/ic_launcher_background" />
+    <item
+        android:width="288dp"
+        android:height="288dp"
+        android:drawable="@drawable/splash_mark"
+        android:gravity="center" />
 </layer-list>

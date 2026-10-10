@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launch splash's "b" mark, as a vector so it stays sharp at any
+     density. 288dp is the size Android 12+ draws a splash icon without its
+     own background; the glyph is 128dp tall inside it, which is
+     LaunchIntro.glyphHeight in lib/widgets/launch_intro.dart, so the first
+     Flutter frame lands on exactly the same picture.
+
+     The shapes are tool/make_icons.py's GLYPH in its 100-unit design space,
+     scaled by 128 / 62.5 and centred on the canvas: change them together. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="288dp"
+    android:height="288dp"
+    android:viewportWidth="288"
+    android:viewportHeight="288">
+    <group
+        android:translateX="31.36"
+        android:translateY="43.136"
+        android:scaleX="2.048"
+        android:scaleY="2.048">
+        <!-- Bar: x 28..41, y 20..80, corners 6.5. -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M28,26.5 A6.5,6.5 0 0,1 41,26.5 L41,73.5 A6.5,6.5 0 0,1 28,73.5 Z" />
+        <!-- Bowl: a ring around (54, 58), radii 22.5 and 9.5. The inner
+             circle winds the other way so it is a hole under either fill rule. -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M31.5,58 A22.5,22.5 0 1,1 76.5,58 A22.5,22.5 0 1,1 31.5,58 Z M44.5,58 A9.5,9.5 0 1,0 63.5,58 A9.5,9.5 0 1,0 44.5,58 Z" />
+        <!-- Dot: (74, 26), radius 8, amber. -->
+        <path
+            android:fillColor="#FFC23D"
+            android:pathData="M66,26 A8,8 0 1,1 82,26 A8,8 0 1,1 66,26 Z" />
+    </group>
+</vector>

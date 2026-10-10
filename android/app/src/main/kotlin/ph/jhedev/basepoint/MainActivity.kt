@@ -2,12 +2,25 @@ package ph.jhedev.basepoint
 
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.os.Build
+import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private var tones: ToneGenerator? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Android 12+ draws its own splash and, left alone, fades it out in two
+        // steps (the mark, then the blue). The first Flutter frame is the same
+        // picture and its intro carries on from it, so the fade only showed as
+        // the mark blinking out and back. Take the splash away at once instead.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { it.remove() }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
