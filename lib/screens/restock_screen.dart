@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 import '../core/design_tokens.dart';
 import '../core/responsive.dart';
 import '../models/product_model.dart';
+import '../models/stock_move.dart';
 import '../services/error_log.dart';
 import '../services/product_service.dart';
 import '../services/settings_service.dart';
@@ -198,7 +199,8 @@ class _RestockScreenState extends State<RestockScreen> {
           label: tr('Undo'),
           textColor: AppColors.primary,
           onPressed: () async {
-            await _productService.addStockBatch({for (final e in added.entries) e.key: -e.value});
+            await _productService.addStockBatch({for (final e in added.entries) e.key: -e.value},
+                kind: StockMoveKind.undo);
             if (mounted) _load(quiet: true);
           },
         ),

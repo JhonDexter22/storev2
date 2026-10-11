@@ -140,6 +140,7 @@ const Map<String, String> fil = {
   'By cashier': 'Ayon sa cashier',
   'By category': 'Ayon sa kategorya',
   'By reason': 'Ayon sa dahilan',
+  'By hand': 'Manual',
 
   // ── C ──────────────────────────────────────────────────────────────────────
   'CASH DRAWER': 'KAHA',
@@ -222,6 +223,7 @@ const Map<String, String> fil = {
   'Credit limit': 'Limitasyon ng utang',
   'Credit limit (store default: none)': 'Limitasyon ng utang (default ng tindahan: wala)',
   'Credit limit (store default: {amount})': 'Limitasyon ng utang (default ng tindahan: {amount})',
+  'Changed by hand': 'Binago nang manual',
 
   // ── D ──────────────────────────────────────────────────────────────────────
   'Data': 'Data',
@@ -242,6 +244,7 @@ const Map<String, String> fil = {
   'Due soon': 'Malapit na',
   'Duplicate': 'Kopyahin',
   'Duplicate product': 'Kopyahin ang paninda',
+  'Deleted': 'Binura',
 
   // ── E ──────────────────────────────────────────────────────────────────────
   "e.g. Aling Nena's Store": 'hal. Tindahan ni Aling Nena',
@@ -290,6 +293,8 @@ const Map<String, String> fil = {
   'Every product now has a minimum of {n}': '{n} na ang minimum ng lahat ng paninda',
   'Everyone': 'Lahat ng tao',
   'Everything on the shelf sold at least once': 'Lahat ng nasa estante ay nabenta kahit isang beses',
+  'Every product': 'Lahat ng paninda',
+  'Every stock change, who and when': 'Bawat galaw ng stock, sino at kailan',
 
   // ── F–H ────────────────────────────────────────────────────────────────────
   'Finish setup': 'Tapusin ang setup',
@@ -423,6 +428,9 @@ const Map<String, String> fil = {
   'Nothing was lost — your products and sales are still saved on this device.':
       'Walang nawala — nakasave pa rin sa device na ito ang paninda at benta mo.',
   'Nudges you when the last export is over a week old': 'Magpapaalala kapag lampas isang linggo na ang huling export',
+  'No changes by hand': 'Walang binago nang manual',
+  'No stock changes yet': 'Wala pang galaw ang stock',
+  'Nothing here yet': 'Wala pa rito',
 
   // ── O ──────────────────────────────────────────────────────────────────────
   'Open the error log to see what happened': 'Buksan ang error log para makita ang nangyari',
@@ -583,6 +591,8 @@ const Map<String, String> fil = {
   'Returned {amount}': 'Naibalik {amount}',
   'Returned · {items}': 'Naibalik · {items}',
   'Returns {amount}': 'Mga ibinalik {amount}',
+  'Restocked': 'Na-restock',
+  'Restocks': 'Restock',
 
   // ── S ──────────────────────────────────────────────────────────────────────
   'SALES': 'BENTA',
@@ -681,6 +691,12 @@ const Map<String, String> fil = {
   'still on the starting PIN': 'nasa unang PIN pa',
   'Take off their tab': 'Ibawas sa utang nila',
   'Take out of this sale': 'Alisin sa bentang ito',
+  'Sales, restocks and changes by hand show here from now on.':
+      'Simula ngayon, dito makikita ang benta, restock at mga binago nang manual.',
+  'Sold': 'Naibenta',
+  'Stock history': 'History ng stock',
+  'Stock typed in on a product, deleted with stock, or put back with Undo shows here.':
+      'Dito makikita ang stock na itinype sa paninda, binura nang may stock, o ibinalik gamit ang I-undo.',
 
   // ── T ──────────────────────────────────────────────────────────────────────
   'The change you open with each day. Closing the day counts from this amount.':
@@ -782,6 +798,7 @@ const Map<String, String> fil = {
   'Your name': 'Pangalan mo',
   'Your PIN': 'Ang PIN mo',
   'Your products and sales are back. Cashiers from your old phone need adding again: More → Staff.': 'Bumalik na ang mga paninda at benta mo. Kailangang idagdag ulit ang mga cashier mula sa luma mong phone: Iba pa → Mga tauhan.',
+  'Undone': 'Na-undo',
 
   // ── Sentences that start with a value ──────────────────────────────────────
   '{amount} in the drawer at the start of each day': '{amount} sa kaha sa simula ng bawat araw',

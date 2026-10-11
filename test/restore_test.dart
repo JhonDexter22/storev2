@@ -176,7 +176,8 @@ void main() {
       expect(preview.rowCounts['products'], 1);
       expect(preview.rowCounts['sales'], 1);
       expect(preview.rowCounts['sale_items'], 1);
-      expect(preview.totalRows, 3);
+      expect(preview.rowCounts['stock_moves'], 2, reason: 'its opening stock, then the sale');
+      expect(preview.totalRows, 5);
     });
 
     test('a missing file is a warning, not a failure', () async {

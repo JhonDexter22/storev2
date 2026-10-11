@@ -188,6 +188,25 @@ class _Historical {
     if (version >= 13) {
       await db.execute('ALTER TABLE customers ADD COLUMN credit_limit REAL');
     }
+
+    if (version >= 14) {
+      await db.execute('''
+        CREATE TABLE stock_moves(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          product_id INTEGER NOT NULL,
+          product_name TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          delta INTEGER NOT NULL,
+          stock_after INTEGER NOT NULL,
+          cashier TEXT NOT NULL DEFAULT '',
+          reference TEXT NOT NULL DEFAULT ''
+        )
+      ''');
+      await db.execute(
+          'CREATE INDEX idx_stock_moves_product ON stock_moves(product_id, created_at)');
+      await db.execute('CREATE INDEX idx_stock_moves_created ON stock_moves(created_at)');
+    }
   }
 
   /// Puts one representative row in every table that exists at [version], so
@@ -350,11 +369,11 @@ void main() {
       0;
 
   group('every shipped version upgrades to the current one', () {
-    for (var from = 1; from <= 12; from++) {
-      test('v$from reaches v13 with its data intact', () async {
+    for (var from = 1; from <= 13; from++) {
+      test('v$from reaches v14 with its data intact', () async {
         final db = await upgradeFrom(from);
 
-        expect(await db.getVersion(), 13);
+        expect(await db.getVersion(), 14);
         expect(await indexesOf(db), containsAll(v11Indexes),
             reason: 'an upgraded store needs the indexes as much as a new one');
 
@@ -385,6 +404,7 @@ void main() {
           'customers',
           'utang_entries',
           'staff',
+          'stock_moves',
         ]) {
           expect(await countOf(db, table), isNonNegative,
               reason: '$table should exist after upgrading from v$from');
@@ -500,15 +520,24 @@ void main() {
       await DatabaseHelper.resetForTests();
 
       final again = await DatabaseHelper.instance.database;
-      expect(await again.getVersion(), 13);
+      expect(await again.getVersion(), 14);
       expect(await again.query('products'), before);
     });
 
-    test('a database already at v13 is left alone', () async {
-      final db = await upgradeFrom(13);
-      expect(await db.getVersion(), 13);
+    test('a database already at v14 is left alone', () async {
+      final db = await upgradeFrom(14);
+      expect(await db.getVersion(), 14);
       expect((await db.query('products')).single['price'], 17.5);
       expect(await indexesOf(db), containsAll(v11Indexes));
+    });
+
+    test('a store from before v14 starts its stock history empty', () async {
+      final db = await upgradeFrom(13);
+      // Nothing invented for changes that were never recorded.
+      expect(await countOf(db, 'stock_moves'), 0);
+      expect(await indexesOf(db),
+          containsAll(['idx_stock_moves_product', 'idx_stock_moves_created']));
+      expect((await db.query('products')).single['stock'], 12);
     });
 
     test('a customer from before v13 follows the store default', () async {

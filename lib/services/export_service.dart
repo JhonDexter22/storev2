@@ -61,6 +61,7 @@ class ExportService {
     'shifts',
     'customers',
     'utang_entries',
+    'stock_moves',
   ];
 
   /// Escapes one field for CSV.

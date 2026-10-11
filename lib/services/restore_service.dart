@@ -79,7 +79,13 @@ class RestoreService {
     'shifts',
     'customers',
     'utang_entries',
+    'stock_moves',
   ];
+
+  /// Tables a backup from an older version will not have. Missing, they are
+  /// emptied like any other, without a warning: there is nothing wrong with
+  /// the backup, and nothing the person restoring it can do.
+  static const addedLater = {'stock_moves'};
 
   /// The product photos inside an archive, keyed by file name.
   ///
@@ -304,7 +310,9 @@ class RestoreService {
       final name = '$table.csv';
       final csv = files[name];
       if (csv == null) {
-        warnings.add('$name is missing — $table will be emptied.');
+        if (!addedLater.contains(table)) {
+          warnings.add('$name is missing — $table will be emptied.');
+        }
         counts[table] = 0;
         continue;
       }

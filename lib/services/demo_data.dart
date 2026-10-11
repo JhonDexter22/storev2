@@ -56,7 +56,7 @@ class DemoData {
 
     await db.transaction((txn) async {
       for (final t in [
-        'utang_entries', 'customers', 'refund_items', 'refunds',
+        'stock_moves', 'utang_entries', 'customers', 'refund_items', 'refunds',
         'shifts', 'sale_items', 'sales', 'products',
       ]) {
         await txn.delete(t);

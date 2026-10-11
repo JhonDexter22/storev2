@@ -11,6 +11,7 @@ import 'cashier_switch_screen.dart';
 import 'reports_screen.dart';
 import 'returns_screen.dart';
 import 'shift_history_screen.dart';
+import 'stock_history_screen.dart';
 import 'store_settings_screen.dart';
 import 'utang_screen.dart';
 import '../l10n/tr.dart';
@@ -165,6 +166,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         tint: AppColors.divider,
         iconColor: AppColors.body,
         items: [
+          _MoreItem(
+            icon: Icons.inventory_2_outlined,
+            title: tr('Stock history'),
+            subtitle: tr('Every stock change, who and when'),
+            onTap: () => _open(const StockHistoryScreen()),
+          ),
           _MoreItem(
             icon: Icons.manage_accounts_outlined,
             title: tr('Staff'),

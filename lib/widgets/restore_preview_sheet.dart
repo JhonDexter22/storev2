@@ -206,6 +206,7 @@ class RestorePreviewSheet extends StatelessWidget {
         'shifts' => tr('Closed days'),
         'customers' => tr('Utang customers'),
         'utang_entries' => tr('Utang entries'),
+        'stock_moves' => tr('Stock history'),
         _ => table,
       };
 }

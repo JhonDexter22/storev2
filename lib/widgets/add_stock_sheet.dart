@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/design_tokens.dart';
 import '../models/product_model.dart';
+import '../models/stock_move.dart';
 import '../services/product_service.dart';
 import '../l10n/tr.dart';
 
@@ -219,7 +220,7 @@ SnackBarAction undoAddedStock(int productId, int added, {required VoidCallback o
     label: tr('Undo'),
     textColor: AppColors.primary,
     onPressed: () async {
-      await ProductService().addStock(productId, -added);
+      await ProductService().addStock(productId, -added, kind: StockMoveKind.undo);
       onUndone();
     },
   );

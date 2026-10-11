@@ -37,7 +37,7 @@ profile builds only — never in a release.
 - [ ] **(new)** After the intro the status bar icons are dark and readable on the till
 - [ ] **(new)** With Settings → Accessibility → **Remove animations** on, the app opens straight onto the till with no intro
 - [ ] An old `storev2` install, if any, is a separate app (new app id) — remove it
-- [ ] **(new)** Installing over an earlier BasePoint build keeps all data (the database upgrades to v13); old closed days show no "Utang paid in cash" line, and existing customers follow the store's credit limit
+- [ ] **(new)** Installing over an earlier BasePoint build keeps all data (the database upgrades to v14; Stock history starts empty); old closed days show no "Utang paid in cash" line, and existing customers follow the store's credit limit
 
 ## 1. First run
 
@@ -123,6 +123,9 @@ Restoring on a new phone (needs a backup file from section 14):
 - [ ] **(new)** Header reads "… products · ₱… on hand"
 - [ ] **(new)** Grid cards show only Low/Out badges and grey counts when healthy
 - [ ] **(new)** "+ Stock" on a low product offers "💡 Suggested +N"
+- [ ] **(new)** Product form → **Stock history**: sell one, restock it, return one, type a new count — each shows, newest first, with who, the time, the receipt number on sales and returns, and the stock after
+- [ ] **(new)** Delete a product with stock, then **Undo**: its history shows Deleted and Undone, and the stock is back
+- [ ] **(new)** Sell a product, then snap its photo from the list: the stock stays at what the sale left (it used to jump back)
 
 ## 6. Restock
 
@@ -225,6 +228,7 @@ Closed days (More → Closed days):
 - [ ] **(new)** Default minimum stock: digits only; "Also apply to every product" updates them all
 - [ ] **(new)** A blank store name says "Enter a store name"
 - [ ] **(new)** Help shows the app version, e.g. "1.0.0 (1)"
+- [ ] **(new)** More → **Stock history** lists every product's changes; **By hand** shows only counts typed in, deletions and Undos, with who did each
 
 Reports:
 
@@ -269,6 +273,7 @@ Note how long it takes to load — it shows the time when done.
 - [ ] Preview shows the row counts, photos, and "Store name and settings: Included"
 - [ ] After restore: products with their photos, sales history, utang balances, store name, payment types
 - [ ] Settings → Restore on a phone with data: asks for the manager PIN, warns, keeps a copy of the old data
+- [ ] **(new)** The restore preview lists Stock history; after restoring, a product's history is there as it was
 
 ## 15. Filipino
 

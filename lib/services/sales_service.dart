@@ -9,6 +9,8 @@ import '../models/cart_line.dart';
 import '../models/discount.dart';
 import '../models/refund_model.dart';
 import '../models/sale_model.dart';
+import '../models/stock_move.dart';
+import 'stock_history.dart';
 
 /// One row of a proportional-bar breakdown (top products, payment mix,
 /// category mix). [value] is money unless stated otherwise.
@@ -172,10 +174,8 @@ class SalesService {
         // Decrement relative to the stored value, not the copy POS loaded.
         // Writing an absolute `loadedStock - qty` would clobber any change made
         // in between — a restock, or a return going back on the shelf.
-        await txn.rawUpdate(
-          'UPDATE products SET stock = MAX(0, stock - ?) WHERE id = ?',
-          [line.qty, line.product.id],
-        );
+        await StockHistory.move(txn, line.product.id!, -line.qty, StockMoveKind.sale,
+            cashier: cashier, reference: reference);
       }
     });
 
@@ -664,10 +664,9 @@ class SalesService {
         await txn.insert('refund_items', {...ri, 'refund_id': refundId});
         // A quick item has no shelf to go back on.
         if (restock && !Product.isQuickId(ri['product_id'] as int)) {
-          await txn.rawUpdate(
-            'UPDATE products SET stock = stock + ? WHERE id = ?',
-            [ri['qty'], ri['product_id']],
-          );
+          await StockHistory.move(
+              txn, ri['product_id'] as int, ri['qty'] as int, StockMoveKind.returned,
+              cashier: cashier, reference: sale.reference);
         }
       }
     });

@@ -18,6 +18,7 @@ import '../widgets/product_card.dart';
 import '../widgets/product_thumb.dart';
 import '../widgets/skeleton.dart';
 import 'barcode_scanner_screen.dart';
+import 'stock_history_screen.dart';
 import '../l10n/tr.dart';
 import '../services/error_log.dart';
 
@@ -1160,11 +1161,34 @@ class _ProductsScreenState extends State<ProductsScreen> {
           label: tr('Undo'),
           textColor: AppColors.primary,
           onPressed: () async {
-            await _productService.insertProduct(p);
+            await _productService.restoreDeleted(p);
             _load();
           },
         ),
       ));
+  }
+
+  /// Opens the product's stock history: every sale, restock and change by
+  /// hand, with who and when.
+  Widget _historyRow(BuildContext ctx, Product product) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.push(
+        ctx,
+        MaterialPageRoute(builder: (_) => StockHistoryScreen(product: product)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.history_rounded, size: 18, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Expanded(child: Text(tr('Stock history'), style: AppText.chip(color: AppColors.primary))),
+            const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.primary),
+          ],
+        ),
+      ),
+    );
   }
 
   /// One of the two buttons drawn inside the empty photo slot. Purely
@@ -1266,9 +1290,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
             if (!ctx.mounted) return;
             setSheet(() => skuTakenBy = other?.name);
             if (!formKey.currentState!.validate()) return;
-            // Stock taken down by hand leaves no record of who or why — where
-            // missing stock hides. Until there is a stock history, it at least
-            // needs the manager. Raising it does not.
+            // Stock taken down by hand is where missing stock hides. The
+            // stock history records who did it, and the manager still has to
+            // agree. Raising it does not need them.
             if (isEdit && stock < product.stock) {
               final approved = await authoriseAsManager(
                 ctx,
@@ -1305,6 +1329,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
               );
               if (isEdit) {
                 await _productService.updateProduct(p);
+                // Only when the count was changed here: writing back the
+                // number the form opened with would undo any sale rung up
+                // while it was open, and log a change nobody made.
+                if (stock != product.stock) {
+                  await _productService.updateStock(product.id!, stock);
+                }
                 // The photo that was replaced or removed is
                 // nobody's now.
                 final old = product.imagePath;
@@ -1590,6 +1620,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           ],
 
                           if (isEdit) ...[
+                            const SizedBox(height: 4),
+                            _historyRow(ctx, product),
                             const SizedBox(height: 20),
                             const Divider(color: AppColors.divider, height: 1),
                             const SizedBox(height: 18),

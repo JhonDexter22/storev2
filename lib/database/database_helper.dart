@@ -30,7 +30,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 13,
+      version: 14,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -54,7 +54,35 @@ class DatabaseHelper {
     await _createReturnsAndShiftTables(db);
     await _createUtangTables(db);
     await _createStaffTable(db);
+    await _createStockMovesTable(db);
     await _createIndexes(db);
+  }
+
+  /// Every change to a product's stock, one row each: what moved it, by how
+  /// much, what it came to, who was on the till, and the receipt when a sale
+  /// or a return did it. Append-only, like the utang ledger: a mistake is put
+  /// right by another row (an Undo is logged too), never edited away.
+  ///
+  /// [product_name] is the name at the time, so a deleted product's history
+  /// still says what it was.
+  Future _createStockMovesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS stock_moves(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        product_name TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        delta INTEGER NOT NULL,
+        stock_after INTEGER NOT NULL,
+        cashier TEXT NOT NULL DEFAULT '',
+        reference TEXT NOT NULL DEFAULT ''
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_stock_moves_product '
+        'ON stock_moves(product_id, created_at)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_stock_moves_created ON stock_moves(created_at)');
   }
 
   /// The lookups every screen makes, indexed so they stay quick after a year.
@@ -337,6 +365,11 @@ class DatabaseHelper {
         // Column already present on a database created fresh at v13.
       }
     }
+    if (oldVersion < 14) {
+      // v14: stock history. It starts empty: earlier changes were never
+      // recorded, and inventing rows for them would be guessing.
+      await _createStockMovesTable(db);
+    }
   }
 // Idagdag ito sa loob ng DatabaseHelper class
   Future<int> insertProduct(Map<String, dynamic> product) async {
@@ -345,14 +378,15 @@ class DatabaseHelper {
     return await db.insert('products', product);
   }
 
-  /// Wipes all store data (products, sales, refunds, shifts and the utang
-  /// ledger). Irreversible.
+  /// Wipes all store data (products and their stock history, sales, refunds,
+  /// shifts and the utang ledger). Irreversible.
   ///
   /// Staff are deliberately left alone. They are not store data, and clearing
   /// them would re-seed the roster with the starting PINs — a data wipe would
   /// quietly reset the manager's code to one printed in the source.
   Future<void> clearAllData() async {
     final db = await instance.database;
+    await db.delete('stock_moves');
     await db.delete('utang_entries');
     await db.delete('customers');
     await db.delete('refund_items');
