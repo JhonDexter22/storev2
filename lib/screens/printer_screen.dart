@@ -139,12 +139,16 @@ class _PrinterScreenState extends State<PrinterScreen> {
                     child: Text(tr('Receipt printer'),
                         style: AppText.screenTitle().copyWith(fontSize: 22)),
                   ),
-                  IconButton(
-                    onPressed: _loading ? null : _load,
-                    icon: const Icon(Icons.refresh_rounded,
-                        color: AppColors.body, size: 20),
-                    tooltip: tr('Refresh'),
-                  ),
+                  // Only beside the list, to pick up a printer paired since.
+                  // A message that says "tap Refresh" carries its own button,
+                  // and a second one up here read as two of the same thing.
+                  if (_problem == null && _devices.isNotEmpty)
+                    IconButton(
+                      onPressed: _loading ? null : _load,
+                      icon: const Icon(Icons.refresh_rounded,
+                          color: AppColors.body, size: 20),
+                      tooltip: tr('Refresh'),
+                    ),
                 ],
               ),
               const SizedBox(height: 4),

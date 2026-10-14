@@ -121,12 +121,17 @@ void main() {
       await pumpPrinterScreen(tester);
       expect(find.textContaining('then tap Refresh'), findsOneWidget);
       expect(refreshButton(), findsOneWidget);
+      // Only the one: the corner icon used to sit above it as a second.
+      expect(find.byTooltip('Refresh'), findsNothing);
 
       // Switched on and refreshed from there: the printers appear.
       fake.bluetoothOn = true;
       await tester.tap(refreshButton());
       await tester.pumpAndSettle();
       expect(find.text('RPP02N'), findsOneWidget);
+      // With the list showing, the corner icon is the way to look again.
+      expect(find.byTooltip('Refresh'), findsOneWidget);
+      expect(refreshButton(), findsNothing);
     });
 
     testWidgets('a phone that cannot print gets no Refresh to tap in vain', (tester) async {
