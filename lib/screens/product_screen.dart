@@ -1249,6 +1249,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
     int stock = product?.stock ?? 0;
     // A new product starts at the store's configured default minimum.
     int minStock = seed?.minStock ?? SettingsService.instance.defaultMinStock;
+    // Typed into, as well as stepped: tapping + forty times to enter a
+    // delivery of 40 was the slowest part of adding a product. A new
+    // product's stock starts empty so the first digit is not typed after a 0.
+    final stockCtrl = TextEditingController(text: isEdit ? '$stock' : '');
+    final minCtrl = TextEditingController(text: '$minStock');
 
     /// Set when the barcode already belongs to another product.
     String? skuTakenBy;
@@ -1585,12 +1590,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           const SizedBox(height: 18),
                           _sectionLabel(tr('Inventory')),
                           const SizedBox(height: 10),
-                          _stepperRow(tr('Current stock'), stock, (v) => setSheet(() {
+                          _stepperRow(tr('Current stock'), stockCtrl, stock, (v) => setSheet(() {
                                 stock = v;
                                 stockTouched = true;
                               })),
                           const SizedBox(height: 10),
-                          _stepperRow(tr('Minimum stock'), minStock, (v) => setSheet(() {
+                          _stepperRow(tr('Minimum stock'), minCtrl, minStock, (v) => setSheet(() {
                                 minStock = v;
                                 stockTouched = true;
                               })),
@@ -1774,7 +1779,15 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
   }
 
-  Widget _stepperRow(String label, int value, ValueChanged<int> onChanged) {
+  /// A count that can be stepped with − and + or typed. [ctrl] holds the
+  /// figure; the steppers write to it so the two never disagree.
+  Widget _stepperRow(String label, TextEditingController ctrl, int value, ValueChanged<int> onChanged) {
+    void step(int v) {
+      ctrl.text = '$v';
+      onChanged(v);
+    }
+
+    const line = UnderlineInputBorder(borderSide: BorderSide(color: AppColors.hairline));
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
@@ -1790,9 +1803,33 @@ class _ProductsScreenState extends State<ProductsScreen> {
             value: value,
             figureSize: 18,
             onDecrement: () {
-              if (value > 0) onChanged(value - 1);
+              if (value > 0) step(value - 1);
             },
-            onIncrement: () => onChanged(value + 1),
+            onIncrement: () => step(value + 1),
+            field: TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(4),
+              ],
+              textAlign: TextAlign.center,
+              style: AppText.statFigure(size: 18),
+              // The whole figure, so typing replaces it rather than adding
+              // digits to the end of the old one.
+              onTap: () => ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length),
+              onChanged: (v) => onChanged(int.tryParse(v) ?? 0),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: '0',
+                hintStyle: AppText.statFigure(size: 18, color: AppColors.faint),
+                contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                border: line,
+                enabledBorder: line,
+                focusedBorder: const UnderlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.primary, width: 1.5)),
+              ),
+            ),
           ),
         ],
       ),

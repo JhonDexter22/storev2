@@ -244,6 +244,58 @@ void main() {
     });
   });
 
+  group('stock and minimum', () {
+    Finder form() => find
+        .descendant(of: find.byType(SingleChildScrollView), matching: find.byType(Scrollable))
+        .first;
+    Finder row(String label) => find.ancestor(of: find.text(label), matching: find.byType(Row)).first;
+    Finder count(String label) => find.descendant(of: row(label), matching: find.byType(TextField));
+
+    Future<void> type(WidgetTester tester, String label, String value) async {
+      await tester.scrollUntilVisible(find.text(label), 200, scrollable: form());
+      await tester.tap(count(label));
+      await tester.enterText(count(label), value);
+      await tester.pump();
+    }
+
+    testWidgets('are typed in, not only stepped', (tester) async {
+      await openNewProduct(tester);
+      await fill(tester);
+      await type(tester, 'Current stock', '40');
+      await type(tester, 'Minimum stock', '8');
+      await save(tester);
+
+      final p = (await products.getAllProducts()).single;
+      expect(p.stock, 40);
+      expect(p.minStock, 8);
+    });
+
+    testWidgets('a new product starts with an empty stock box, the minimum filled in', (tester) async {
+      await openNewProduct(tester);
+      await tester.scrollUntilVisible(find.text('Minimum stock'), 200, scrollable: form());
+      expect(tester.widget<TextField>(count('Current stock')).controller!.text, isEmpty);
+      expect(tester.widget<TextField>(count('Minimum stock')).controller!.text,
+          '${SettingsService.instance.defaultMinStock}');
+    });
+
+    testWidgets('the steppers carry on from a typed figure', (tester) async {
+      await openNewProduct(tester);
+      await fill(tester);
+      await type(tester, 'Current stock', '12');
+      await tester.tap(find.descendant(of: row('Current stock'), matching: find.byIcon(Icons.add_rounded)));
+      await tester.pump();
+      expect(tester.widget<TextField>(count('Current stock')).controller!.text, '13');
+      await save(tester);
+      expect((await products.getAllProducts()).single.stock, 13);
+    });
+
+    testWidgets('typing digits only', (tester) async {
+      await openNewProduct(tester);
+      await type(tester, 'Current stock', '-5x');
+      expect(tester.widget<TextField>(count('Current stock')).controller!.text, '5');
+    });
+  });
+
   group('stock that leaves without a sale', () {
     Future<void> openEdit(WidgetTester tester) async {
       tester.view.physicalSize = const Size(390, 800);
@@ -269,6 +321,24 @@ void main() {
       await seed();
       await openEdit(tester);
       await step(tester, Icons.remove_rounded);
+      await tester.tap(find.text('Save changes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Manager PIN'), findsOneWidget);
+      expect((await products.getAllProducts()).single.stock, 50);
+    });
+
+    testWidgets('typing a lower count asks for the manager too', (tester) async {
+      await seed();
+      await openEdit(tester);
+      final form = find
+          .descendant(of: find.byType(SingleChildScrollView), matching: find.byType(Scrollable))
+          .first;
+      await tester.scrollUntilVisible(find.text('Current stock'), 200, scrollable: form);
+      final box = find.descendant(
+          of: find.ancestor(of: find.text('Current stock'), matching: find.byType(Row)).first,
+          matching: find.byType(TextField));
+      await tester.enterText(box, '30');
+      await tester.pump();
       await tester.tap(find.text('Save changes'));
       await tester.pumpAndSettle();
       expect(find.text('Manager PIN'), findsOneWidget);
