@@ -9,6 +9,7 @@ import '../services/sales_service.dart';
 import '../services/settings_service.dart';
 import '../services/staff_service.dart';
 import '../widgets/change_pin_flow.dart';
+import '../widgets/success_mark.dart';
 import '../l10n/tr.dart';
 
 /// Returns & voids — reverse part or all of a completed sale.
@@ -999,12 +1000,7 @@ class _ReturnDetailScreenState extends State<ReturnDetailScreen> {
           padding: const EdgeInsets.fromLTRB(AppSpace.screenH, 32, AppSpace.screenH, 24),
           child: Column(
             children: [
-              Container(
-                width: 84,
-                height: 84,
-                decoration: const BoxDecoration(color: AppColors.successFill, shape: BoxShape.circle),
-                child: const Icon(Icons.check_rounded, color: AppColors.success, size: 44),
-              ),
+              const SuccessMark(size: 96),
               const SizedBox(height: 18),
               Text(refund.isVoid ? tr('Sale voided') : tr('Return recorded'),
                   style: AppText.sectionTitle().copyWith(fontSize: 19)),

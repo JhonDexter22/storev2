@@ -274,11 +274,16 @@ class _HomeScreenState extends State<HomeScreen>
   /// tab further right, -1 when moving left.
   int _slideDir = 1;
 
-  void _goTo(int index) {
+  /// A barcode the till did not know, for Products to open its add-product
+  /// sheet with. Read once, when Products is built.
+  String? _newProductSku;
+
+  void _goTo(int index, {String? newProductSku}) {
     if (index == _currentIndex) return;
     setState(() {
       _slideDir = index > _currentIndex ? 1 : -1;
       _currentIndex = index;
+      _newProductSku = newProductSku;
     });
     ErrorLog.instance.screen = '${_tabs[index].label} tab';
   }
@@ -308,9 +313,9 @@ class _HomeScreenState extends State<HomeScreen>
           onOpenRestock: () => _goTo(_kRestock),
         );
       case _kSell:
-        return const PosScreen();
+        return PosScreen(onAddProduct: (sku) => _goTo(_kProducts, newProductSku: sku));
       case _kProducts:
-        return ProductsScreen(onRestock: () => _goTo(_kRestock));
+        return ProductsScreen(newProductSku: _newProductSku, onRestock: () => _goTo(_kRestock));
       case _kRestock:
         return const RestockScreen();
       case _kMore:

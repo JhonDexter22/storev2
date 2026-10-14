@@ -10,6 +10,7 @@ import '../widgets/brand_mark.dart';
 import '../widgets/language_switch.dart';
 import '../widgets/pin_sheet.dart';
 import '../widgets/restore_flow.dart';
+import '../widgets/success_mark.dart';
 import '../services/error_log.dart';
 
 /// Shows [SetupScreen] until it is finished, then [child].
@@ -478,17 +479,9 @@ class _SetupScreenState extends State<SetupScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 24),
-        Align(
+        const Align(
           alignment: Alignment.centerLeft,
-          child: Container(
-            width: 64,
-            height: 64,
-            decoration: const BoxDecoration(
-              color: AppColors.successFill,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.check_rounded, color: AppColors.success, size: 34),
-          ),
+          child: SuccessMark(size: 76),
         ),
         const SizedBox(height: 24),
         Text(tr("You're ready, {name}", {'name': owner}),

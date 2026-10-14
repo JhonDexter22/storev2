@@ -60,7 +60,7 @@ void main() {
       await utang.recordPayment(customerId: id, amount: 500, method: 'Cash');
       await pump(tester, const CashCountScreen());
 
-      expect(find.text('Utang paid in cash'), findsOneWidget);
+      expect(find.text('Credit paid in cash'), findsOneWidget);
       expect(find.text(formatPeso(SettingsService.instance.openingFloat + 500)), findsOneWidget);
     });
 

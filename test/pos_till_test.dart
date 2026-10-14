@@ -9,6 +9,7 @@ import 'package:storev2/models/cart_line.dart';
 import 'package:storev2/models/product_model.dart';
 import 'package:storev2/screens/pos_screen.dart';
 import 'package:storev2/services/held_sales.dart';
+import 'package:storev2/services/open_sale.dart';
 import 'package:storev2/services/product_service.dart';
 import 'package:storev2/services/sales_service.dart';
 import 'package:storev2/services/settings_service.dart';
@@ -30,6 +31,7 @@ void main() {
     SettingsService.instance.resetForTests();
     await SettingsService.instance.load();
     await DatabaseHelper.instance.clearAllData();
+    OpenSale.instance.reset();
   });
 
   Future<void> seed(String name, {int stock = 20, int minStock = 5, String? imagePath}) =>
@@ -122,6 +124,77 @@ void main() {
       await tester.tap(find.byTooltip('Clear'));
       await tester.pump();
       expect(find.text('Repeat last sale'), findsOneWidget);
+    });
+  });
+
+  group('the open sale', () {
+    // Switching tabs builds a new till, and so does opening the app again.
+    Future<void> leave(WidgetTester tester) => tester.pumpWidget(const MaterialApp(home: SizedBox()));
+
+    testWidgets('survives a trip to another tab', (tester) async {
+      await seed('Kopiko');
+      await pump(tester);
+      await tester.tap(find.text('Kopiko'));
+      await tester.pumpAndSettle();
+
+      await leave(tester);
+      await pump(tester);
+      expect(find.text('1 item'), findsOneWidget);
+    });
+
+    testWidgets('survives the app being closed', (tester) async {
+      await seed('Kopiko');
+      await pump(tester);
+      await tester.tap(find.text('Kopiko'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Kopiko'));
+      await tester.pumpAndSettle();
+
+      await leave(tester);
+      OpenSale.instance.reset(); // a fresh start; preferences are kept
+      await pump(tester);
+      expect(find.text('2 items'), findsOneWidget);
+    });
+
+    testWidgets('a paid sale does not come back', (tester) async {
+      await seed('Kopiko');
+      await pump(tester);
+      await tester.tap(find.text('Kopiko'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Checkout'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Exact'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Complete sale'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New sale'));
+      await tester.pumpAndSettle();
+
+      await leave(tester);
+      OpenSale.instance.reset();
+      await pump(tester);
+      expect(find.text('1 item'), findsNothing);
+      expect(OpenSale.instance.lines, isEmpty);
+    });
+
+    testWidgets('drops a product deleted since, and keeps to the stock left', (tester) async {
+      await seed('Kopiko');
+      await seed('SkyFlakes', stock: 3);
+      await pump(tester);
+      await tester.tap(find.text('Kopiko'));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 3; i++) {
+        await tester.tap(find.text('SkyFlakes'));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('4 items'), findsOneWidget);
+
+      await leave(tester);
+      final all = await products.getAllProducts();
+      await products.deleteProduct(all.singleWhere((p) => p.name == 'Kopiko').id!);
+      await products.updateStock(all.singleWhere((p) => p.name == 'SkyFlakes').id!, 1);
+      await pump(tester);
+      expect(find.text('1 item'), findsOneWidget);
     });
   });
 
@@ -317,6 +390,27 @@ void main() {
     await tester.tap(find.text('Undo'));
     await tester.pumpAndSettle();
     expect(find.text('2 items'), findsOneWidget);
+  });
+
+  testWidgets('Clear all stays on the till when the sheet redraws on its way out', (tester) async {
+    await seed('Kopiko');
+    await pump(tester);
+    await tester.tap(find.text('Kopiko'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1 item'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Clear all'));
+    await tester.pump();
+    // Anything that redraws the closing sheet — on the phone it was the
+    // keyboard settling after a quick item — showed it the empty cart, and
+    // its "close when empty" closed the till underneath: a black screen.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 1);
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PosScreen), findsOneWidget);
+    expect(find.text('Sale cleared'), findsOneWidget);
   });
 
   testWidgets('the backup pill starts a backup when tapped', (tester) async {

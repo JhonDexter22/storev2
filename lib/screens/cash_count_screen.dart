@@ -412,7 +412,7 @@ class _CashCountScreenState extends State<CashCountScreen> {
           _row(tr('Cash sales'), formatPeso(_cashSales)),
           if (_utangCash > 0) ...[
             const SizedBox(height: 8),
-            _row(tr('Utang paid in cash'), formatPeso(_utangCash)),
+            _row(tr('Credit paid in cash'), formatPeso(_utangCash)),
           ],
           const SizedBox(height: 10),
           const Divider(color: AppColors.divider, height: 1),

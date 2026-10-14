@@ -24,6 +24,29 @@ void main() {
           reason: 'after the guard, a second unit of the same item can be scanned');
     });
 
+    test('held in frame is added once, however long it is held', () {
+      final s = ScanSession();
+      var added = 0;
+      // The camera reports a code about four times a second while it is in view.
+      for (var ms = 0; ms <= 5000; ms += 250) {
+        final now = t0.add(Duration(milliseconds: ms));
+        if (!s.isRepeat('4800', now)) added++;
+        s.saw('4800', now);
+      }
+      expect(added, 1);
+    });
+
+    test('of the same item again, once it has been out of sight, is a second unit', () {
+      final s = ScanSession();
+      s.saw('4800', t0);
+      s.saw('4800', t0.add(const Duration(milliseconds: 500)));
+      expect(s.isRepeat('4800', t0.add(const Duration(milliseconds: 1500))), isTrue,
+          reason: 'only a second since it was last seen');
+      expect(s.isRepeat('4800', t0.add(const Duration(milliseconds: 2000))), isFalse);
+      expect(ScanSession().repeatGuard, lessThan(SimpleBarcodeScannerScreen.autoReturnAfter),
+          reason: 'the scanner must still be open when a second unit can be read');
+    });
+
     test('of a different code is not held up by the last one', () {
       final s = ScanSession();
       s.saw('4800', t0);

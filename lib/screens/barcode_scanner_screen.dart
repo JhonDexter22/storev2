@@ -43,12 +43,13 @@ enum ScanOutcome { added, full }
 /// they can be checked without one.
 ///
 /// A known product is added the moment it is read — one unit, no button —
-/// and the same code is then ignored for [repeatGuard], because the camera
-/// sees a barcode many times a second while it is held in frame. Nothing is
+/// and the same code is then ignored until it has been out of sight for
+/// [repeatGuard], because the camera sees a barcode several times a second
+/// while it is held in frame. Nothing is
 /// added past what is on the shelf once the units already in the cart
 /// ([inCart]) and the ones added this session are counted.
 class ScanSession {
-  ScanSession({Map<int, int> inCart = const {}, this.repeatGuard = const Duration(seconds: 2)})
+  ScanSession({Map<int, int> inCart = const {}, this.repeatGuard = const Duration(milliseconds: 1500)})
       : inCart = Map.unmodifiable(inCart);
 
   final Map<int, int> inCart;
@@ -60,10 +61,14 @@ class ScanSession {
   String? _lastCode;
   DateTime? _lastAt;
 
-  /// [code] is the one just handled, still in front of the camera.
+  /// [code] was last seen too recently to be a second unit: it is the one
+  /// just handled, still in front of the camera.
   bool isRepeat(String code, DateTime now) =>
       code == _lastCode && _lastAt != null && now.difference(_lastAt!) < repeatGuard;
 
+  /// Every read, repeats included, so the guard runs from the last sight of
+  /// a code rather than the first. Timed from the first, a barcode held in
+  /// frame was added again each time the guard ran out.
   void saw(String code, DateTime now) {
     _lastCode = code;
     _lastAt = now;
@@ -111,6 +116,12 @@ class SimpleBarcodeScannerScreen extends StatefulWidget {
   final bool forSale;
   final Map<int, int> inCart;
 
+  /// Back to the sale once the camera has seen no barcode for this long,
+  /// so a cashier scans and carries on without reaching for the close
+  /// button. Longer than the repeat guard, so a second unit of the same item
+  /// can still be scanned before it runs out.
+  static const autoReturnAfter = Duration(milliseconds: 2500);
+
   @override
   State<SimpleBarcodeScannerScreen> createState() => _SimpleBarcodeScannerScreenState();
 }
@@ -140,6 +151,16 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
   /// The match sheet is setting a scanned item's count, not adding more.
   bool _adjusting = false;
 
+  /// Runs while the scanner is about to go back; a read starts it over.
+  late final AnimationController _autoReturn =
+      AnimationController(vsync: this, duration: SimpleBarcodeScannerScreen.autoReturnAfter)
+        ..addStatusListener((s) {
+          if (s == AnimationStatus.completed && mounted) _close();
+        });
+
+  /// The last read found the shelf empty: stay until the cashier has seen it.
+  bool _holdOpen = false;
+
   /// A brief wash of colour over the viewfinder on each read. Starts
   /// finished (invisible); a read runs it from the top.
   late final AnimationController _flash =
@@ -156,12 +177,30 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
   @override
   void dispose() {
     _flash.dispose();
+    _autoReturn.dispose();
     _scanAnim.dispose();
     cameraController.dispose();
     super.dispose();
   }
 
+  /// Starts the countdown back to the sale over, or stops it when there is
+  /// nothing to go back with or something on screen needs the cashier.
+  void _armAutoReturn() {
+    if (!widget.forSale || _state != _ScanState.scanning || _holdOpen || _session.total == 0) {
+      _disarmAutoReturn();
+      return;
+    }
+    _autoReturn.forward(from: 0);
+  }
+
+  void _disarmAutoReturn() {
+    _autoReturn
+      ..stop()
+      ..value = 0;
+  }
+
   void _close() {
+    _disarmAutoReturn();
     Navigator.pop(
       context,
       widget.forSale ? ScanSale(added: Map.of(_added)) : null,
@@ -186,8 +225,13 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
 
     // Held in frame, a barcode is read many times a second.
     final now = DateTime.now();
-    if (_session.isRepeat(code, now)) return;
+    final repeat = _session.isRepeat(code, now);
     _session.saw(code, now);
+    if (repeat) {
+      // Still in frame: the countdown waits for it to be taken away.
+      _armAutoReturn();
+      return;
+    }
 
     _busy = true;
     final product = await _productService.findBySku(code);
@@ -199,6 +243,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
         _state = _ScanState.unknown;
         _unknownCode = code;
       });
+      _disarmAutoReturn();
       return;
     }
     // Added on sight: "Continuous scan" used to stop on a sheet for every
@@ -209,15 +254,18 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
       _busy = false;
       _last = product;
       _lastWasFull = outcome == ScanOutcome.full;
+      _holdOpen = _lastWasFull;
       _flashColor = _lastWasFull ? AppColors.warning : AppColors.success;
     });
     _flash.forward(from: 0);
+    _armAutoReturn();
   }
 
   /// "Edit" on the last scanned item: its count for this sale, set outright.
   void _adjustLast() {
     final p = _last;
     if (p == null) return;
+    _disarmAutoReturn();
     setState(() {
       _adjusting = true;
       _state = _ScanState.found;
@@ -234,6 +282,7 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
       _matchQty = 1;
       _adjusting = false;
     });
+    _armAutoReturn();
   }
 
   void _addToSale() {
@@ -245,11 +294,14 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
       final outcome = _session.add(p!, qty: _matchQty);
       _lastWasFull = outcome == ScanOutcome.full;
     }
+    // Chosen by hand, so already seen: nothing to stay open for.
+    _holdOpen = false;
     _last = p;
     _resumeScanning();
   }
 
   Future<void> _enterManually() async {
+    _disarmAutoReturn();
     final ctrl = TextEditingController();
     final code = await showDialog<String>(
       context: context,
@@ -282,7 +334,10 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
         ],
       ),
     );
-    if (code == null || code.isEmpty || !mounted) return;
+    if (code == null || code.isEmpty || !mounted) {
+      if (mounted) _armAutoReturn();
+      return;
+    }
 
     if (!widget.forSale) {
       Navigator.pop(context, ScanCapture(code));
@@ -518,6 +573,30 @@ class _SimpleBarcodeScannerScreenState extends State<SimpleBarcodeScannerScreen>
             ),
             const SizedBox(height: 12),
           ],
+          AnimatedBuilder(
+            animation: _autoReturn,
+            builder: (context, _) {
+              if (!_autoReturn.isAnimating) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: LinearProgressIndicator(
+                        value: 1 - _autoReturn.value,
+                        minHeight: 3,
+                        color: AppColors.primary,
+                        backgroundColor: Colors.white.withValues(alpha: 0.15),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(tr('Back to the sale…'), style: AppText.caption(color: AppColors.faint)),
+                  ],
+                ),
+              );
+            },
+          ),
           GestureDetector(
             onTap: _enterManually,
             child: Text(

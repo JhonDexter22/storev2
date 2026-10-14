@@ -123,6 +123,16 @@ class HeldSales extends ChangeNotifier {
     await _persist();
   }
 
+  /// Drops every held sale. For when the store's data is replaced: their
+  /// product ids may now belong to other products, or to none.
+  Future<void> clear() async {
+    // Nothing left to read back, even if the till has not opened yet.
+    _loaded = true;
+    _sales = const [];
+    notifyListeners();
+    await _persist();
+  }
+
   Future<void> _persist() async {
     try {
       final prefs = await SharedPreferences.getInstance();

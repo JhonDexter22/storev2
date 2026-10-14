@@ -64,7 +64,7 @@ void main() {
       await pump(tester);
       await tester.tap(cards().first);
       await tester.pumpAndSettle();
-      expect(find.text('Utang paid in cash'), findsOneWidget);
+      expect(find.text('Credit paid in cash'), findsOneWidget);
       expect(find.text(formatPeso(300)), findsOneWidget);
     });
 
@@ -85,7 +85,7 @@ void main() {
         storeName: 'Jhed',
       );
       final rows = {for (final b in slip.whereType<ReceiptRow>()) b.left: b.right};
-      expect(rows['Utang paid in cash'], formatPeso(300));
+      expect(rows['Credit paid in cash'], formatPeso(300));
       expect(rows['Expected'], formatPeso(1800));
     });
   });

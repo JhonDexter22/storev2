@@ -523,7 +523,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                     _detailRow(tr('Cash sales'), formatPeso(s.cashSales)),
                     const SizedBox(height: 8),
                     if (s.utangCash > 0) ...[
-                      _detailRow(tr('Utang paid in cash'), formatPeso(s.utangCash)),
+                      _detailRow(tr('Credit paid in cash'), formatPeso(s.utangCash)),
                       const SizedBox(height: 8),
                     ],
                     _detailRow(tr('Expected'), formatPeso(s.expected)),

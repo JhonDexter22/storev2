@@ -161,10 +161,36 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
   Future<void> _manageStaff() async {
     final person = await showModalBottomSheet<Staff>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
-            20 + MediaQuery.of(ctx).padding.bottom),
+      builder: (ctx) => _sheetFrame(
+        ctx,
+        children: [
+          Text(tr('Manage staff'), style: AppText.sectionTitle().copyWith(fontSize: 18)),
+          const SizedBox(height: 2),
+          Text(tr('Tap someone to change their PIN or role.'), style: AppText.caption()),
+          const SizedBox(height: 16),
+          for (final person in _roster) ...[
+            _staffRow(person, onTap: () => Navigator.pop(ctx, person)),
+            const SizedBox(height: 8),
+          ],
+          const SizedBox(height: 8),
+          CancelButton(onPressed: () => Navigator.pop(ctx)),
+        ],
+      ),
+    );
+    if (person == null || !mounted) return;
+    await _actionsFor(person);
+  }
+
+  /// The white sheet both staff menus sit on, with its grab handle. Scrolls
+  /// when the roster is longer than the screen.
+  Widget _sheetFrame(BuildContext ctx, {required List<Widget> children}) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.85),
+      child: Container(
+        padding: EdgeInsets.fromLTRB(
+            AppSpace.sheetPad, 14, AppSpace.sheetPad, 20 + MediaQuery.of(ctx).padding.bottom),
         decoration: const BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -179,49 +205,161 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                      color: AppColors.hairline,
-                      borderRadius: BorderRadius.circular(2)),
+                      color: AppColors.hairline, borderRadius: BorderRadius.circular(2)),
                 ),
               ),
               const SizedBox(height: 16),
-              Text(tr('Manage staff'),
-                  style: AppText.sectionTitle().copyWith(fontSize: 18)),
-              const SizedBox(height: 12),
-              for (final person in _roster)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  onTap: () => Navigator.pop(ctx, person),
-                  leading: InitialsAvatar(person.initials, size: 40, tone: AvatarTone.idle),
-                  title: Text(person.name, style: AppText.cardTitle()),
-                  subtitle: Text(
-                    person.onStartingPin
-                        // "PIN", as the warning on the screen behind says it.
-                        ? '${tr(person.role)} · ${tr('still on the starting PIN')}'
-                        : person.role,
-                    style: AppText.caption(
-                        color: person.onStartingPin
-                            ? AppColors.warningText
-                            : AppColors.muted),
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded,
-                      color: AppColors.faint, size: 20),
-                ),
-              const SizedBox(height: 6),
-              SizedBox(
-                width: double.infinity,
-                height: 46,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-                ),
-              ),
+              ...children,
             ],
           ),
         ),
       ),
     );
-    if (person == null || !mounted) return;
-    await _actionsFor(person);
+  }
+
+  /// One person on the roster: who they are, what they can do, and a warning
+  /// if they are still on a code that ships with the app.
+  Widget _staffRow(Staff person, {required VoidCallback onTap}) {
+    return Material(
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        side: BorderSide(
+            color: person.onStartingPin ? AppColors.warningBorder : AppColors.hairline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+          child: Row(
+            children: [
+              InitialsAvatar(person.initials,
+                  size: 44, tone: person.isManager ? AvatarTone.soft : AvatarTone.idle),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(person.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.cardTitle().copyWith(fontSize: 15)),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _pill(
+                          tr(person.role),
+                          icon: person.isManager ? Icons.lock_outline_rounded : null,
+                          fg: person.isManager ? AppColors.primary : AppColors.body,
+                          bg: person.isManager ? AppColors.primaryTint : AppColors.divider,
+                        ),
+                        if (person.onStartingPin)
+                          _pill(
+                            // "PIN", as the warning on the screen behind says it.
+                            tr('still on the starting PIN'),
+                            icon: Icons.warning_amber_rounded,
+                            fg: AppColors.warningText,
+                            bg: AppColors.warningFill,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.faint, size: 22),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _pill(String text, {IconData? icon, required Color fg, required Color bg}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(AppRadius.chip)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: fg),
+            const SizedBox(width: 4),
+          ],
+          Flexible(
+            child: Text(text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.caption(color: fg).copyWith(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// One thing that can be done to a person: a tinted icon, what it does,
+  /// and a line on what it means. [danger] colours it for removing someone.
+  Widget _actionTile({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    bool danger = false,
+    VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+    final fg = danger ? AppColors.dangerText : AppColors.primary;
+    final bg = danger ? AppColors.dangerFill : AppColors.primaryTint;
+    return Material(
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        side: const BorderSide(color: AppColors.hairline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: enabled ? bg : AppColors.canvas,
+                  borderRadius: BorderRadius.circular(AppRadius.iconBtn),
+                ),
+                child: Icon(icon, size: 20, color: enabled ? fg : AppColors.faint),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: AppText.cardTitle(
+                            color: !enabled
+                                ? AppColors.faint
+                                : (danger ? AppColors.dangerText : AppColors.ink))),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(subtitle, style: AppText.caption()),
+                    ],
+                  ],
+                ),
+              ),
+              if (enabled) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.chevron_right_rounded, color: AppColors.faint, size: 22),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// What can be done to one person.
@@ -229,79 +367,58 @@ class _CashierSwitchScreenState extends State<CashierSwitchScreen> {
     final signedIn = person.name == _settings.cashier;
     final action = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: EdgeInsets.fromLTRB(AppSpace.sheetPad, 14, AppSpace.sheetPad,
-            20 + MediaQuery.of(ctx).padding.bottom),
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                    color: AppColors.hairline,
-                    borderRadius: BorderRadius.circular(2)),
+      builder: (ctx) => _sheetFrame(
+        ctx,
+        children: [
+          Row(
+            children: [
+              InitialsAvatar(person.initials,
+                  size: 48, tone: person.isManager ? AvatarTone.soft : AvatarTone.idle),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(person.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.sectionTitle().copyWith(fontSize: 18)),
+                    const SizedBox(height: 2),
+                    Text(tr(person.role), style: AppText.caption()),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(person.name, style: AppText.sectionTitle().copyWith(fontSize: 18)),
-            const SizedBox(height: 2),
-            Text(person.role, style: AppText.caption()),
-            const SizedBox(height: 14),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              onTap: () => Navigator.pop(ctx, 'pin'),
-              leading: const Icon(Icons.password_rounded,
-                  size: 20, color: AppColors.body),
-              title: Text(tr('Change PIN'), style: AppText.cardTitle()),
-            ),
-            // Was only possible by removing them and adding them back.
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              onTap: () => Navigator.pop(ctx, 'role'),
-              leading: Icon(
-                  person.isManager ? Icons.person_outline_rounded : Icons.admin_panel_settings_outlined,
-                  size: 20,
-                  color: AppColors.body),
-              title: Text(person.isManager ? tr('Make cashier') : tr('Make manager'),
-                  style: AppText.cardTitle()),
-              subtitle: Text(tr('Managers authorise closes and roster changes.'), style: AppText.caption()),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              onTap: signedIn ? null : () => Navigator.pop(ctx, 'remove'),
-              enabled: !signedIn,
-              leading: Icon(Icons.person_remove_alt_1_rounded,
-                  size: 20,
-                  color: signedIn ? AppColors.faint : AppColors.dangerText),
-              title: Text(tr('Remove from roster'),
-                  style: AppText.cardTitle(
-                      color: signedIn ? AppColors.faint : AppColors.dangerText)),
-              subtitle: Text(
-                signedIn
-                    ? tr('Sign in as someone else first.')
-                    : tr('They keep their place in past sales and shifts.'),
-                style: AppText.caption(),
-              ),
-            ),
-            const SizedBox(height: 6),
-            SizedBox(
-              width: double.infinity,
-              height: 46,
-              child: TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-              ),
-            ),
-          ],
-        ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _actionTile(
+            icon: Icons.password_rounded,
+            title: tr('Change PIN'),
+            onTap: () => Navigator.pop(ctx, 'pin'),
+          ),
+          const SizedBox(height: 8),
+          // Was only possible by removing them and adding them back.
+          _actionTile(
+            icon: person.isManager ? Icons.person_outline_rounded : Icons.admin_panel_settings_outlined,
+            title: person.isManager ? tr('Make cashier') : tr('Make manager'),
+            subtitle: tr('Managers authorise closes and roster changes.'),
+            onTap: () => Navigator.pop(ctx, 'role'),
+          ),
+          const SizedBox(height: 8),
+          _actionTile(
+            icon: Icons.person_remove_alt_1_rounded,
+            title: tr('Remove from roster'),
+            subtitle: signedIn
+                ? tr('Sign in as someone else first.')
+                : tr('They keep their place in past sales and shifts.'),
+            danger: true,
+            onTap: signedIn ? null : () => Navigator.pop(ctx, 'remove'),
+          ),
+          const SizedBox(height: 16),
+          CancelButton(onPressed: () => Navigator.pop(ctx)),
+        ],
       ),
     );
     if (action == null || !mounted) return;
@@ -760,14 +877,8 @@ class _AddCashierSheetState extends State<_AddCashierSheet> {
                     style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
               ),
             ),
-            SizedBox(
-              width: double.infinity,
-              height: 46,
-              child: TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-              ),
-            ),
+            const SizedBox(height: 10),
+            CancelButton(onPressed: () => Navigator.pop(context)),
           ],
         ),
       ),

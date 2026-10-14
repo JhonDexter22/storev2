@@ -12,6 +12,7 @@ import 'package:storev2/models/cart_line.dart';
 import 'package:storev2/models/product_model.dart';
 import 'package:storev2/screens/pos_screen.dart';
 import 'package:storev2/screens/returns_screen.dart';
+import 'package:storev2/services/open_sale.dart';
 import 'package:storev2/services/product_service.dart';
 import 'package:storev2/services/sales_service.dart';
 import 'package:storev2/services/settings_service.dart';
@@ -32,6 +33,7 @@ void main() {
     SettingsService.instance.resetForTests();
     await SettingsService.instance.load();
     await DatabaseHelper.instance.clearAllData();
+    OpenSale.instance.reset();
     temp = await Directory.systemTemp.createTemp('storev2-polish');
   });
 

@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../l10n/tr.dart';
 import '../services/export_service.dart';
+import '../services/held_sales.dart';
+import '../services/open_sale.dart';
 import '../services/restore_service.dart';
 import 'restore_preview_sheet.dart';
 
@@ -86,6 +88,10 @@ Future<RestoreOutcome?> runRestoreFlow(
   final snapshot = await (export ?? ExportService())
       .writeTo(await getApplicationDocumentsDirectory());
   await restorer.restore(files, photos: photos, settings: settings);
+  // The cart's and held sales' product ids belonged to the store that was
+  // just replaced.
+  await OpenSale.instance.clear();
+  await HeldSales.instance.clear();
 
   return RestoreOutcome(
     rows: preview.totalRows,

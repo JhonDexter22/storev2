@@ -8,6 +8,7 @@ import 'package:storev2/models/cart_line.dart';
 import 'package:storev2/models/product_model.dart';
 import 'package:storev2/screens/pos_screen.dart';
 import 'package:storev2/services/held_sales.dart';
+import 'package:storev2/services/open_sale.dart';
 import 'package:storev2/services/product_service.dart';
 import 'package:storev2/services/sales_service.dart';
 import 'package:storev2/services/settings_service.dart';
@@ -28,6 +29,7 @@ void main() {
     await SettingsService.instance.load();
     await DatabaseHelper.instance.clearAllData();
     HeldSales.instance.reset();
+    OpenSale.instance.reset();
   });
 
   Future<Product> seed(String name, {int stock = 20, double price = 10}) async {
@@ -202,6 +204,23 @@ void main() {
       await tester.tap(find.text('Yelo'));
       await tester.pumpAndSettle();
 
+      await tester.tap(find.text('1 item'));
+      await tester.pumpAndSettle();
+      expect(find.text('Yelo'), findsOneWidget);
+    });
+
+    testWidgets('survives the app being closed mid-sale', (tester) async {
+      await pump(tester);
+      await tester.tap(find.text('Quick item'));
+      await tester.pumpAndSettle();
+      await enterPrice(tester, '5');
+      await tester.enterText(find.widgetWithText(TextField, 'Yelo, candy, load…'), 'Yelo');
+      await tester.tap(find.text('Add 1 · ₱5.00'));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      OpenSale.instance.reset(); // a fresh start; preferences are kept
+      await pump(tester);
       await tester.tap(find.text('1 item'));
       await tester.pumpAndSettle();
       expect(find.text('Yelo'), findsOneWidget);

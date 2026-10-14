@@ -10,6 +10,8 @@ import '../models/backup_status.dart';
 import '../services/backup_share.dart';
 import '../services/demo_data.dart';
 import '../services/export_service.dart';
+import '../services/held_sales.dart';
+import '../services/open_sale.dart';
 import 'error_log_screen.dart';
 import 'payment_types_screen.dart';
 import 'printer_screen.dart';
@@ -99,6 +101,8 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
         },
       );
       await _settings.markSetupDone();
+      await OpenSale.instance.clear();
+      await HeldSales.instance.clear();
       await StockAlerts.instance.refresh();
       if (!mounted) return;
       _toast('Demo year loaded in ${(watch.elapsedMilliseconds / 1000).toStringAsFixed(1)} s');
@@ -157,6 +161,8 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
     }
     if (choice == 'delete') {
       await DatabaseHelper.instance.clearAllData();
+      await OpenSale.instance.clear();
+      await HeldSales.instance.clear();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         backgroundColor: AppColors.ink,
@@ -231,14 +237,12 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
                 ),
               ],
             ),
+            actionsPadding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-              ),
-              TextButton(
-                onPressed: save,
-                child: Text(tr('Save'), style: AppText.chip(color: AppColors.primary)),
+              DialogActions(
+                onCancel: () => Navigator.pop(ctx),
+                onConfirm: save,
+                confirmLabel: tr('Save'),
               ),
             ],
           );
@@ -544,17 +548,15 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
           ),
         ),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-          ),
-          TextButton(
-            onPressed: () {
+          DialogActions(
+            onCancel: () => Navigator.pop(ctx),
+            onConfirm: () {
               final parsed = double.tryParse(ctrl.text.replaceAll(',', '').trim());
               Navigator.pop(ctx, parsed == null || parsed < 0 ? null : parsed);
             },
-            child: Text(tr('Save'), style: AppText.chip(color: AppColors.primary)),
+            confirmLabel: tr('Save'),
           ),
         ],
       ),
@@ -617,14 +619,12 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
                 ),
               ],
             ),
+            actionsPadding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-              ),
-              TextButton(
-                onPressed: save,
-                child: Text(tr('Save'), style: AppText.chip(color: AppColors.primary)),
+              DialogActions(
+                onCancel: () => Navigator.pop(ctx),
+                onConfirm: save,
+                confirmLabel: tr('Save'),
               ),
             ],
           );
@@ -677,14 +677,12 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
               ),
               onSubmitted: (_) => save(),
             ),
+            actionsPadding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-              ),
-              TextButton(
-                onPressed: save,
-                child: Text(tr('Save'), style: AppText.chip(color: AppColors.primary)),
+              DialogActions(
+                onCancel: () => Navigator.pop(ctx),
+                onConfirm: save,
+                confirmLabel: tr('Save'),
               ),
             ],
           );
@@ -740,17 +738,17 @@ class _StoreSettingsScreenState extends State<StoreSettingsScreen> {
       ),
       child: Row(
         children: [
-          // A rounded square in the More tab's Store colours: circles are
-          // for people.
+          // The store's mark, as in the till's header: a rounded square,
+          // since circles are for people.
           Container(
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: AppColors.divider,
+              color: AppColors.primaryTint,
               borderRadius: BorderRadius.circular(14),
             ),
             alignment: Alignment.center,
-            child: const Icon(Icons.storefront_rounded, color: AppColors.body, size: 22),
+            child: const Icon(Icons.storefront_rounded, color: AppColors.primary, size: 22),
           ),
           const SizedBox(width: 14),
           Expanded(

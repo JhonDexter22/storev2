@@ -153,7 +153,7 @@ class ReceiptDocument {
       ReceiptRow('Cash sales', formatPeso(s.cashSales)),
       // Without it, float + cash sales did not add up to Expected on a day
       // someone paid off utang in cash.
-      if (s.utangCash > 0) ReceiptRow('Utang paid in cash', formatPeso(s.utangCash)),
+      if (s.utangCash > 0) ReceiptRow('Credit paid in cash', formatPeso(s.utangCash)),
       ReceiptRow('Expected', formatPeso(s.expected)),
       ReceiptRow('Counted', formatPeso(s.counted)),
       const ReceiptRule(),
@@ -213,7 +213,7 @@ class ReceiptDocument {
         const ReceiptNote('Cash drawer:'),
         ReceiptRow('Opening float', formatPeso(shift.openingFloat)),
         ReceiptRow('Cash sales', formatPeso(shift.cashSales)),
-        if (shift.utangCash > 0) ReceiptRow('Utang paid in cash', formatPeso(shift.utangCash)),
+        if (shift.utangCash > 0) ReceiptRow('Credit paid in cash', formatPeso(shift.utangCash)),
         ReceiptRow('Expected', formatPeso(shift.expected)),
         ReceiptRow('Counted', formatPeso(shift.counted)),
         ReceiptRow(

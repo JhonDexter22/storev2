@@ -113,11 +113,9 @@ void main() {
     // Removing whoever is on the till would leave the app naming a cashier
     // who is no longer on the roster.
     expect(find.text('Sign in as someone else first.'), findsOneWidget);
-    final tile = tester.widget<ListTile>(
-      find.ancestor(
-          of: find.text('Remove from roster'), matching: find.byType(ListTile)),
+    final tile = tester.widget<InkWell>(
+      find.ancestor(of: find.text('Remove from roster'), matching: find.byType(InkWell)).first,
     );
-    expect(tile.enabled, isFalse);
     expect(tile.onTap, isNull);
   });
 
@@ -125,11 +123,10 @@ void main() {
     await pump(tester);
     await openActionsFor(tester, 'Ronel');
 
-    final tile = tester.widget<ListTile>(
-      find.ancestor(
-          of: find.text('Remove from roster'), matching: find.byType(ListTile)),
+    final tile = tester.widget<InkWell>(
+      find.ancestor(of: find.text('Remove from roster'), matching: find.byType(InkWell)).first,
     );
-    expect(tile.enabled, isTrue);
+    expect(tile.onTap, isNotNull);
     expect(find.text('They keep their place in past sales and shifts.'),
         findsOneWidget);
   });

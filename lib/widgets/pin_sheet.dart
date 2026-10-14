@@ -296,16 +296,12 @@ class _PinSheetState extends State<PinSheet> {
                       style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
             ),
           ),
-          const SizedBox(height: 6),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: TextButton(
-              onPressed: _checking
-                  ? null
-                  : () => Navigator.pop(context, widget.verify == null ? null : false),
-              child: Text(tr('Cancel'), style: AppText.chip(color: AppColors.body)),
-            ),
+          const SizedBox(height: 10),
+          CancelButton(
+            height: 48,
+            onPressed: _checking
+                ? null
+                : () => Navigator.pop(context, widget.verify == null ? null : false),
           ),
         ],
       ),

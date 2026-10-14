@@ -119,6 +119,7 @@ const Map<String, String> fil = {
   'Added {units} to {n} product': 'Naidagdag ang {units} sa {n} paninda',
   'Added {units} to {n} products': 'Naidagdag ang {units} sa {n} paninda',
   'Back to recent sales': 'Bumalik sa mga huling benta',
+  'Back to the sale…': 'Babalik sa benta…',
   'Back up now': 'I-backup na',
   'Back up your store': 'I-backup ang tindahan mo',
   'Backed up': 'Naka-backup',
@@ -349,6 +350,7 @@ const Map<String, String> fil = {
 
   // ── M ──────────────────────────────────────────────────────────────────────
   'Manage staff': 'Ayusin ang staff',
+  'Tap someone to change their PIN or role.': 'I-tap ang isang tao para palitan ang PIN o tungkulin niya.',
   'Manager PIN': 'PIN ng manager',
   'Managers authorise closes and roster changes.': 'Ang manager ang nag-aapruba ng pagsara at pagbabago sa listahan.',
   'Maya, a bank transfer — whatever you actually take.': 'Maya, bank transfer — kung ano ang tinatanggap mo.',
@@ -773,7 +775,7 @@ const Map<String, String> fil = {
   'Utang customers': 'Mga customer na may utang',
   'Utang entries': 'Mga tala ng utang',
   'units': 'piraso',
-  'Utang paid in cash': 'Bayad sa utang na cash',
+  'Credit paid in cash': 'Bayad sa utang na cash',
   'Variance': 'Kulang/sobra',
   'Void': 'Void',
   'Void all': 'I-void lahat',

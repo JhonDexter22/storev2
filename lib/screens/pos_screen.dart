@@ -10,6 +10,7 @@ import '../models/sale_model.dart';
 import '../services/backup_share.dart';
 import '../services/error_log.dart';
 import '../services/held_sales.dart';
+import '../services/open_sale.dart';
 import '../services/product_service.dart';
 import '../services/sales_service.dart';
 import '../services/settings_service.dart';
@@ -24,7 +25,11 @@ import 'product_screen.dart';
 import '../l10n/tr.dart';
 
 class PosScreen extends StatefulWidget {
-  const PosScreen({super.key});
+  const PosScreen({super.key, this.onAddProduct});
+
+  /// Opens the Products tab with the add-product sheet, the barcode filled
+  /// in. Null when the till stands alone; Products is then pushed over it.
+  final ValueChanged<String>? onAddProduct;
 
   @override
   State<PosScreen> createState() => _PosScreenState();
@@ -39,12 +44,11 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   String _search = '';
   final _searchCtrl = TextEditingController();
   String _category = 'All';
-  final Map<int, int> _cart = {}; // productId -> qty
-
-  /// Quick items in the cart, by their negative id. Kept after a line is
-  /// removed (Undo can bring it back) and dropped once the sale is done.
-  final Map<int, Product> _quick = {};
-  int _nextQuickId = -1;
+  /// The running sale outlives this screen, which is rebuilt on every tab
+  /// change, and the app being closed.
+  final OpenSale _open = OpenSale.instance;
+  Map<int, int> get _cart => _open.lines; // productId -> qty
+  Map<int, Product> get _quick => _open.quick;
 
   // ── Speed ────────────────────────────────────────────────────────────────
   /// A pseudo-category of the products sold most this fortnight. Most of a
@@ -91,6 +95,14 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  /// Every change to the cart happens inside a setState, so this is where
+  /// the open sale is written out (only when it actually changed).
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _open.save();
+  }
+
   void _onHeldChanged() {
     if (mounted) setState(() {});
   }
@@ -110,6 +122,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
   Future<void> _load() async {
     setState(() => _loading = true);
+    await _open.load();
     final products = await _productService.getAllProducts();
     final frequent = await _salesService.frequentProductIds(14, limit: 12);
     final recent = await _salesService.getRecentSales(limit: 1);
@@ -123,6 +136,13 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       ];
       _lastSale = recent.isEmpty ? null : recent.first;
       _loading = false;
+      // The cart may date from before a restart or a trip to Products: a
+      // product deleted or sold out since leaves it, and no line stays above
+      // what is on the shelf now.
+      final byId = {for (final p in products) p.id: p};
+      _cart.removeWhere((id, _) =>
+          Product.isQuickId(id) ? !_quick.containsKey(id) : (byId[id]?.stock ?? 0) <= 0);
+      _cart.updateAll((id, qty) => Product.isQuickId(id) ? qty : qty.clamp(1, byId[id]!.stock));
       // Open on Popular once there is enough history for it to be useful;
       // a store with three products sold is better served by All.
       if (!_pickedDefaultCategory) {
@@ -191,7 +211,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     final item = await QuickItemSheet.show(context, name: name);
     if (item == null || !mounted) return;
     _settleFlights();
-    final id = _nextQuickId--;
+    final id = _open.takeQuickId();
     setState(() {
       _quick[id] = Product.quick(id: id, name: item.name, price: item.price);
       _cart[id] = item.qty;
@@ -205,7 +225,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   /// A quick item brought back from a held or repeated sale, under a fresh
   /// id: one saved before a restart can share an id with one in the cart.
   void _restoreQuick(String name, double price, int qty) {
-    final id = _nextQuickId--;
+    final id = _open.takeQuickId();
     _quick[id] = Product.quick(id: id, name: name, price: price);
     _cart[id] = qty;
   }
@@ -719,7 +739,14 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
     // "Add as new product" on an unknown code hands us the SKU to pre-fill.
     final sku = scanned.newProductSku;
-    if (sku != null) {
+    if (sku == null) return;
+    final onAddProduct = widget.onAddProduct;
+    if (onAddProduct != null) {
+      // Switch tabs rather than push: on a phone a pushed screen covers the
+      // whole display, and this one looked like the Products tab with the
+      // bottom bar gone.
+      onAddProduct(sku);
+    } else {
       await Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => ProductsScreen(newProductSku: sku)),
@@ -765,7 +792,11 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           if (lines.isEmpty) {
             // Last line was just removed — close rather than show an empty sheet.
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (ctx.mounted) Navigator.pop(ctx);
+              // Only while this sheet is still the top route. Clear all and
+              // Hold close the sheet first and empty the cart after; the sheet
+              // rebuilds on its way out, and an unguarded pop here closed the
+              // till underneath it, leaving a black screen.
+              if (ctx.mounted && (ModalRoute.of(ctx)?.isCurrent ?? false)) Navigator.pop(ctx);
             });
           }
           return Container(
@@ -984,11 +1015,12 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           Container(
             width: 40,
             height: 40,
-            // The store's mark, as on Settings: grey and square-ish, since
-            // circles are for people.
-            decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(12)),
+            // The store's mark, as on Settings: square-ish, since circles
+            // are for people, and in the app's blue so it is not just a grey
+            // box beside the store's name.
+            decoration: BoxDecoration(color: AppColors.primaryTint, borderRadius: BorderRadius.circular(12)),
             alignment: Alignment.center,
-            child: const Icon(Icons.storefront_rounded, color: AppColors.body, size: 20),
+            child: const Icon(Icons.storefront_rounded, color: AppColors.primary, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(

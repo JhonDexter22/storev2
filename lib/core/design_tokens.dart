@@ -407,6 +407,93 @@ class QtyStepper extends StatelessWidget {
   }
 }
 
+/// The quiet way out of a sheet or dialog: a full outlined button rather
+/// than bare text, so it reads as a button beside the filled one and is a
+/// whole thumb wide.
+class CancelButton extends StatelessWidget {
+  const CancelButton({super.key, required this.onPressed, this.label, this.height = 50});
+
+  /// Null greys it out, while something it would interrupt is running.
+  final VoidCallback? onPressed;
+
+  /// Defaults to "Cancel".
+  final String? label;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: height,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.ink,
+          backgroundColor: AppColors.surface,
+          disabledForegroundColor: AppColors.faint,
+          side: const BorderSide(color: AppColors.hairline, width: 1.5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
+        ),
+        child: Text(label ?? tr('Cancel'),
+            style: AppText.chip(color: onPressed == null ? AppColors.faint : AppColors.ink).copyWith(fontSize: 15)),
+      ),
+    );
+  }
+}
+
+/// Cancel and a filled confirm side by side, for the foot of a dialog. Two
+/// coloured words in a corner read as plain text, not as a choice.
+class DialogActions extends StatelessWidget {
+  const DialogActions({
+    super.key,
+    required this.onCancel,
+    required this.onConfirm,
+    required this.confirmLabel,
+    this.cancelLabel,
+    this.danger = false,
+  });
+
+  final VoidCallback onCancel;
+
+  /// Null greys the confirm button out.
+  final VoidCallback? onConfirm;
+  final String confirmLabel;
+  final String? cancelLabel;
+
+  /// Red, for a confirm that removes or wipes something.
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = danger ? AppColors.danger : AppColors.primary;
+    return Row(
+      children: [
+        Expanded(child: CancelButton(onPressed: onCancel, label: cancelLabel, height: 48)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: SizedBox(
+            height: 48,
+            child: ElevatedButton(
+              onPressed: onConfirm,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: fill,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: AppColors.disabledFill,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.cta)),
+              ),
+              child: Text(confirmLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// 42x26 track switch matching the handoff spec.
 class AppSwitch extends StatelessWidget {
   const AppSwitch({super.key, required this.value, required this.onChanged});
