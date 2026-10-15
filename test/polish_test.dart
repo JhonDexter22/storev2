@@ -67,7 +67,8 @@ void main() {
         (tester) async {
       await addProduct();
       await pumpPos(tester);
-      expect(find.byType(PhotoPlaceholder), findsOneWidget);
+      // Two letters of the name on the category's colour.
+      expect(find.text('SK'), findsOneWidget);
     });
 
     testWidgets('a photo whose file has gone falls back, not crashes',

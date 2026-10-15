@@ -251,6 +251,34 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('give the photo a square, the shape photos are kept in', (tester) async {
+      await seed('Alpha', imagePath: 'missing-a.jpg');
+      await seed('Bravo');
+      await pump(tester);
+      final card = find.ancestor(of: find.text('Alpha'), matching: find.byType(ProductCard));
+      final photo = tester.getSize(find.descendant(of: card, matching: find.byType(ProductThumb)));
+      expect(photo.width, closeTo(photo.height, 0.5));
+      // Without a photo: two letters on the category's colour.
+      expect(find.text('BR'), findsOneWidget);
+    });
+
+    testWidgets('count what is in the sale as ×N on the photo', (tester) async {
+      await seed('Alpha', imagePath: 'missing-a.jpg');
+      await pump(tester);
+      await tester.tap(find.text('Alpha'));
+      await tester.pumpAndSettle();
+      expect(find.text('×1'), findsOneWidget);
+      // The blue edge is drawn over the photo and tint: drawn under them,
+      // their square corners hid it at every rounded corner.
+      final shell = tester.widget<Container>(find
+          .descendant(
+              of: find.ancestor(of: find.text('Alpha'), matching: find.byType(ProductCard)),
+              matching: find.byWidgetPredicate((w) => w is Container && w.foregroundDecoration != null))
+          .first);
+      final edge = (shell.foregroundDecoration! as BoxDecoration).border! as Border;
+      expect(edge.top.color, AppColors.primary);
+    });
+
     testWidgets('go tall with one photo, the photo across the top as on Products', (tester) async {
       await seed('Sardines, family size', imagePath: 'missing.jpg');
       await seed('Sardines, large');
@@ -259,7 +287,7 @@ void main() {
       final card = find.ancestor(of: find.text('Sardines, family size'), matching: find.byType(ProductCard));
       final photo = tester.getSize(find.descendant(of: card, matching: find.byType(ProductThumb)));
       // A short tile shrank the photo to a thumbnail in a strip.
-      expect(photo.width, tester.getSize(card).width - 2); // inside the card's border
+      expect(photo.width, tester.getSize(card).width); // the edge is drawn over it
       expect(photo.height, greaterThan(100));
     });
 
@@ -305,8 +333,13 @@ void main() {
       await seed('Kopiko', stock: 20);
       await seed('Zesto', stock: 2);
       await pump(tester);
-      expect(tester.widget<Text>(find.text('20 left')).style!.color, AppColors.muted);
-      expect(tester.widget<Text>(find.text('2 left')).style!.color, AppColors.warningText);
+      // The count is its own coloured part of the stock line.
+      Color? colourOf(String count) {
+        final line = tester.widget<Text>(find.textContaining(count)).textSpan! as TextSpan;
+        return line.children!.cast<TextSpan>().singleWhere((s) => s.text == count).style!.color;
+      }
+      expect(colourOf('20 left'), AppColors.muted);
+      expect(colourOf('2 left'), AppColors.warningText);
     });
   });
 

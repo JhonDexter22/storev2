@@ -214,7 +214,9 @@ class PhotoPlaceholder extends StatelessWidget {
       final variant = words(parts.last);
       if (variant.isNotEmpty) return (head[0][0] + variant[0][0]).toUpperCase();
     }
-    if (head.length == 1) return head[0][0].toUpperCase();
+    // Two letters for a one-word name too: "sanmarino" and "skylfakesss"
+    // were both just "S".
+    if (head.length == 1) return head[0].substring(0, head[0].length < 2 ? 1 : 2).toUpperCase();
     return (head[0][0] + head[1][0]).toUpperCase();
   }
 

@@ -1463,23 +1463,19 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _grid({int columns = 2, double bottomPadding = 140}) {
+  // Three across a phone: two made each card so big a screen held four.
+  Widget _grid({int columns = 3, double bottomPadding = 140}) {
     final items = _filtered;
     if (items.isEmpty) return _noMatch();
     final query = _search.trim();
     return GridView.builder(
       padding: EdgeInsets.fromLTRB(AppSpace.screenH, 10, AppSpace.screenH, bottomPadding),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columns,
-        mainAxisSpacing: AppSpace.gapGrid,
-        crossAxisSpacing: AppSpace.gapGrid,
-        childAspectRatio: ProductCard.aspectRatio,
-        // A fixed height rather than a ratio, so the strip above the name
-        // stays a strip on a wide phone; scaled with the text, so a reader
-        // with larger type does not clip the price.
-        mainAxisExtent: _compactTiles
-            ? MediaQuery.textScalerOf(context).scale(ProductCard.textBlockHeight(showCategory: false)) + 56
-            : null,
+      // A square photo, or a short strip while no product has one; the text
+      // block scales with the reader's text size so the price never clips.
+      gridDelegate: ProductGridDelegate(
+        columns: columns,
+        textBlock: ProductCard.textBlockFor(context, showCategory: false),
+        photoHeight: _compactTiles ? 56 : null,
       ),
       // A search that found something may still not be it — "candy" finds
       // Candy Max, not the loose one. The tile after the results covers that.

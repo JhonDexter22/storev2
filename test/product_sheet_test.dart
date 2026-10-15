@@ -171,7 +171,11 @@ void main() {
       expect(PhotoPlaceholder.initialsOf('Sardines in tomato sauce, medium'), 'SM');
       expect(PhotoPlaceholder.initialsOf('Sardines in tomato sauce, twin pack'), 'ST');
       expect(PhotoPlaceholder.initialsOf('Instant mami'), 'IM');
-      expect(PhotoPlaceholder.initialsOf('SkyFlakes'), 'S');
+      // One word: its first two letters, so two one-word names in the same
+      // category do not both read "S".
+      expect(PhotoPlaceholder.initialsOf('SkyFlakes'), 'SK');
+      expect(PhotoPlaceholder.initialsOf('sanmarino'), 'SA');
+      expect(PhotoPlaceholder.initialsOf('Q'), 'Q');
       expect(PhotoPlaceholder.initialsOf('  '), '');
     });
 
@@ -184,7 +188,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('photo'), findsNothing);
-      expect(find.text('S'), findsOneWidget);
+      expect(find.text('SK'), findsOneWidget);
     });
   });
 
@@ -193,7 +197,7 @@ void main() {
           home: Scaffold(
             body: SizedBox(
               width: 180,
-              height: 180 / ProductCard.aspectRatio,
+              height: 180 + ProductCard.textBlockHeight(),
               child: ProductCard(
                 product: Product(
                   name: 'Kopiko',
@@ -218,7 +222,8 @@ void main() {
       await tester.pumpWidget(card(3));
       expect(find.text('Low stock'), findsOneWidget);
       await tester.pumpWidget(card(0));
-      expect(find.text('Out of stock'), findsOneWidget);
+      // On the stock line, after the category.
+      expect(find.textContaining('Out of stock'), findsOneWidget);
     });
   });
 

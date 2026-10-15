@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../core/design_tokens.dart';
 import '../models/product_model.dart';
 import 'product_thumb.dart';
 import '../l10n/tr.dart';
 
-/// Grid tile shared by the till and the catalog: photo across the full top
-/// edge (or the category's colour when there is none), a Low pill floating
-/// on it when that applies, then name / category / price.
+/// Grid tile shared by the till and the catalog: a square photo across the
+/// top (or a monogram on the category's colour when there is none), a Low
+/// pill floating on it when that applies, then name / category / price.
 ///
-/// The photo takes whatever height the grid leaves after the fixed text
-/// block, so the card never ends in a band of dead space.
+/// Lay it out with [ProductGridDelegate], which makes the photo area square
+/// and leaves exactly [ProductCard.textBlockHeight] for the text.
 class ProductCard extends StatelessWidget {
   const ProductCard({
     super.key,
@@ -49,18 +50,26 @@ class ProductCard extends StatelessWidget {
   /// way in besides the long press.
   final VoidCallback? onQtyTap;
 
-  /// Grid aspect that fits the text block with a roughly 4:3 photo above it.
-  static const aspectRatio = 0.74;
+  /// The name, the stock line and the price below the photo, at normal text
+  /// size: room for a two-line name, the stock (with the category in the
+  /// catalog) on one small line, then the price. Narrow enough for three
+  /// cards across a phone, where the price and "21 left" no longer share a
+  /// line.
+  static double textBlockHeight({bool showCategory = true}) => 96;
 
-  /// The name, category and price block below the photo, at normal text
-  /// size, as measured; 18 less without the category line.
-  static double textBlockHeight({bool showCategory = true}) => showCategory ? 105 : 87;
+  /// [textBlockHeight] at the reader's text size, for sizing the grid.
+  static double textBlockFor(BuildContext context, {bool showCategory = true}) =>
+      MediaQuery.textScalerOf(context).scale(textBlockHeight(showCategory: showCategory));
 
   @override
   Widget build(BuildContext context) {
     final outOfStock = product.stock <= 0;
     final dimmed = dimWhenOut && outOfStock;
     final selected = qtyInCart > 0;
+    final radius = BorderRadius.circular(AppRadius.card);
+    final stockColor = product.stock <= product.minStock
+        ? StockStatus.text(product.stock, product.minStock)
+        : AppColors.muted;
 
     return GestureDetector(
       onTap: onTap,
@@ -71,60 +80,61 @@ class ProductCard extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppRadius.card),
+            borderRadius: radius,
+            boxShadow: AppShadows.card,
+          ),
+          // The edge is drawn over the photo and the tint, not under them:
+          // underneath, their square corners covered the rounded border and
+          // the blue outline of a card in the sale looked cut at every
+          // corner.
+          foregroundDecoration: BoxDecoration(
+            borderRadius: radius,
             border: Border.all(
               color: selected ? AppColors.primary : AppColors.hairline,
               width: selected ? 1.5 : 1,
             ),
-            boxShadow: AppShadows.card,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(child: _photo()),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              Container(
+                height: textBlockFor(context, showCategory: showCategory),
+                // In the sale: a tint under the name and a blue edge. A thick
+                // outline on every card in the cart made a busy grid.
+                color: selected ? AppColors.primaryTint : null,
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      height: 36,
-                      child: Text(
-                        product.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.cardTitle().copyWith(height: 1.3),
-                      ),
+                    Text(
+                      product.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.cardTitle().copyWith(height: 1.3),
                     ),
-                    if (showCategory) ...[
-                      const SizedBox(height: 2),
-                      Text(product.category,
-                          maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.caption()),
-                    ],
-                    const SizedBox(height: 6),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            formatPeso(product.price),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppText.statFigure(size: 16),
-                          ),
+                    const SizedBox(height: 2),
+                    // Grey while healthy: a green count on most of the grid
+                    // drowned the amber and red ones that matter. Out of
+                    // stock is said here, once, not also in a pill.
+                    Text.rich(
+                      TextSpan(children: [
+                        if (showCategory) TextSpan(text: '${product.category} · '),
+                        TextSpan(
+                          text: outOfStock ? tr('Out of stock') : tr('{n} left', {'n': product.stock}),
+                          style: TextStyle(color: stockColor),
                         ),
-                        const SizedBox(width: 6),
-                        // Grey while healthy: a green count on most of the
-                        // grid drowned the amber and red ones that matter.
-                        // Out of stock is said here, once, not also in a pill.
-                        Text(
-                          outOfStock ? tr('Out of stock') : tr('{n} left', {'n': product.stock}),
-                          style: AppText.caption(
-                              color: product.stock <= product.minStock
-                                  ? StockStatus.text(product.stock, product.minStock)
-                                  : AppColors.muted),
-                        ),
-                      ],
+                      ]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.caption(),
+                    ),
+                    const Spacer(),
+                    Text(
+                      formatPeso(product.price),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.statFigure(size: 15),
                     ),
                   ],
                 ),
@@ -142,18 +152,19 @@ class ProductCard extends StatelessWidget {
       children: [
         _image(),
         // Soft edge so the pill and badge stay legible over a busy photo.
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [AppColors.ink.withValues(alpha: 0.10), Colors.transparent],
-                stops: const [0, 0.5],
+        if ((product.imagePath ?? '').isNotEmpty)
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [AppColors.ink.withValues(alpha: 0.10), Colors.transparent],
+                  stops: const [0, 0.5],
+                ),
               ),
             ),
           ),
-        ),
         // Low and Out only. "In stock" on every card was most of the grid
         // saying nothing, and it drowned the ones that need a restock.
         if (showLowStock && product.stock > 0 && product.stock <= product.minStock)
@@ -180,14 +191,14 @@ class ProductCard extends StatelessWidget {
                   key: const ValueKey('qty-badge'),
                   constraints: const BoxConstraints(minWidth: 24),
                   height: 24,
-                  padding: const EdgeInsets.symmetric(horizontal: 7),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(color: AppColors.surface, width: 2),
                   ),
-                  child: Text('$qtyInCart',
+                  child: Text('×$qtyInCart',
                       style: AppText.chip(color: Colors.white).copyWith(fontSize: 11)),
                 ),
               ),
@@ -197,9 +208,92 @@ class ProductCard extends StatelessWidget {
     );
   }
 
-  /// The photo across the whole area, as on the Products screen, or the
-  /// category's colour and initials when there is none. A photo never meets
-  /// a short till tile: the till only shrinks its tiles while no product has
-  /// one.
-  Widget _image() => ProductThumb(product: product, radius: 0, iconSize: 26, tinted: true);
+  /// The photo across the whole area (square in a grid laid out by
+  /// [ProductGridDelegate], the shape the photos are kept in), or a
+  /// monogram on the category's colour when there is none.
+  Widget _image() {
+    if ((product.imagePath ?? '').isEmpty) return _Monogram(product: product);
+    return ProductThumb(product: product, radius: 0, iconSize: 26, tinted: true);
+  }
+}
+
+/// Two letters in a rounded tile on the category's colour. One big letter on
+/// a pastel block read as a picture that had not loaded, and "sanmarino" and
+/// "skylfakesss" were both just "S".
+class _Monogram extends StatelessWidget {
+  const _Monogram({required this.product});
+
+  final Product product;
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = CategoryTint.of(product.category);
+    final letters = PhotoPlaceholder.initialsOf(product.name);
+    return ColoredBox(
+      color: tint.fill,
+      child: LayoutBuilder(builder: (context, c) {
+        final side = (c.biggest.shortestSide * 0.6).clamp(28.0, 48.0);
+        return Center(
+          child: Container(
+            width: side,
+            height: side,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Color.alphaBlend(tint.ink.withValues(alpha: 0.12), tint.fill),
+              borderRadius: BorderRadius.circular(side * 0.28),
+            ),
+            child: Text(
+              letters,
+              maxLines: 1,
+              style: AppText.statFigure(color: tint.ink, size: side * 0.36),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+/// Lays product cards out with a square photo whatever the screen's width:
+/// the tile is as wide as its column and as tall as that plus the text
+/// block. A fixed aspect ratio left the photo wider than tall on most
+/// phones, so the square photos lost their top and bottom.
+class ProductGridDelegate extends SliverGridDelegate {
+  const ProductGridDelegate({
+    required this.columns,
+    required this.textBlock,
+    this.photoHeight,
+    this.spacing = AppSpace.gapGrid,
+  });
+
+  final int columns;
+
+  /// The text block's height at the reader's text size
+  /// ([ProductCard.textBlockFor]).
+  final double textBlock;
+
+  /// A fixed photo height (the till's short strip); null for a square.
+  final double? photoHeight;
+  final double spacing;
+
+  @override
+  SliverGridLayout getLayout(SliverConstraints constraints) {
+    final width = (constraints.crossAxisExtent - spacing * (columns - 1)) / columns;
+    final height = (photoHeight ?? width) + textBlock;
+    return SliverGridRegularTileLayout(
+      crossAxisCount: columns,
+      mainAxisStride: height + spacing,
+      crossAxisStride: width + spacing,
+      childMainAxisExtent: height,
+      childCrossAxisExtent: width,
+      reverseCrossAxis: axisDirectionIsReversed(constraints.crossAxisDirection),
+    );
+  }
+
+  @override
+  bool shouldRelayout(ProductGridDelegate old) =>
+      old.columns != columns ||
+      old.textBlock != textBlock ||
+      old.photoHeight != photoHeight ||
+      old.spacing != spacing;
 }

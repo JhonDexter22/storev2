@@ -771,13 +771,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
   // ── Bodies ───────────────────────────────────────────────────────────────
   Widget _gridBody(List<Product> items) {
     // A 2-up grid stretches badly on a tablet, so widen the run instead.
-    final columns = Breakpoints.isTablet(context) ? 4 : 2;
+    // Three across a phone, as at the till.
+    final columns = Breakpoints.isTablet(context) ? 4 : 3;
     return SliverGrid(
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columns,
-        mainAxisSpacing: AppSpace.gapGrid,
-        crossAxisSpacing: AppSpace.gapGrid,
-        childAspectRatio: ProductCard.aspectRatio,
+      gridDelegate: ProductGridDelegate(
+        columns: columns,
+        textBlock: ProductCard.textBlockFor(context),
       ),
       delegate: SliverChildBuilderDelegate(
         (_, i) => ProductCard(
