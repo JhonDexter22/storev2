@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -7,6 +8,7 @@ import 'package:storev2/database/database_helper.dart';
 import 'package:storev2/core/responsive.dart';
 import 'package:storev2/main.dart';
 import 'package:storev2/services/settings_service.dart';
+import 'package:storev2/widgets/brand_mark.dart';
 
 void main() {
   setUpAll(() {
@@ -104,6 +106,72 @@ void main() {
 
       // Otherwise the Restock tab would open onto last night's shift history.
       expect(find.text('Restock center'), findsOneWidget);
+    });
+  });
+
+  group('a short window', () {
+    // A tablet in split screen, or anything wide and low: the rail used to
+    // run out of height and cut off More.
+    testWidgets('still shows every tab on the rail', (tester) async {
+      await pumpAt(tester, const Size(914, 384));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      for (final label in ['Home', 'Products', 'Sell', 'Restock', 'More']) {
+        expect(find.text(label).hitTestable(), findsOneWidget, reason: '$label should be reachable');
+      }
+    });
+
+    testWidgets('gives up the logo first, and keeps it while there is room', (tester) async {
+      await pumpAt(tester, const Size(914, 384));
+      await tester.pumpAndSettle();
+      expect(find.byType(BrandMark), findsNothing);
+
+      await pumpAt(tester, const Size(1180, 800));
+      await tester.pumpAndSettle();
+      expect(find.byType(BrandMark), findsOneWidget);
+    });
+  });
+
+  group('OrientationPolicy', () {
+    late List<MethodCall> calls;
+
+    setUp(() {
+      OrientationPolicy.reset();
+      calls = [];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'SystemChrome.setPreferredOrientations') calls.add(call);
+        return null;
+      });
+    });
+
+    tearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    testWidgets('keeps a phone upright, however it is held', (tester) async {
+      // A Poco F5 Pro, upright and sideways: the same phone either way.
+      await OrientationPolicy.applyFor(const Size(411, 914));
+      await OrientationPolicy.applyFor(const Size(914, 411));
+      expect(calls.single.arguments, ['DeviceOrientation.portraitUp']);
+    });
+
+    testWidgets('lets a tablet turn', (tester) async {
+      await OrientationPolicy.applyFor(const Size(1180, 820));
+      expect(calls.single.arguments, isEmpty);
+    });
+
+    testWidgets('lets go when a foldable opens out to tablet size', (tester) async {
+      await OrientationPolicy.applyFor(const Size(400, 880));
+      await OrientationPolicy.applyFor(const Size(840, 880));
+      expect([for (final c in calls) c.arguments], [
+        ['DeviceOrientation.portraitUp'],
+        isEmpty,
+      ]);
+    });
+
+    test('a phone is anything under 600 on its short side', () {
+      expect(OrientationPolicy.isPhone(const Size(599, 1300)), isTrue);
+      expect(OrientationPolicy.isPhone(const Size(600, 960)), isFalse);
     });
   });
 

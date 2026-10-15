@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'design_tokens.dart';
@@ -43,4 +44,58 @@ class Breakpoints {
         : phoneSide;
     return EdgeInsets.fromLTRB(side, top, side, bottom);
   }
+}
+
+/// Phones stay upright; tablets turn.
+///
+/// Turned sideways, a phone is wider than [Breakpoints.tabletMinWidth] and
+/// got the tablet layout on a screen under 400 points tall: the rail cut off
+/// More, and Sell showed one row of products with their prices clipped. A
+/// counter phone has no use for landscape. A tablet, whose short side is
+/// [phoneMaxShortestSide] or more, turns as it always has.
+class OrientationPolicy {
+  OrientationPolicy._();
+
+  /// Android's own line between phone and tablet (sw600dp).
+  static const phoneMaxShortestSide = 600.0;
+
+  static bool isPhone(Size logical) => logical.shortestSide < phoneMaxShortestSide;
+
+  static bool? _locked;
+  static bool _started = false;
+
+  /// Applies the rule now and again whenever the screen changes size, as
+  /// when a foldable opens. Before the first frame the size may not be
+  /// known yet; the first change after it applies the rule then.
+  static void start() {
+    if (_started) return;
+    _started = true;
+    WidgetsBinding.instance.addObserver(_MetricsObserver());
+    apply();
+  }
+
+  /// For the screen the app is on now.
+  static Future<void> apply() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.firstOrNull;
+    if (view == null || view.devicePixelRatio == 0) return Future.value();
+    return applyFor(view.physicalSize / view.devicePixelRatio);
+  }
+
+  /// Only talks to the platform when the answer changes.
+  static Future<void> applyFor(Size logical) async {
+    if (logical.isEmpty) return;
+    final lock = isPhone(logical);
+    if (lock == _locked) return;
+    _locked = lock;
+    await SystemChrome.setPreferredOrientations(
+        lock ? const [DeviceOrientation.portraitUp] : const []);
+  }
+
+  @visibleForTesting
+  static void reset() => _locked = null;
+}
+
+class _MetricsObserver with WidgetsBindingObserver {
+  @override
+  void didChangeMetrics() => OrientationPolicy.apply();
 }

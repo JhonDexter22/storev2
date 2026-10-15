@@ -37,6 +37,8 @@ Future<void> main() async {
   // network: a sari-sari phone is often offline, and a missing weight should
   // show up in testing, not as a silent download in a shop.
   GoogleFonts.config.allowRuntimeFetching = false;
+  // Upright on phones; tablets still turn.
+  OrientationPolicy.start();
   LicenseRegistry.addLicense(_fontLicenses);
   // Settings drive the headers and the cash count, so they must be readable
   // synchronously by the time the first screen builds.
@@ -437,6 +439,9 @@ class _NavRail extends StatelessWidget {
   /// Where the first item starts: top gap, logo, gap below the logo.
   static const _itemsTop = 18.0 + 44.0 + 22.0;
 
+  /// Below this an item cannot hold its icon and label.
+  static const _minItemHeight = 44.0;
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -447,38 +452,53 @@ class _NavRail extends StatelessWidget {
       ),
       child: SafeArea(
         right: false,
-        child: Stack(
-          children: [
-            _GlidingPill(
-              index: currentIndex,
-              hidden: tabs[currentIndex].hero,
-              axis: Axis.vertical,
-              startOf: (i) => _itemsTop + i * (_itemHeight + _itemGap),
-              extent: _itemHeight,
-              crossStart: (_width - _itemWidth) / 2,
-              crossExtent: _itemWidth,
-              radius: AppRadius.iconBtn,
-            ),
-            Positioned.fill(
-              child: Column(
-                children: [
-                  const SizedBox(height: 18),
-                  const BrandMark(size: 44, radius: 13),
-                  const SizedBox(height: 22),
-                  for (int i = 0; i < tabs.length; i++) ...[
-                    _railItem(i),
-                    const SizedBox(height: _itemGap),
-                  ],
-                ],
+        child: LayoutBuilder(builder: (context, constraints) {
+          // A short window (a tablet in split screen) used to cut off the
+          // last tab. The logo goes first, then the items shrink to fit.
+          final h = constraints.maxHeight;
+          final n = tabs.length;
+          final full = _itemsTop + n * (_itemHeight + _itemGap);
+          final logo = h >= full;
+          final top = logo ? _itemsTop : 12.0;
+          final itemHeight = logo
+              ? _itemHeight
+              : ((h - top) / n - _itemGap).clamp(_minItemHeight, _itemHeight);
+          return Stack(
+            children: [
+              _GlidingPill(
+                index: currentIndex,
+                hidden: tabs[currentIndex].hero,
+                axis: Axis.vertical,
+                startOf: (i) => top + i * (itemHeight + _itemGap),
+                extent: itemHeight,
+                crossStart: (_width - _itemWidth) / 2,
+                crossExtent: _itemWidth,
+                radius: AppRadius.iconBtn,
               ),
-            ),
-          ],
-        ),
+              Positioned.fill(
+                child: Column(
+                  children: [
+                    if (logo) ...[
+                      const SizedBox(height: 18),
+                      const BrandMark(size: 44, radius: 13),
+                      const SizedBox(height: 22),
+                    ] else
+                      SizedBox(height: top),
+                    for (int i = 0; i < n; i++) ...[
+                      _railItem(i, itemHeight),
+                      const SizedBox(height: _itemGap),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          );
+        }),
       ),
     );
   }
 
-  Widget _railItem(int i) {
+  Widget _railItem(int i, double height) {
     final tab = tabs[i];
     final selected = i == currentIndex;
     // The hero tab is always filled so it reads as the primary action even
@@ -499,7 +519,7 @@ class _NavRail extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           width: _itemWidth,
-          height: _itemHeight,
+          height: height,
           // Only the hero paints its own fill; the selected tint behind the
           // other items is the gliding pill underneath.
           decoration: BoxDecoration(
