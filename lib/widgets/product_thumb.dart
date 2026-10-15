@@ -17,7 +17,6 @@ class ProductThumb extends StatelessWidget {
     this.radius = 12,
     this.iconSize = 18,
     this.tinted = true,
-    this.fit = BoxFit.cover,
   });
 
   final Product product;
@@ -28,10 +27,6 @@ class ProductThumb extends StatelessWidget {
   /// With no photo, fill with the category's colour rather than stripes —
   /// everywhere, so "blue is noodles" holds from the till to Restock.
   final bool tinted;
-
-  /// Cover crops to fill, which suits a square photo in a square. Contain
-  /// shows all of a photo that is some other shape.
-  final BoxFit fit;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +47,7 @@ class ProductThumb extends StatelessWidget {
           borderRadius: BorderRadius.circular(radius),
           child: Image(
             image: _sized(File(path), side * MediaQuery.devicePixelRatioOf(context)),
-            fit: fit,
+            fit: BoxFit.cover,
             gaplessPlayback: true,
             errorBuilder: (_, __, ___) => placeholder,
           ),

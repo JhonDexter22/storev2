@@ -188,14 +188,12 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       });
   }
 
-  /// Short tiles while most of the catalog has no photo: a tall striped
-  /// square with initials in it is half of every card spent on nothing, and
-  /// it held a phone to four products a screen. Once most products have
-  /// photos, the tiles go back to the tall photo card.
-  bool get _compactTiles {
-    final withPhoto = _products.where((p) => (p.imagePath ?? '').isNotEmpty).length;
-    return withPhoto * 2 < _products.length;
-  }
+  /// Short tiles only while no product has a photo: a tall striped square
+  /// with initials in it is half of every card spent on nothing, and it held
+  /// a phone to four products a screen. Once there is a photo, the tiles are
+  /// the tall card the Products screen uses, the photo filling its top; in a
+  /// short tile it shrank to a thumbnail in an empty strip.
+  bool get _compactTiles => !_products.any((p) => (p.imagePath ?? '').isNotEmpty);
 
   Product? _productById(int id) =>
       Product.isQuickId(id) ? _quick[id] : _products.where((p) => p.id == id).firstOrNull;

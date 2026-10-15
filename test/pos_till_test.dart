@@ -251,16 +251,16 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('show a photo as a square, not a sliver', (tester) async {
+    testWidgets('go tall with one photo, the photo across the top as on Products', (tester) async {
       await seed('Sardines, family size', imagePath: 'missing.jpg');
       await seed('Sardines, large');
       await seed('Sardines, medium');
       await pump(tester);
-      final thumb = tester.getSize(find.descendant(
-          of: find.ancestor(of: find.text('Sardines, family size'), matching: find.byType(ProductCard)),
-          matching: find.byType(ProductThumb)).last);
-      expect(thumb.width, thumb.height);
-      expect(thumb.width, lessThan(60));
+      final card = find.ancestor(of: find.text('Sardines, family size'), matching: find.byType(ProductCard));
+      final photo = tester.getSize(find.descendant(of: card, matching: find.byType(ProductThumb)));
+      // A short tile shrank the photo to a thumbnail in a strip.
+      expect(photo.width, tester.getSize(card).width - 2); // inside the card's border
+      expect(photo.height, greaterThan(100));
     });
 
     testWidgets('stay tall once most products have photos', (tester) async {
@@ -272,25 +272,6 @@ void main() {
               of: find.text('Alpha'), matching: find.byType(GestureDetector))
           .first);
       expect(card.height, greaterThan(200));
-    });
-
-    testWidgets('show the whole photo on a blurred copy of it, never cropped', (tester) async {
-      await seed('Alpha', imagePath: 'missing-a.jpg');
-      await seed('Bravo', imagePath: 'missing-b.jpg');
-      await seed('Charlie');
-      await pump(tester);
-      final card = find.ancestor(of: find.text('Alpha'), matching: find.byType(ProductCard));
-      final thumb = find.descendant(of: card, matching: find.byType(ProductThumb));
-      final size = tester.getSize(thumb);
-      // The largest square the photo area holds, less its margin.
-      expect(size.width, size.height);
-      expect(size.width, greaterThan(100));
-      expect(tester.widget<ProductThumb>(thumb).fit, BoxFit.contain);
-      // Behind it, the same file decoded at a few pixels.
-      final backdrop = find.descendant(
-          of: card,
-          matching: find.byWidgetPredicate((w) => w is Image && w.image is ResizeImage && (w.image as ResizeImage).width == 8));
-      expect(backdrop, findsOneWidget);
     });
   });
 
