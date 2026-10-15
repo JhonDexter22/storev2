@@ -273,6 +273,25 @@ void main() {
           .first);
       expect(card.height, greaterThan(200));
     });
+
+    testWidgets('show the whole photo on a blurred copy of it, never cropped', (tester) async {
+      await seed('Alpha', imagePath: 'missing-a.jpg');
+      await seed('Bravo', imagePath: 'missing-b.jpg');
+      await seed('Charlie');
+      await pump(tester);
+      final card = find.ancestor(of: find.text('Alpha'), matching: find.byType(ProductCard));
+      final thumb = find.descendant(of: card, matching: find.byType(ProductThumb));
+      final size = tester.getSize(thumb);
+      // The largest square the photo area holds, less its margin.
+      expect(size.width, size.height);
+      expect(size.width, greaterThan(100));
+      expect(tester.widget<ProductThumb>(thumb).fit, BoxFit.contain);
+      // Behind it, the same file decoded at a few pixels.
+      final backdrop = find.descendant(
+          of: card,
+          matching: find.byWidgetPredicate((w) => w is Image && w.image is ResizeImage && (w.image as ResizeImage).width == 8));
+      expect(backdrop, findsOneWidget);
+    });
   });
 
   testWidgets('low stock is not badged at the till; out of stock still is',

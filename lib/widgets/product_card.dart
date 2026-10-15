@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../core/design_tokens.dart';
@@ -197,26 +199,62 @@ class ProductCard extends StatelessWidget {
     );
   }
 
-  /// Fills the area — except a photo in a short till tile, which becomes a
-  /// centred square on the category colour. Cropped to a full-width strip it
-  /// showed only a band through the middle of the picture.
+  /// A photo is shown whole, never cropped: the largest square that fits,
+  /// on a blurred copy of itself. Cropped to fill, a tall tile cut the top
+  /// and bottom off every picture and a short one showed only a band through
+  /// the middle; a small square on the category colour read as a thumbnail
+  /// lost in an empty strip.
   Widget _image() {
-    final hasPhoto = (product.imagePath ?? '').isNotEmpty;
-    if (!hasPhoto) return ProductThumb(product: product, radius: 0, iconSize: 26, tinted: true);
+    final path = product.imagePath;
+    if (path == null || path.isEmpty) {
+      return ProductThumb(product: product, radius: 0, iconSize: 26, tinted: true);
+    }
     return LayoutBuilder(builder: (context, c) {
-      if (c.maxHeight >= c.maxWidth * 0.5) {
-        return ProductThumb(product: product, radius: 0, iconSize: 26, tinted: true);
-      }
-      // Inset and rounded like the thumbnails elsewhere, so it sits in the
-      // strip rather than looking pasted across it.
-      const gap = 6.0;
-      return ColoredBox(
-        color: CategoryTint.of(product.category).fill,
-        child: Center(
-          child: ProductThumb(
-              product: product, size: c.maxHeight - gap * 2, radius: 10, tinted: true),
-        ),
+      // Short till tiles keep a thinner margin so the photo stays as big as
+      // the strip allows.
+      final inset = c.maxHeight < c.maxWidth * 0.5 ? 6.0 : 8.0;
+      final side = (c.biggest.shortestSide - inset * 2).clamp(0.0, double.infinity);
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          _Backdrop(path: path, fallback: CategoryTint.of(product.category).fill),
+          // Photos are stored square, so this is the whole picture; one
+          // kept another shape (an old one, or a squaring that failed) is
+          // fitted inside rather than cropped.
+          Center(
+            child: ProductThumb(
+                product: product, size: side, radius: 10, tinted: true, fit: BoxFit.contain),
+          ),
+        ],
       );
     });
+  }
+}
+
+/// The photo smeared across the whole area: decoded at a few pixels and
+/// stretched, which blurs it for nothing — a real blur filter on every card
+/// would cost a budget phone frames while the grid scrolls.
+class _Backdrop extends StatelessWidget {
+  const _Backdrop({required this.path, required this.fallback});
+
+  final String path;
+  final Color fallback;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image(
+          image: ResizeImage(FileImage(File(path)), width: 8, height: 8),
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.medium,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => ColoredBox(color: fallback),
+        ),
+        // Washed out, so the sharp photo on top is what the eye lands on.
+        ColoredBox(color: AppColors.surface.withValues(alpha: 0.45)),
+      ],
+    );
   }
 }
