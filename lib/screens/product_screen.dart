@@ -1366,7 +1366,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
               if (ctx.mounted) Navigator.pop(ctx);
             },
             child: Container(
-            height: MediaQuery.of(ctx).size.height * 0.92,
+            // sizeOf, not of(): the keyboard changes the insets on every
+            // frame it slides, and of() rebuilt the whole form each time.
+            height: MediaQuery.sizeOf(ctx).height * 0.92,
             decoration: const BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -1654,16 +1656,18 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   ),
                 ),
                 // Pinned, and above the keyboard when it is up: the form is
-                // long, and Save used to be at the bottom of it.
-                Container(
+                // long, and Save used to be at the bottom of it. Its own
+                // Builder, so the keyboard sliding in moves only this bar
+                // rather than rebuilding the whole form every frame.
+                Builder(builder: (barCtx) => Container(
                   padding: EdgeInsets.fromLTRB(
                     AppSpace.sheetPad,
                     12,
                     AppSpace.sheetPad,
                     12 +
-                        (MediaQuery.viewInsetsOf(ctx).bottom > 0
-                            ? MediaQuery.viewInsetsOf(ctx).bottom
-                            : MediaQuery.paddingOf(ctx).bottom),
+                        (MediaQuery.viewInsetsOf(barCtx).bottom > 0
+                            ? MediaQuery.viewInsetsOf(barCtx).bottom
+                            : MediaQuery.paddingOf(barCtx).bottom),
                   ),
                   decoration: const BoxDecoration(
                     color: AppColors.surface,
@@ -1685,7 +1689,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           style: AppText.chip(color: Colors.white).copyWith(fontSize: 15)),
                     ),
                   ),
-                ),
+                )),
               ],
             ),
             ),
