@@ -1,8 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- allowBackup off: Android's Auto Backup would copy the store's data,
+         customers' names and phone numbers among it, into the owner's Google
+         account without the shopkeeper ever choosing to. The store's data
+         leaves the phone only through BasePoint's own backup, which they
+         send themselves. The privacy policy says so. -->
     <application
         android:label="BasePoint"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"
