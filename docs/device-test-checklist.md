@@ -291,9 +291,9 @@ Note how long it takes to load — it shows the time when done.
 
 ## 17. End of the day
 
-- [ ] More → Settings → Help → Error log: read what is there; tap an entry to see its detail
-- [ ] Share the log to yourself with the **Share the log** button under the introduction; the file opens and reads sensibly
-- [ ] **(new)** A repeated error reads "×4 · last 6:04 PM"
-- [ ] **(new)** The report's second line names the screen size, text size and language
+- [ ] More → Settings → Help → Error log: read what is there; tap an entry to see its detail.
+- [ ] Share the log to yourself with the **Share the log** button under the introduction; the file opens and reads sensibly.
+- [ ] **(new)** A repeated error reads "×4 · last 6:04 PM".
+- [ ] **(new)** The report's second line names the screen size, text size and language.
 - [ ] **(new)** Clear → **Share first** shares without clearing.
 - [ ] Anything on the log you did not notice happening? Note it next to the entry.
