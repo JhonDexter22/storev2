@@ -286,7 +286,7 @@ Note how long it takes to load — it shows the time when done.
 - [ ] Rotate the phone on Sell and Products
 - [ ] Leave the app mid-sale for an hour, come back: note whether the cart and cashier survived
 - [ ] Airplane mode from a fresh install: everything works, and text is in the app's own font (it is bundled now)
-- [ ] Low battery saver on: animations still fine
+- [ ] Low battery saver on: animations still fine.
 - [ ] **(new)** Set the phone's text size to the largest: Sell tiles, Home tiles and Closed days tiles shrink rather than clip
 
 ## 17. End of the day
