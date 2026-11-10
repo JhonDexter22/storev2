@@ -279,7 +279,7 @@ Note how long it takes to load — it shows the time when done.
 
 - [ ] Walk the main screens in Filipino; note any wording that sounds off at a counter
 - [ ] Nothing cut off or overflowing on the smallest phone you have
-- [ ] **(new)** Watch the longest new strings: the three-button Clear all data dialog, the Restock add-stock sheet, Closed days tiles ("Kulang · 2 araw"), and the setup screen after a restore
+- [ ] **(new)** Watch the longest new strings: the three-button Clear all data dialog, the Restock add-stock sheet, Closed days tiles ("Kulang · 2 araw"), and the setup screen after a restore.
 
 ## 16. Everyday phone things
 
