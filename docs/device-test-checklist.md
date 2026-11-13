@@ -247,7 +247,7 @@ Reports:
 
 - [ ] **(new)** Settings → Payment types → Add: the button reads "Enter a name" until you type; "gcash" says "already in the list" under the box and the sheet stays open; add Maya, remove it, **Undo** brings it back where it was
 
-- [ ] **(new)** More → Staff: the starting-PIN warning has a **Change PINs** button; rows say "still on the starting PIN"; **Add staff**; open Ronel → **Make manager** (manager PIN) → he can now authorise a close; Nena alone can't be made a cashier
+- [ ] **(new)** More → Staff: the starting-PIN warning has a **Change PINs** button; rows say "still on the starting PIN"; **Add staff**; open Ronel → **Make manager** (manager PIN) → he can now authorise a close; Nena alone can't be made a cashier.
 
 ## 13. Speed with a year of data (profile build)
 
